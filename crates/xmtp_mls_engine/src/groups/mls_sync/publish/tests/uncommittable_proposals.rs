@@ -28,28 +28,29 @@ async fn a_repeated_reference_counts_once() -> Result<(), Box<dyn std::error::Er
         .delete(owner)
         .tls_serialize_detached()?;
     let signer = &group.context.identity().installation_keys;
-    let (omitted, expected) = crate::state_tx::state_write(group.context.mls_storage(), |tx| {
-        tx.with_group(group.group_id, |mls, storage| {
-            let provider = XmtpOpenMlsProviderRef::new(storage);
-            let mut references = Vec::new();
-            for payload in [&insert, &delete] {
-                let (_, reference) = mls
-                    .propose_app_data_update(
-                        &provider,
-                        signer,
-                        ComponentId::USER_DISPLAY_NAME.as_u16(),
-                        AppDataUpdateOperation::Update(payload.clone().into()),
-                    )
-                    .map_err(GroupError::Proposal)?;
-                references.push(reference);
-            }
-            let repeat = mls.pending_proposals().next().cloned().unwrap();
-            mls.store_pending_proposal(storage, repeat)?;
-            let omitted = selection::omit_uncommittable_proposals(mls, storage)?;
-            Ok::<_, GroupError>(Continue((omitted, references)))
-        })
-    })?
-    .into_continued();
+    let (omitted, expected) =
+        xmtp_mls_core::state_tx::state_write(group.context.mls_storage(), |tx| {
+            tx.with_group(group.group_id, |mls, storage| {
+                let provider = XmtpOpenMlsProviderRef::new(storage);
+                let mut references = Vec::new();
+                for payload in [&insert, &delete] {
+                    let (_, reference) = mls
+                        .propose_app_data_update(
+                            &provider,
+                            signer,
+                            ComponentId::USER_DISPLAY_NAME.as_u16(),
+                            AppDataUpdateOperation::Update(payload.clone().into()),
+                        )
+                        .map_err(GroupError::Proposal)?;
+                    references.push(reference);
+                }
+                let repeat = mls.pending_proposals().next().cloned().unwrap();
+                mls.store_pending_proposal(storage, repeat)?;
+                let omitted = selection::omit_uncommittable_proposals(mls, storage)?;
+                Ok::<_, GroupError>(Continue((omitted, references)))
+            })
+        })?
+        .into_continued();
     assert!(omitted);
     let stored: Vec<_> = group.with_group_snapshot(|mls| {
         Ok(mls
@@ -93,7 +94,7 @@ async fn a_proposal_flood_does_not_block_commits(
     let name = |index: usize| format!("name {index}");
     let signer = &bo.context.identity().installation_keys;
     for start in (0..FLOOD).step_by(BATCH) {
-        let proposals = crate::state_tx::state_write(bo.context.mls_storage(), |tx| {
+        let proposals = xmtp_mls_core::state_tx::state_write(bo.context.mls_storage(), |tx| {
             tx.with_group(bo_group.group_id, |mls, storage| {
                 let provider = XmtpOpenMlsProviderRef::new(storage);
                 let proposals = (start..(start + BATCH).min(FLOOD))
@@ -115,7 +116,7 @@ async fn a_proposal_flood_does_not_block_commits(
         .into_continued();
         // Store the batch as receiving it does, in one transaction: a
         // network round trip per proposal outlasts the test timeout.
-        crate::state_tx::state_write(alix.context.mls_storage(), |tx| {
+        xmtp_mls_core::state_tx::state_write(alix.context.mls_storage(), |tx| {
             tx.with_group(group.group_id, |mls, storage| {
                 let provider = XmtpOpenMlsProviderRef::new(storage);
                 for proposal in &proposals {

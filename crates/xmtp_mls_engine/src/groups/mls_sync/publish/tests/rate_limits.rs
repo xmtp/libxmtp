@@ -42,7 +42,7 @@ async fn limited_group(
 ) -> MlsGroup<super::faults::FaultyContext> {
     let client = tester
         .with_api(api, None, |options| {
-            options.stream_policy = crate::core::policy::StreamPolicy {
+            options.stream_policy = xmtp_mls_core::policy::StreamPolicy {
                 barrier_timeout,
                 ..Default::default()
             }
@@ -266,7 +266,7 @@ fn published_but_unconfirmed_reports_the_longer_delay() {
             unresolved_welcomes: Vec::new(),
             inactive: false,
             cause: Some(BarrierCause::Receiver(std::sync::Arc::new(
-                IncomingError::Store(crate::mls_store::MlsStoreError::Api(refused)),
+                IncomingError::Store(xmtp_mls_core::mls_store::MlsStoreError::Api(refused)),
             ))),
         }],
     };

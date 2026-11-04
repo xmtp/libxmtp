@@ -2,19 +2,19 @@ use crate::groups::send_message_opts::SendMessageOpts;
 use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer};
 use std::sync::Arc;
 
-use crate::context::CoreContext;
 use crate::groups::GroupError;
 use crate::groups::MlsGroup;
 use crate::groups::group_permissions::PolicySet;
 use crate::groups::intents::PostCommitAction;
 use crate::groups::mls_sync::decode_staged_commit;
 use crate::groups::mls_sync::update_group_membership::apply_update_group_membership_intent;
-use crate::identity::create_credential;
 use xmtp_db::XmtpOpenMlsProviderRef;
 use xmtp_db::group::ConversationType;
 use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_db::prelude::QueryRefreshState;
 use xmtp_db::refresh_state::EntityKind;
+use xmtp_mls_core::context::CoreContext;
+use xmtp_mls_core::identity::create_credential;
 use xmtp_mls_group_state::group::GroupMetadataOptions;
 
 /// Every key package is last resort: two Welcomes addressed to the one key
@@ -91,7 +91,7 @@ async fn ordinary_welcome_rejects_peer_admin_combinator() {
         None,
     )
     .await?;
-    let action = crate::state_tx::state_write(group.context.mls_storage(), |tx| {
+    let action = xmtp_mls_core::state_tx::state_write(group.context.mls_storage(), |tx| {
         tx.with_group(group.group_id, |mls_group, storage| {
             let provider = XmtpOpenMlsProviderRef::new(storage);
             let signer = &group.context.identity().installation_keys;
@@ -261,7 +261,7 @@ async fn test_spoofed_inbox_id() {
         None,
     )
     .await?;
-    let send_welcome_action = crate::state_tx::state_write(context.mls_storage(), |tx| {
+    let send_welcome_action = xmtp_mls_core::state_tx::state_write(context.mls_storage(), |tx| {
         tx.with_group(group.group_id, |openmls_group, storage| {
             let publish_intent_data = apply_update_group_membership_intent(
                 storage,

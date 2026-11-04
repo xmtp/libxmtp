@@ -1,22 +1,16 @@
 //! XMTP Welcome Processing
 //! Processes a new welcome from the network
 
-use crate::core::events::{InternalEvent, dm_event_context, emit_root_key_changed};
-use crate::core::sync_tasks::schedule_newcomer_adds;
 use crate::groups::MetadataPermissionsError;
 use crate::groups::is_own_sync_group;
 use crate::groups::mls_ext::CommitLogStorer;
 use crate::groups::mls_ext::ResolvedWelcome;
 use crate::groups::oneshot::Oneshot;
 use crate::groups::welcomes::WelcomeMembership;
-use crate::identity_updates::{
-    IdentityDependencyError, IdentityRequirement, InstallationDiffError, require_association_state,
-};
-use crate::state_tx::{state_write, state_write_with_events};
 use crate::{
-    context::XmtpSharedContext,
     groups::{
-        GroupError, MlsGroup, ValidateGroupMembership, mls_ext::DecryptedWelcome, validate_dm_group,
+        GroupError, MlsGroup, ValidateGroupMembership, context::XmtpSharedContext,
+        mls_ext::DecryptedWelcome, validate_dm_group,
     },
     intents::ProcessIntentError,
 };
@@ -41,9 +35,15 @@ use xmtp_events::{
     EventWriter, JoinOrigin,
 };
 use xmtp_id::associations::MemberIdentifier;
+use xmtp_mls_core::events::{InternalEvent, dm_event_context, emit_root_key_changed};
+use xmtp_mls_core::state_tx::{state_write, state_write_with_events};
+use xmtp_mls_core::sync_tasks::schedule_newcomer_adds;
 use xmtp_mls_group_state::app_data::group_root::check_group_root;
 use xmtp_mls_group_state::group_metadata::extract_group_metadata;
 use xmtp_mls_group_state::libxmtp_version::LibXMTPVersion;
+use xmtp_mls_identity::identity_updates::{
+    IdentityDependencyError, IdentityRequirement, InstallationDiffError, require_association_state,
+};
 
 use xmtp_mls_group_state::app_data::component_source::extract_group_mutable_metadata_capability_aware;
 use xmtp_proto::types::Cursor;
@@ -105,8 +105,8 @@ pub(crate) fn terminal_welcome_error(error: &GroupError) -> bool {
             | GroupError::TlsError(_)
             | GroupError::CredentialError(_)
             | GroupError::Identity(
-                crate::identity::IdentityError::Decode(_)
-                    | crate::identity::IdentityError::BasicCredential(_)
+                xmtp_mls_core::identity::IdentityError::Decode(_)
+                    | xmtp_mls_core::identity::IdentityError::BasicCredential(_)
             )
             | GroupError::ConversionError(_)
             | GroupError::UnwrapWelcome(_)
@@ -316,7 +316,9 @@ where
                         // Rotate the key package this Welcome used only once it is
                         // installed, in the same transaction. Receipt, a hold, or a
                         // rejection never queues rotation.
-                        crate::worker::key_package_maintenance::queue_key_rotation_in(&storage)?;
+                        xmtp_mls_identity::key_package_maintenance::queue_key_rotation_in(
+                            &storage,
+                        )?;
                         event_buffer.emit(None, Some(InternalEvent::TaskScheduled));
                         self.context.task_channels().mark_notification_changed();
                         Ok(Continue(CommitResult::Ok(group)))

@@ -6,14 +6,12 @@ use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer, En
 // verifies: PROC-055
 #[xmtp_common::test(unwrap_try = true)]
 async fn far_forward_application_message_is_rejected_and_later_message_arrives() {
-    use crate::{
-        groups::mls_sync::{GroupHeadOutcome, GroupMessageProcessingError},
-        state_tx::state_write,
-    };
+    use crate::groups::mls_sync::{GroupHeadOutcome, GroupMessageProcessingError};
     use xmtp_db::{
         TransactionOutcome::Continue,
         incoming_envelope::{QueryIncomingEnvelope, StreamTopic},
     };
+    use xmtp_mls_core::state_tx::state_write;
     use xmtp_proto::types::{OrderedEnvelopeBatch, Topic};
     use xmtp_proto::xmtp::mls::message_contents::{
         ContentTypeId, EncodedContent,
@@ -158,12 +156,13 @@ async fn far_forward_application_message_is_rejected_and_later_message_arrives()
 // verifies: PROC-055
 #[xmtp_common::test(unwrap_try = true)]
 async fn far_forward_proposal_stays_held() {
-    use crate::{groups::mls_sync::GroupHeadOutcome, state_tx::state_write};
+    use crate::groups::mls_sync::GroupHeadOutcome;
     use openmls::prelude::LeafNodeParameters;
     use xmtp_db::{
         TransactionOutcome::Continue,
         incoming_envelope::{QueryIncomingEnvelope, StreamTopic},
     };
+    use xmtp_mls_core::state_tx::state_write;
     use xmtp_proto::types::{OrderedEnvelopeBatch, Topic};
 
     const PROPOSAL_COUNT: u32 = 1_002;
@@ -590,9 +589,9 @@ async fn test_when_processing_message_return_future_wrong_epoch_group_marked_pro
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn own_message_without_intent_skips_and_increments_cursor() {
-    use crate::state_tx::state_write;
     use xmtp_db::TransactionOutcome::Continue;
     use xmtp_db::incoming_envelope::{QueryIncomingEnvelope, StreamTopic};
+    use xmtp_mls_core::state_tx::state_write;
 
     let alice = EngineTestPeer::new().await;
     let group = alice.create_group(None, None)?;
@@ -659,7 +658,7 @@ async fn prepared_commit_keeps_keys_without_advancing_epoch() {
     let start_hash = storage.hash_all()?;
     let start_epoch = group.epoch().await?;
     let installation_keys = &group.context.identity().installation_keys;
-    crate::state_tx::state_write(storage, |tx| {
+    xmtp_mls_core::state_tx::state_write(storage, |tx| {
         tx.with_group(group.group_id, |mls_group, storage| {
             let (_, staged_commit, epoch) = crate::groups::mls_sync::generate_prepared_commit(
                 storage,

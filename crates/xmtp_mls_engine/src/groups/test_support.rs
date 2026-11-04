@@ -4,18 +4,18 @@
 //! internals that tests outside the engine call.
 #![allow(clippy::unwrap_used)]
 
-use crate::context::{CoreContext, test_support::MockContext};
-use crate::core::events::InternalEvent;
-use crate::core::policy::StreamPolicy;
 use crate::groups::context::{EngineFeatures, XmtpSharedContext};
 use crate::groups::mls_sync::GroupMessageProcessingError;
 use crate::groups::welcome_sync::WelcomeService;
-#[cfg(all(test, not(target_arch = "wasm32")))]
-use crate::identity_updates::IdentityUpdates;
 #[cfg(test)]
 use xmtp_db::incoming_envelope::{NetworkEntityKind, StreamTopic};
 #[cfg(all(test, not(target_arch = "wasm32")))]
 use xmtp_id::associations::AssociationState;
+use xmtp_mls_core::context::{CoreContext, test_support::MockContext};
+use xmtp_mls_core::events::InternalEvent;
+use xmtp_mls_core::policy::StreamPolicy;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+use xmtp_mls_identity::identity_updates::IdentityUpdates;
 pub mod crafted_welcome;
 pub mod group_updates;
 pub mod message_rows;
@@ -26,8 +26,6 @@ pub mod welcome_pointers;
 use crate::groups::{
     GroupError, MlsGroup, group_permissions::PolicySet, send_message_opts::SendMessageOpts,
 };
-use crate::identity_lifecycle::test_support::{PeerApi, PeerContext, PeerFeatures, TestPeer};
-use crate::identity_updates::{IdentityFeatures, IdentityResolutionRegistry};
 use crate::subscriptions::incoming::{IncomingRuntime, streaming_factory};
 use std::sync::Arc;
 #[cfg(test)]
@@ -46,6 +44,10 @@ use xmtp_mls_group_state::{
     group::{DMMetadataOptions, GroupMetadataOptions},
     group_metadata::DmMembers,
 };
+use xmtp_mls_identity::identity_lifecycle::test_support::{
+    PeerApi, PeerContext, PeerFeatures, TestPeer,
+};
+use xmtp_mls_identity::identity_updates::{IdentityFeatures, IdentityResolutionRegistry};
 use xmtp_proto::types::{Cursor, GroupId, GroupMessage, Topic};
 
 /// The engine's features: the incoming runtime and identity resolution.
@@ -684,9 +686,13 @@ pub(crate) async fn get_association_state(
     inbox_id: &str,
 ) -> AssociationState {
     let conn = peer.context.db();
-    crate::identity_updates::load_identity_updates(peer.context.api(), &conn, &[inbox_id])
-        .await
-        .unwrap();
+    xmtp_mls_identity::identity_updates::load_identity_updates(
+        peer.context.api(),
+        &conn,
+        &[inbox_id],
+    )
+    .await
+    .unwrap();
 
     IdentityUpdates::new(&peer.context)
         .get_association_state(&conn, inbox_id, None)

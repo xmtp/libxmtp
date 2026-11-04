@@ -1,4 +1,3 @@
-use crate::context::CoreContext;
 use crate::groups::test_support::MlsGroupExt;
 use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 use crate::groups::{MlsGroup, group_permissions::PolicySet, send_message_opts::SendMessageOpts};
@@ -8,6 +7,7 @@ use xmtp_db::{
     group::{ConversationType, GroupMembershipState},
     prelude::QueryGroupMessage,
 };
+use xmtp_mls_core::context::CoreContext;
 use xmtp_mls_group_state::group::GroupMetadataOptions;
 
 // verifies: ARCH-014
@@ -82,7 +82,6 @@ async fn failed_intent_insert_rolls_back_optimistic_message() {
 /// the work only after commit. Receipt queues no rotation.
 #[xmtp_common::test(unwrap_try = true)]
 async fn welcome_install_queues_rotation_atomically() {
-    use crate::core::events::InternalEvent;
     use crate::groups::{
         InitialMembershipValidator,
         welcome_sync::{WelcomeService, pending_welcome_for_test},
@@ -90,6 +89,7 @@ async fn welcome_install_queues_rotation_atomically() {
     use xmtp_common::time::now_ns;
     use xmtp_configuration::KEY_PACKAGE_QUEUE_INTERVAL_NS;
     use xmtp_db::prelude::{QueryGroup, QueryIdentity, QueryIncomingEnvelope};
+    use xmtp_mls_core::events::InternalEvent;
 
     let alix = EngineTestPeer::new().await;
     let bo = EngineTestPeer::new().await;

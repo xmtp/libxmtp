@@ -5,7 +5,7 @@ mod status;
 pub mod stream_api;
 use super::connection_state::ConnectionStates;
 
-use crate::context::XmtpSharedContext;
+use crate::groups::context::XmtpSharedContext;
 use controller::Controller;
 use parking_lot::Mutex;
 pub use status::*;
@@ -90,7 +90,7 @@ impl RateLimitHold {
 /// The controller slot orders its final release with the next reader acquisition.
 #[derive(Default)]
 pub struct IncomingRuntime {
-    policy: crate::core::policy::StreamPolicy,
+    policy: xmtp_mls_core::policy::StreamPolicy,
     pub(crate) factory: Option<Arc<dyn SubscriptionFactory>>,
     #[cfg(any(test, feature = "test-utils"))]
     pub(crate) original_factory: Option<Arc<dyn SubscriptionFactory>>,
@@ -105,7 +105,7 @@ impl IncomingRuntime {
     /// A runtime with `policy` whose controllers open subscriptions through
     /// `factory`; `None` gives a client that never receives.
     pub fn new(
-        policy: crate::core::policy::StreamPolicy,
+        policy: xmtp_mls_core::policy::StreamPolicy,
         factory: Option<Arc<dyn SubscriptionFactory>>,
     ) -> Self {
         Self {
@@ -140,7 +140,7 @@ impl IncomingRuntime {
     }
 
     /// The stream policy the runtime was built with.
-    pub fn policy(&self) -> &crate::core::policy::StreamPolicy {
+    pub fn policy(&self) -> &xmtp_mls_core::policy::StreamPolicy {
         &self.policy
     }
 

@@ -1,18 +1,18 @@
 //! One synchronous attempt at the durable group head.
 
 use super::*;
-use crate::{
-    core::events::{InternalEvent, emit_root_key_changed},
-    core::sync_tasks::schedule_newcomer_adds,
-    identity_updates::{IdentityDependencyError, IdentityRequirement},
-    state_tx::{state_write, state_write_with_events},
-};
 use std::collections::BTreeSet;
 use xmtp_api_backend::envelope::decode_group_message;
 use xmtp_db::incoming_envelope::{
     IncomingRetry, QueryIncomingEnvelope, StoredIncomingEnvelope, StreamTopic,
 };
 use xmtp_events::EventWriter;
+use xmtp_mls_core::{
+    events::{InternalEvent, emit_root_key_changed},
+    state_tx::{state_write, state_write_with_events},
+    sync_tasks::schedule_newcomer_adds,
+};
+use xmtp_mls_identity::identity_updates::{IdentityDependencyError, IdentityRequirement};
 use xmtp_mls_validation::commit::CommitRuleError;
 use xmtp_proto::backend_v1::ServerEnvelope;
 
@@ -240,7 +240,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                             event_buffer.emit(
                                 None,
                                 Some(
-                                    crate::core::events::InternalEvent::NotificationSettingsChanged,
+                                    xmtp_mls_core::events::InternalEvent::NotificationSettingsChanged,
                                 ),
                             );
                         }

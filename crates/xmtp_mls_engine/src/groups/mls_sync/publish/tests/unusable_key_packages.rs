@@ -160,7 +160,7 @@ async fn served_package_of_another_installation_is_absent() {
     let group_id = alix.create_group(None, None)?.group_id;
     let group = faulty_group(&alix, &group_id, api).await;
 
-    let packages = crate::mls_store::MlsStore::new(group.context.clone())
+    let packages = xmtp_mls_core::mls_store::MlsStore::new(group.context.clone())
         .get_key_packages_for_installation_ids(vec![
             bo2.context.installation_id().to_vec(),
             bo.context.installation_id().to_vec(),
@@ -207,7 +207,7 @@ async fn rotation_settles_unconfirmed_packages_and_discards_refused_ones(#[case]
         api.lag_newest
             .store(lag, std::sync::atomic::Ordering::SeqCst);
         let context = faulty_group(&alix, &group_id, api.clone()).await.context;
-        let rotated = crate::identity_lifecycle::rotate_and_upload_key_package(
+        let rotated = xmtp_mls_identity::identity_lifecycle::rotate_and_upload_key_package(
             context.identity(),
             context.api(),
             context.mls_storage(),
@@ -224,7 +224,8 @@ async fn rotation_settles_unconfirmed_packages_and_discards_refused_ones(#[case]
             VerifiedKeyPackageV2::from_bytes(&crypto, &package.key_package_tls_serialized).unwrap();
         let provider = xmtp_db::XmtpOpenMlsProviderRef::new(context.mls_storage());
         hash_refs.push(
-            crate::identity::serialize_key_package_hash_ref(&verified.inner, &provider).unwrap(),
+            xmtp_mls_core::identity::serialize_key_package_hash_ref(&verified.inner, &provider)
+                .unwrap(),
         );
         lost.extend(
             api.lost
@@ -235,7 +236,7 @@ async fn rotation_settles_unconfirmed_packages_and_discards_refused_ones(#[case]
     }
     let db = alix.context.db();
     let bundle = |hash_ref: &Vec<u8>| -> Option<openmls::prelude::KeyPackageBundle> {
-        let hash_ref = crate::identity::deserialize_key_package_hash_ref(hash_ref).unwrap();
+        let hash_ref = xmtp_mls_core::identity::deserialize_key_package_hash_ref(hash_ref).unwrap();
         alix.context.mls_storage().key_package(&hash_ref).unwrap()
     };
     let [a, b, c] = &hash_refs[..] else {

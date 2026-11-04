@@ -1,4 +1,4 @@
-use crate::context::XmtpSharedContext;
+use crate::groups::context::XmtpSharedContext;
 use crate::groups::test_support::{
     EnginePeer, EngineSuiteOps, EngineTestGroup, EngineTestPeer, EngineTestPeerOps,
 };

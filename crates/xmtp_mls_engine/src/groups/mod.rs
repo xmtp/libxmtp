@@ -9,9 +9,9 @@ mod messages;
 mod metadata;
 mod metadata_fields;
 mod state;
-pub use crate::core::change_callbacks;
 pub use builders::*;
 pub use state::{ConversationStateSnapshot, GroupMetadataSnapshot};
+pub use xmtp_mls_core::change_callbacks;
 pub mod commit_log;
 pub mod context;
 pub mod deletion;
@@ -54,21 +54,21 @@ use self::{
         UpdateAdminListIntentData, UpdateMetadataIntentData, UpdatePermissionIntentData,
     },
 };
-use crate::context::XmtpSharedContext;
-#[cfg(any(test, feature = "test-hooks"))]
-use crate::core::commit_lock::GroupCommitLock;
+use crate::groups::context::XmtpSharedContext;
 use crate::groups::message_id::{calculate_message_id, decode_message_reference};
 use crate::groups::send_message_opts::SendMessageOpts;
 use crate::groups::{
     intents::{QueueIntent, ReaddInstallationsIntentData},
     mls_ext::CommitLogStorer,
 };
-use crate::identity::parse_credential;
 pub use crate::intents::ProcessIntentError;
-use crate::state_tx::state_write;
 pub use error::*;
 use intents::SendMessageIntentData;
 pub use intents::UpdateGroupMembershipResult;
+#[cfg(any(test, feature = "test-hooks"))]
+use xmtp_mls_core::commit_lock::GroupCommitLock;
+use xmtp_mls_core::identity::parse_credential;
+use xmtp_mls_core::state_tx::state_write;
 // An error type that other errors wrap transparently, so a caller that walks
 // an error chain can open it.
 pub use mls_sync::GroupMessageProcessingError;

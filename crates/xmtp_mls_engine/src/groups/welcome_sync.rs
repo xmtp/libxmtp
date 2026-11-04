@@ -6,21 +6,15 @@
 //! `WelcomeHeadOutcome` tells the coordinator which work remains; `GroupSyncSummary`
 //! reports completed group synchronization.
 
-use crate::context::XmtpSharedContext;
 use crate::groups::InitialMembershipValidator;
 #[cfg(test)]
 use crate::groups::ValidateGroupMembership;
 use crate::groups::XmtpWelcome;
+use crate::groups::context::XmtpSharedContext;
 use crate::groups::mls_ext::ResolvedWelcome;
 use crate::groups::{GroupError, MlsGroup};
-use crate::identity_updates::{
-    IdentityDependencyError, IdentityRequirement, InstallationDiffError,
-    resolve_identity_requirements,
-};
 #[cfg(any(test, feature = "test-utils"))]
 use crate::intents::ProcessIntentError;
-#[cfg(any(test, feature = "test-utils"))]
-use crate::mls_store::MlsStore;
 use futures::stream::{self, StreamExt};
 use prost::Message;
 use std::collections::{BTreeSet, HashSet};
@@ -40,6 +34,12 @@ use xmtp_db::{
 };
 #[cfg(test)]
 use xmtp_macro::log_event;
+#[cfg(any(test, feature = "test-utils"))]
+use xmtp_mls_core::mls_store::MlsStore;
+use xmtp_mls_identity::identity_updates::{
+    IdentityDependencyError, IdentityRequirement, InstallationDiffError,
+    resolve_identity_requirements,
+};
 use xmtp_proto::types::Topic;
 use xmtp_proto::types::{Cursor, GroupId};
 
@@ -228,7 +228,7 @@ where
                 Ok(WelcomeOutcome::Processed(mls_group))
             }
             Err(err) => {
-                use crate::DuplicateItem::*;
+                use xmtp_db::DuplicateItem::*;
                 use xmtp_db::StorageError::*;
 
                 if matches!(err, GroupError::Storage(Duplicate(WelcomeId(_)))) {
@@ -558,7 +558,7 @@ where
         pending: &StoredIncomingEnvelope,
         code: &'static str,
     ) -> Result<(), GroupError> {
-        crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+        xmtp_mls_core::state_tx::state_write(self.context.mls_storage(), |tx| {
             let storage = tx.storage();
             let db = storage.db();
             let cursor = Cursor(pending.sequence_id as u64);
@@ -593,7 +593,7 @@ where
             Rejected,
         }
         let now = xmtp_common::time::now_ns();
-        let expiry = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+        let expiry = xmtp_mls_core::state_tx::state_write(self.context.mls_storage(), |tx| {
             let storage = tx.storage();
             let db = storage.db();
             let Some(pending) = db.pending_envelope(&self.topic(), cursor)? else {
@@ -1170,7 +1170,7 @@ pub(crate) async fn held_readd<P: crate::groups::test_support::EnginePeer>(
     alix: &P,
     bo: &P,
 ) -> HeldReadd<P::Context> {
-    use crate::context::CoreContext;
+    use xmtp_mls_core::context::CoreContext;
     let alix_group = alix.create_group(None, None).unwrap();
     alix_group
         .add_members(&[bo.context().inbox_id()])
@@ -1252,12 +1252,12 @@ mod tests {
         #[case] failure: UnreadableWelcome,
         #[values(false, true)] previously_blocked: bool,
     ) {
-        use crate::worker::key_package_maintenance::sweep_expired;
         use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
         use openmls_traits::storage::StorageProvider;
         use xmtp_db::ConnectionExt;
         use xmtp_db::incoming_envelope::{IncomingLimits, PendingBudget};
         use xmtp_db::schema::{incoming_envelopes, key_package_history};
+        use xmtp_mls_identity::key_package_maintenance::sweep_expired;
         use xmtp_proto::backend_v1::{client_envelope::Payload, welcome_message::Version};
 
         let alix = EngineTestPeer::new().await;
@@ -1361,8 +1361,10 @@ mod tests {
             .unwrap()
             .pop()
             .unwrap();
-        let hash = crate::identity::deserialize_key_package_hash_ref(&history.key_package_hash_ref)
-            .unwrap();
+        let hash = xmtp_mls_core::identity::deserialize_key_package_hash_ref(
+            &history.key_package_hash_ref,
+        )
+        .unwrap();
         db.raw_query(|conn| {
             diesel::update(key_package_history::table.find(history.id))
                 .set(key_package_history::delete_at_ns.eq(0))
@@ -1468,11 +1470,11 @@ mod tests {
     // verifies: JOIN-092
     #[xmtp_common::test(unwrap_try = true)]
     async fn group_prefix_wait_expires_after_three_days() {
-        use crate::worker::key_package_maintenance::sweep_expired;
         use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
         use openmls_traits::storage::StorageProvider;
         use xmtp_db::ConnectionExt;
         use xmtp_db::schema::{incoming_envelopes, key_package_history};
+        use xmtp_mls_identity::key_package_maintenance::sweep_expired;
 
         let alix = EngineTestPeer::new().await;
         let bo = EngineTestPeer::new().await;
@@ -1518,8 +1520,9 @@ mod tests {
             .find_key_package_history_entries_before_id(i32::MAX)?
             .pop()
             .unwrap();
-        let hash =
-            crate::identity::deserialize_key_package_hash_ref(&history.key_package_hash_ref)?;
+        let hash = xmtp_mls_core::identity::deserialize_key_package_hash_ref(
+            &history.key_package_hash_ref,
+        )?;
         db.raw_query(|conn| {
             diesel::update(
                 key_package_history::table.filter(key_package_history::id.eq(history.id)),
@@ -1895,9 +1898,10 @@ mod tests {
                 .unwrap()
                 .pop()
                 .unwrap();
-            let hash_ref =
-                crate::identity::deserialize_key_package_hash_ref(&history.key_package_hash_ref)
-                    .unwrap();
+            let hash_ref = xmtp_mls_core::identity::deserialize_key_package_hash_ref(
+                &history.key_package_hash_ref,
+            )
+            .unwrap();
             let storage = bo.context.mls_storage();
             let bundle: openmls::prelude::KeyPackageBundle =
                 storage.key_package(&hash_ref).unwrap().unwrap();

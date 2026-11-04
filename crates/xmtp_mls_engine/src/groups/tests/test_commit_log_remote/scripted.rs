@@ -3,16 +3,16 @@
 //! commit-log ids, can refuse group-message publishes with a rate limit, and
 //! answers reads of chosen commit-log topics from a script. It records the
 //! commit-log ids and topics of every call.
-use crate::context::CoreContext;
-use crate::core::policy::StreamPolicy;
 use crate::groups::test_support::{EngineTestFeatures, EngineTestPeer};
-use crate::identity_lifecycle::test_support::{PeerFeatures, TestPeer};
 use parking_lot::Mutex;
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
 };
 use xmtp_api::ApiClientWrapper;
+use xmtp_mls_core::context::CoreContext;
+use xmtp_mls_core::policy::StreamPolicy;
+use xmtp_mls_identity::identity_lifecycle::test_support::{PeerFeatures, TestPeer};
 use xmtp_proto::{
     api::ApiClientError,
     api_client::XmtpBackendClient,
@@ -77,7 +77,7 @@ impl Script {
 
 #[derive(Clone)]
 pub(super) struct ScriptedApi {
-    inner: crate::identity_lifecycle::test_support::PeerApi,
+    inner: xmtp_mls_identity::identity_lifecycle::test_support::PeerApi,
     script: Arc<Mutex<Script>>,
 }
 

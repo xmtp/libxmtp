@@ -1,8 +1,7 @@
 //! Who may delete a message, how a deletion is recorded and applied, and how
 //! an unsent own message is cancelled. Every deletion rule lives here.
 
-use crate::context::XmtpSharedContext;
-use crate::core::events::{InternalEvent, emit_deleted_messages};
+use crate::groups::context::XmtpSharedContext;
 use crate::groups::{DeleteMessageError, GroupError, MlsGroup};
 use openmls::group::MlsGroup as OpenMlsGroup;
 use std::collections::HashMap;
@@ -13,6 +12,7 @@ use xmtp_db::message_deletion::StoredMessageDeletion;
 use xmtp_db::prelude::*;
 use xmtp_db::{DbQuery, TransactionOutcome, XmtpMlsStorageProvider};
 use xmtp_events::{ClientEvent, DeletionCause, EventContext, EventWriter};
+use xmtp_mls_core::events::{InternalEvent, emit_deleted_messages};
 use xmtp_proto::types::GroupId;
 use zeroize::Zeroize;
 
@@ -299,7 +299,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
     /// deletion.
     // implements: SEND-026
     pub(crate) fn cancel_unsent_message(&self, id: &[u8]) -> Result<bool, GroupError> {
-        crate::state_tx::state_write_with_events(
+        xmtp_mls_core::state_tx::state_write_with_events(
             self.context.mls_storage(),
             self.context.events(),
             |tx, events| {

@@ -30,7 +30,7 @@ async fn own_installation_group(client: &EngineTestPeer) -> (Vec<Vec<u8>>, Vec<V
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::test(flavor = "multi_thread")]
 pub async fn revoke_installation_with_malformed_keypackage() {
-    use crate::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage;
+    use xmtp_mls_identity::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage;
 
     let client1 = EngineTestPeer::new_with(|o| o.triggers = true).await;
     let wallet = client1.owner.clone();
@@ -69,7 +69,7 @@ pub async fn revoke_installation_with_malformed_keypackage() {
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::test(flavor = "multi_thread")]
 pub async fn revoke_good_installation_with_other_malformed_keypackage() {
-    use crate::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage;
+    use xmtp_mls_identity::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage;
 
     let client1 = EngineTestPeer::new_with(|o| o.triggers = true).await;
     let wallet = client1.owner.clone();

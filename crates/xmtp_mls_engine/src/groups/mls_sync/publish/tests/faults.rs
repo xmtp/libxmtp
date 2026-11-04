@@ -2,15 +2,15 @@
 //! answers `QueryNewest` from a lagged copy, or serves chosen key packages.
 
 use super::*;
-use crate::context::CoreContext;
-use crate::core::policy::StreamPolicy;
 use crate::groups::test_support::{EngineTestFeatures, EngineTestPeer};
-use crate::identity_lifecycle::test_support::{PeerContext, PeerFeatures, TestPeer};
 use parking_lot::Mutex;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use xmtp_api::ApiClientWrapper;
+use xmtp_mls_core::context::CoreContext;
+use xmtp_mls_core::policy::StreamPolicy;
+use xmtp_mls_identity::identity_lifecycle::test_support::{PeerContext, PeerFeatures, TestPeer};
 use xmtp_proto::types::{Topic, TopicKind};
 use xmtp_proto::{api::ApiClientError, api_client::XmtpBackendClient, backend_v1 as wire};
 
@@ -45,7 +45,7 @@ pub(super) enum Fault {
 /// an envelope `intercepts` selects takes the next queued fault, one at a time.
 #[derive(Clone)]
 pub(super) struct FaultyApi {
-    inner: crate::identity_lifecycle::test_support::PeerApi,
+    inner: xmtp_mls_identity::identity_lifecycle::test_support::PeerApi,
     intercepts: fn(&Payload) -> bool,
     faults: Arc<Mutex<VecDeque<Fault>>>,
     /// Every intercepted request, in the order sent.

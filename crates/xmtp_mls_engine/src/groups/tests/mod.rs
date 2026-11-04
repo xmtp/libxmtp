@@ -56,8 +56,7 @@ use xmtp_id::InboxOwner;
 use xmtp_proto::types::{Cursor, Topic};
 
 use super::group_permissions::{MembershipPolicies, PolicySet};
-use crate::context::XmtpSharedContext;
-use crate::core::version::VersionInfo;
+use crate::groups::context::XmtpSharedContext;
 use crate::groups::intents::QueueIntent;
 use crate::groups::{
     DeliveryStatus, GroupError, GroupMetadataOptions, PreconfiguredPolicies, UpdateAdminListType,
@@ -89,6 +88,7 @@ use xmtp_db::{
 };
 use xmtp_id::associations::Identifier;
 use xmtp_id::associations::test_utils::add_wallet_signature;
+use xmtp_mls_core::version::VersionInfo;
 use xmtp_mls_group_state::group_mutable_metadata::{MessageDisappearingSettings, MetadataField};
 use xmtp_proto::xmtp::mls::message_contents::{EncodedContent, PlaintextEnvelope};
 
@@ -165,7 +165,7 @@ pub(super) async fn force_add_member(
     use openmls::prelude::tls_codec::Serialize;
     let new_member_provider = new_member_client.context.mls_provider();
 
-    let key_package_result = crate::identity_lifecycle::new_key_package(
+    let key_package_result = xmtp_mls_identity::identity_lifecycle::new_key_package(
         new_member_client.identity(),
         &new_member_provider,
         CREATE_PQ_KEY_PACKAGE_EXTENSION,
@@ -399,7 +399,7 @@ async fn test_validate_dm_group() {
             &config,
             CredentialWithKey {
                 credential: leaf_inbox
-                    .map(|inbox| crate::identity::create_credential(inbox).unwrap())
+                    .map(|inbox| xmtp_mls_core::identity::create_credential(inbox).unwrap())
                     .unwrap_or_else(|| identity.credential()),
                 signature_key: identity.installation_keys.public_slice().into(),
             },

@@ -96,7 +96,7 @@ fn add_scope<C: XmtpSharedContext + 'static>(
 }
 
 fn context() -> MockEngineContext {
-    crate::context::test_support::mock_context()
+    xmtp_mls_core::context::test_support::mock_context()
 }
 
 fn add_barrier_scope<C: XmtpSharedContext + 'static>(
@@ -481,7 +481,7 @@ fn meta(topic: &Topic, sequence_id: u64) -> wire::EnvelopeMeta {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn stale_dependency_results_cannot_change_new_heads_or_requirements() {
-    use crate::identity_updates::IdentityDependencyError;
+    use xmtp_mls_identity::identity_updates::IdentityDependencyError;
 
     let alix = EngineTestPeer::new().await;
     for topic in [
@@ -598,7 +598,7 @@ async fn passive_prefixes_do_not_limit_shared_identity_requests() {
         result,
         DependencyResult::Identity(
             _,
-            Err(crate::identity_updates::IdentityDependencyError::InvalidSequence(0))
+            Err(xmtp_mls_identity::identity_updates::IdentityDependencyError::InvalidSequence(0))
         )
     ));
     assert_eq!(
@@ -1643,7 +1643,7 @@ async fn a_commit_fetches_missing_proofs_for_added_inboxes_in_one_request() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_welcome_failure_keeps_independent_pending_parents_runnable() {
-    use crate::identity_updates::IdentityDependencyError;
+    use xmtp_mls_identity::identity_updates::IdentityDependencyError;
 
     let alix = EngineTestPeer::new().await;
     let mut controller = controller(alix.context.clone());
@@ -1737,7 +1737,7 @@ fn permanent_source_and_topic_errors_stop_automatic_receipt() {
     controller.read_queue.push_back(topic.clone());
     controller.receive_error(
         topic.clone(),
-        IncomingError::Store(crate::mls_store::MlsStoreError::Api(
+        IncomingError::Store(xmtp_mls_core::mls_store::MlsStoreError::Api(
             xmtp_api::ApiError::Envelope(xmtp_api_backend::envelope::EnvelopeError::Capacity),
         )),
     );
@@ -1807,7 +1807,7 @@ fn a_capacity_pause_clears_a_permanent_backoff() {
 
     controller.receive_error(
         topic.clone(),
-        IncomingError::Store(crate::mls_store::MlsStoreError::Api(
+        IncomingError::Store(xmtp_mls_core::mls_store::MlsStoreError::Api(
             xmtp_api::ApiError::InvalidResponse("cursor order"),
         )),
     );
@@ -1815,7 +1815,7 @@ fn a_capacity_pause_clears_a_permanent_backoff() {
 
     controller.receive_error(
         topic.clone(),
-        IncomingError::Store(crate::mls_store::MlsStoreError::Storage(
+        IncomingError::Store(xmtp_mls_core::mls_store::MlsStoreError::Storage(
             xmtp_db::StorageError::Stream(xmtp_db::stream_storage::StreamStorageError::Capacity {
                 scope: xmtp_db::stream_storage::BudgetScope::Kind,
             }),
@@ -1861,7 +1861,7 @@ fn a_permanent_receipt_error_retries_that_topic_with_backoff() {
     let topic = Topic::new_group_message(GroupId::generate());
     let other = Topic::new_group_message(GroupId::generate());
     let permanent = || {
-        IncomingError::Store(crate::mls_store::MlsStoreError::Api(
+        IncomingError::Store(xmtp_mls_core::mls_store::MlsStoreError::Api(
             xmtp_api::ApiError::InvalidResponse("cursor order"),
         ))
     };
@@ -1916,7 +1916,7 @@ async fn failed_queries_spend_only_the_interested_stream_budget() {
         .topics
         .insert(failing.clone());
     for _ in 0..10 {
-        let error = crate::mls_store::MlsStoreError::Api(xmtp_api::ApiError::Api(
+        let error = xmtp_mls_core::mls_store::MlsStoreError::Api(xmtp_api::ApiError::Api(
             NetworkError::new(xmtp_api_grpc::error::GrpcError::Status(
                 tonic::Status::unavailable("query offline"),
             )),
@@ -1953,9 +1953,10 @@ async fn a_rejected_query_is_not_repeated_from_the_same_cursor() {
         .topics
         .insert(topic.clone());
     controller.read_queue.push_back(topic.clone());
-    let error = crate::mls_store::MlsStoreError::Api(xmtp_api::ApiError::Api(NetworkError::new(
-        xmtp_api_grpc::error::GrpcError::Status(tonic::Status::out_of_range("minimum page")),
-    )));
+    let error =
+        xmtp_mls_core::mls_store::MlsStoreError::Api(xmtp_api::ApiError::Api(NetworkError::new(
+            xmtp_api_grpc::error::GrpcError::Status(tonic::Status::out_of_range("minimum page")),
+        )));
     controller.read_finished((
         topic.clone(),
         Some(Cursor(0)),
@@ -2074,9 +2075,10 @@ async fn a_rejected_fallback_query_does_not_end_a_covered_fresh_stream() {
         .topics
         .insert(topic.clone());
     controller.read_queue.push_back(topic.clone());
-    let error = crate::mls_store::MlsStoreError::Api(xmtp_api::ApiError::Api(NetworkError::new(
-        xmtp_api_grpc::error::GrpcError::Status(tonic::Status::unimplemented("query")),
-    )));
+    let error =
+        xmtp_mls_core::mls_store::MlsStoreError::Api(xmtp_api::ApiError::Api(NetworkError::new(
+            xmtp_api_grpc::error::GrpcError::Status(tonic::Status::unimplemented("query")),
+        )));
     controller.read_finished((
         topic.clone(),
         Some(Cursor(0)),
@@ -2119,9 +2121,10 @@ async fn a_changed_durable_cursor_clears_the_rejected_query_backoff() {
         .topics
         .insert(topic.clone());
     controller.read_queue.push_back(topic.clone());
-    let error = crate::mls_store::MlsStoreError::Api(xmtp_api::ApiError::Api(NetworkError::new(
-        xmtp_api_grpc::error::GrpcError::Status(tonic::Status::out_of_range("minimum page")),
-    )));
+    let error =
+        xmtp_mls_core::mls_store::MlsStoreError::Api(xmtp_api::ApiError::Api(NetworkError::new(
+            xmtp_api_grpc::error::GrpcError::Status(tonic::Status::out_of_range("minimum page")),
+        )));
     controller.read_finished((
         topic.clone(),
         Some(Cursor(0)),
@@ -3242,7 +3245,7 @@ async fn receipt_acknowledgement_follows_storage_and_never_uses_the_target() {
     // A retryable storage failure must also discard uncommitted transport progress.
     controller.receive_error(
         topic.clone(),
-        crate::mls_store::MlsStoreError::Storage(
+        xmtp_mls_core::mls_store::MlsStoreError::Storage(
             xmtp_db::stream_storage::StreamStorageError::HeadChanged.into(),
         )
         .into(),
@@ -3264,7 +3267,7 @@ async fn receipt_acknowledgement_follows_storage_and_never_uses_the_target() {
     assert!(!missing.is_retryable());
     controller.receive_error(
         topic.clone(),
-        crate::mls_store::MlsStoreError::Storage(missing.into()).into(),
+        xmtp_mls_core::mls_store::MlsStoreError::Storage(missing.into()).into(),
     );
     assert!(!controller.receipt(&topic).blocked());
     controller.refresh_statuses();
@@ -3353,7 +3356,7 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
     assert_eq!(controller.transport.permanent_failures, 0);
     assert!(controller.transport.subscription().is_none());
 
-    crate::state_tx::state_write(client.context.mls_storage(), |tx| {
+    xmtp_mls_core::state_tx::state_write(client.context.mls_storage(), |tx| {
         let storage = tx.storage();
         for sequence in [10, 20] {
             storage
@@ -4557,10 +4560,9 @@ async fn a_rate_limited_read_keeps_the_stream_and_waits_only_its_topic() {
     controller.read_finished((
         refused.clone(),
         Some(Cursor(0)),
-        ReadOutcome::Fetched(Err(crate::mls_store::MlsStoreError::Api(rate_limited_api(
-            "request",
-            Duration::from_secs(300),
-        )))),
+        ReadOutcome::Fetched(Err(xmtp_mls_core::mls_store::MlsStoreError::Api(
+            rate_limited_api("request", Duration::from_secs(300)),
+        ))),
     ));
     assert!(
         matches!(controller.transport.state, TransportState::Streaming(_)),
@@ -4605,10 +4607,9 @@ async fn a_rate_limited_topic_reads_again_after_its_delay() {
     controller.read_finished((
         refused.clone(),
         Some(Cursor(0)),
-        ReadOutcome::Fetched(Err(crate::mls_store::MlsStoreError::Api(rate_limited_api(
-            "request",
-            Duration::from_millis(50),
-        )))),
+        ReadOutcome::Fetched(Err(xmtp_mls_core::mls_store::MlsStoreError::Api(
+            rate_limited_api("request", Duration::from_millis(50)),
+        ))),
     ));
     xmtp_common::time::sleep(Duration::from_millis(60)).await;
     controller
@@ -4707,8 +4708,8 @@ async fn a_rate_limited_identity_proof_floors_only_its_head() {
     controller.dependency_finished(DependencyResult::Identity(
         requirements,
         Err(
-            crate::identity_updates::IdentityDependencyError::IdentityUpdate(Box::new(
-                crate::identity_updates::IdentityUpdateError::Api(rate_limited_api(
+            xmtp_mls_identity::identity_updates::IdentityDependencyError::IdentityUpdate(Box::new(
+                xmtp_mls_identity::identity_updates::IdentityUpdateError::Api(rate_limited_api(
                     "request", delay,
                 )),
             )),
@@ -4810,7 +4811,7 @@ fn a_rate_limited_read_keeps_the_topic_failure_backoff() {
     for _ in 0..3 {
         controller.receive_error(
             topic.clone(),
-            IncomingError::Store(crate::mls_store::MlsStoreError::Api(
+            IncomingError::Store(xmtp_mls_core::mls_store::MlsStoreError::Api(
                 xmtp_api::ApiError::InvalidResponse("cursor order"),
             )),
         );
@@ -4818,10 +4819,9 @@ fn a_rate_limited_read_keeps_the_topic_failure_backoff() {
     assert_eq!(controller.receipt(&topic).blocked_failures, 3);
     controller.receive_error(
         topic.clone(),
-        IncomingError::Store(crate::mls_store::MlsStoreError::Api(rate_limited_api(
-            "request",
-            Duration::from_secs(1),
-        ))),
+        IncomingError::Store(xmtp_mls_core::mls_store::MlsStoreError::Api(
+            rate_limited_api("request", Duration::from_secs(1)),
+        )),
     );
     assert_eq!(controller.receipt(&topic).blocked_failures, 3);
 }

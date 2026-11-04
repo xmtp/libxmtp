@@ -4,10 +4,6 @@
 use super::*;
 use crate::groups::app_data::Committable;
 use crate::groups::group_permissions::MembershipPolicy;
-use crate::identity_updates::{
-    IdentityDependencyError, InstallationDiffError, get_installation_diff_local,
-    required_leaf_removals,
-};
 use openmls::group::QueuedProposal;
 use openmls::messages::proposals::AppDataUpdateOperation;
 use tls_codec::{Deserialize, VLBytes};
@@ -18,6 +14,10 @@ use xmtp_mls_group_state::app_data::component_source::{
 use xmtp_mls_group_state::app_data::{
     component_id::ComponentId, components::tls_map_components::GroupMembershipComponent,
     typed::Component,
+};
+use xmtp_mls_identity::identity_updates::{
+    IdentityDependencyError, InstallationDiffError, get_installation_diff_local,
+    required_leaf_removals,
 };
 use xmtp_mls_tls_collections::tls_map::{TlsMapDelta, TlsMapError, TlsMapMutation};
 use xmtp_mls_validation::{

@@ -1,13 +1,11 @@
 //! Batched proposals, sequence ids, and app-data dictionary updates.
 
-use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
-use crate::{
-    context::CoreContext,
-    groups::intents::{
-        CommitPendingProposalsIntentData, ProposeMemberUpdateIntentData, QueueIntent,
-    },
+use crate::groups::intents::{
+    CommitPendingProposalsIntentData, ProposeMemberUpdateIntentData, QueueIntent,
 };
+use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 use xmtp_db::{group_intent::IntentKind, prelude::*};
+use xmtp_mls_core::context::CoreContext;
 use xmtp_mls_group_state::app_data::{
     component_id::ComponentId,
     components::metadata_attributes::{
@@ -49,28 +47,29 @@ async fn test_permission_updates_preserve_pending_fields() {
         let author = if other_member { bo_group } else { &alix_group };
         // Use the permission writer, then publish only its proposals. This models
         // a prepared permission intent whose commit has not reached the group.
-        let mut payloads = crate::state_tx::state_write(author.context.mls_storage(), |tx| {
-            tx.with_group(author.group_id, |group, storage| {
-                let publish = apply_update_permission_app_data_intent(
-                    storage,
-                    group,
-                    UpdatePermissionIntentData::new(
-                        PermissionUpdateType::AddMember,
-                        PermissionPolicyOption::Deny,
-                        None,
-                    ),
-                    &[],
-                    &author.context.identity().installation_keys,
-                    false,
-                )
-                .unwrap();
-                Ok::<_, GroupError>(xmtp_db::TransactionOutcome::Continue(
-                    publish.payloads_to_publish,
-                ))
+        let mut payloads =
+            xmtp_mls_core::state_tx::state_write(author.context.mls_storage(), |tx| {
+                tx.with_group(author.group_id, |group, storage| {
+                    let publish = apply_update_permission_app_data_intent(
+                        storage,
+                        group,
+                        UpdatePermissionIntentData::new(
+                            PermissionUpdateType::AddMember,
+                            PermissionPolicyOption::Deny,
+                            None,
+                        ),
+                        &[],
+                        &author.context.identity().installation_keys,
+                        false,
+                    )
+                    .unwrap();
+                    Ok::<_, GroupError>(xmtp_db::TransactionOutcome::Continue(
+                        publish.payloads_to_publish,
+                    ))
+                })
             })
-        })
-        .unwrap()
-        .into_continued();
+            .unwrap()
+            .into_continued();
         payloads
             .pop()
             .expect("permission writer must produce a commit");

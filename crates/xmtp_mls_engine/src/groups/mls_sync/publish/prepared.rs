@@ -353,7 +353,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         &self,
         intent_id: i32,
     ) -> Result<Option<Cursor>, GroupError> {
-        crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+        xmtp_mls_core::state_tx::state_write(self.context.mls_storage(), |tx| {
             let storage = tx.storage();
             let db = storage.db();
             let Some(intent) = Fetch::<StoredGroupIntent>::fetch(&db, &intent_id)? else {
@@ -410,7 +410,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         sent: &PreparedAttempt,
         batch: Unsettled,
     ) -> Result<(), GroupError> {
-        crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+        xmtp_mls_core::state_tx::state_write(self.context.mls_storage(), |tx| {
             let storage = tx.storage();
             let db = storage.db();
             let Some(intent) = Fetch::<StoredGroupIntent>::fetch(&db, &id)? else {
@@ -454,7 +454,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         if receipts.len() != sent_attempt.envelopes.len() {
             return Err(xmtp_api::ApiError::InvalidResponse("publish metadata count").into());
         }
-        crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+        xmtp_mls_core::state_tx::state_write(self.context.mls_storage(), |tx| {
             let storage = tx.storage();
             let db = storage.db();
             let Some(current) = Fetch::<StoredGroupIntent>::fetch(&db, &sent_intent.id)? else {

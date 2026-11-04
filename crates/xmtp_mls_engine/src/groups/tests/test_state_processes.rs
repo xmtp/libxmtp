@@ -21,12 +21,11 @@ use xmtp_db::{
 };
 use xmtp_proto::types::{Cursor, GroupId, Topic};
 
-use crate::{
-    context::XmtpSharedContext,
-    core::precommit_test_hook,
-    groups::{send_message_opts::SendMessageOpts, test_support::MlsGroupExt},
+use crate::groups::{
+    context::XmtpSharedContext, send_message_opts::SendMessageOpts, test_support::MlsGroupExt,
 };
 use alloy::signers::local::PrivateKeySigner;
+use xmtp_mls_core::precommit_test_hook;
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
 
@@ -165,7 +164,7 @@ async fn reopen(owner: &[u8], database: &str) -> TestResult<EngineTestPeer> {
     Ok(EngineTestPeer::open_persistent(
         owner,
         database,
-        crate::identity_lifecycle::IdentityStrategy::CachedOnly,
+        xmtp_mls_identity::identity_lifecycle::IdentityStrategy::CachedOnly,
         |_| {},
     )
     .await)

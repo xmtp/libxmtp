@@ -8,7 +8,7 @@ use xmtp_proto::{
 
 /// Resolve a welcome pointer from the first envelope on its destination.
 /// Returns none if the destination has no envelope.
-pub async fn resolve_welcome_pointer<Context: crate::context::XmtpSharedContext>(
+pub async fn resolve_welcome_pointer<Context: crate::groups::context::XmtpSharedContext>(
     decrypted_welcome_pointer: &DecryptedWelcomePointer,
     context: &Context,
 ) -> Result<Option<WelcomeMessageV1>, GroupError> {

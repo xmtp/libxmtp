@@ -31,15 +31,13 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 
 use super::test_dictionary_creation::definition;
-use crate::{
+use crate::groups::{
+    GroupError, MlsGroup,
+    app_data::{load_component_registry, sender_intents::apply_app_data_update_intent},
     context::XmtpSharedContext,
-    groups::{
-        GroupError, MlsGroup,
-        app_data::{load_component_registry, sender_intents::apply_app_data_update_intent},
-        intents::{AppDataUpdateIntentData, QueueIntent},
-    },
-    state_tx::state_write,
+    intents::{AppDataUpdateIntentData, QueueIntent},
 };
+use xmtp_mls_core::state_tx::state_write;
 
 /// A string field in groups and DMs.
 const STATUS: u16 = 0xC001;

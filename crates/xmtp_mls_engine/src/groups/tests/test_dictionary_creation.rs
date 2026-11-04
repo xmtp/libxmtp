@@ -4,9 +4,9 @@
 use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 use std::collections::BTreeSet;
 
-use crate::{
+use crate::groups::{
+    GroupError, MlsGroup, UpdateAdminListType, app_data::load_component_registry,
     context::XmtpSharedContext,
-    groups::{GroupError, MlsGroup, UpdateAdminListType, app_data::load_component_registry},
 };
 use xmtp_configuration::{ApplicationComponentDefinition, ComponentPermissions, MetadataPolicy};
 use xmtp_db::{incoming_envelope::StreamTopic, prelude::*};

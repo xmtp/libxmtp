@@ -1,9 +1,9 @@
 //! Receiving envelopes and storing transcript messages.
 
 use super::*;
-use crate::messages::decoded_message::DecodedMessage;
 use xmtp_db::group_message::SortBy;
 use xmtp_db::prelude::QueryGroupMessage;
+use xmtp_mls_messages::decoded_message::DecodedMessage;
 
 /// Rows read per page when scanning a DM's group updates for duplicates.
 pub(crate) const PAGE_SIZE: i64 = 100;

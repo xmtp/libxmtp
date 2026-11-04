@@ -30,7 +30,7 @@ use super::{
     app_data::sender_intents::field_writes_commit,
     intents::{AppDataUpdateIntentData, QueueIntent},
 };
-use crate::context::XmtpSharedContext;
+use crate::groups::context::XmtpSharedContext;
 
 impl<Context> MlsGroup<Context>
 where

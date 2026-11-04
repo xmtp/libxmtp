@@ -1,10 +1,10 @@
 //! Membership changes addressed by account or handle targets.
 
 use super::{GroupError, MlsGroup, UpdateGroupMembershipResult};
-use crate::context::XmtpSharedContext;
-use crate::identity_updates::IdentityUpdateError;
-use crate::inbox_handles::{IdentityTarget, resolve_targets_in};
+use crate::groups::context::XmtpSharedContext;
 use xmtp_id::InboxId;
+use xmtp_mls_identity::identity_updates::IdentityUpdateError;
+use xmtp_mls_identity::inbox_handles::{IdentityTarget, resolve_targets_in};
 
 /// The inboxes of `targets`, failing with [`GroupError::AddressNotFound`],
 /// which names each account with no inbox in request order.
@@ -28,7 +28,7 @@ pub(crate) fn require_account_inboxes(
 
 /// The inbox of each of `targets`, in order, from one verified lookup. A
 /// handle with no inbox fails with
-/// [`HandleError::NotFound`](crate::inbox_handles::HandleError::NotFound),
+/// [`HandleError::NotFound`](xmtp_mls_identity::inbox_handles::HandleError::NotFound),
 /// and accounts with no inbox fail with [`GroupError::AddressNotFound`].
 pub async fn target_inboxes<Context, E>(
     context: &Context,

@@ -10,11 +10,11 @@ use std::collections::HashSet;
 
 use crate::groups::GroupError;
 use crate::groups::intents::QueueIntent;
-use crate::identity_lifecycle::test_mocks::{
-    RestoreKeyPackages, key_package_injected, set_test_mode_upload_malformed_keypackage,
-};
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_id::associations::test_utils::add_wallet_signature;
+use xmtp_mls_identity::identity_lifecycle::test_mocks::{
+    RestoreKeyPackages, key_package_injected, set_test_mode_upload_malformed_keypackage,
+};
 use xmtp_mls_validation::commit::extract_group_membership;
 
 /// `doomed_installation` must belong to an inbox that is already in the

@@ -66,7 +66,7 @@ fn rewrite_group_root<C: XmtpSharedContext>(group: &MlsGroup<C>, root: Option<[u
     use openmls::prelude::tls_codec::{Deserialize as _, Serialize as _};
     use openmls_traits::storage::StorageProvider as _;
 
-    crate::state_tx::state_write(group.context.mls_storage(), |tx| {
+    xmtp_mls_core::state_tx::state_write(group.context.mls_storage(), |tx| {
         tx.with_group(group.group_id, |mls_group, storage| {
             let context = mls_group.export_group_context();
             let extensions = context

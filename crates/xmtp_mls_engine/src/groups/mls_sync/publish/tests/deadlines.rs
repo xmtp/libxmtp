@@ -1,16 +1,16 @@
 use super::*;
-use crate::core::policy::StreamPolicy;
 use crate::groups::test_support::stalled_api::{StalledApi, StalledCall};
 use crate::groups::test_support::{
     EnginePeer, EngineTestFeatures, EngineTestPeer, EngineTestPeerOps,
 };
-use crate::identity_lifecycle::test_support::PeerFeatures;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use xmtp_api::ApiClientWrapper;
 use xmtp_common::time::{Duration, Instant, timeout};
+use xmtp_mls_core::policy::StreamPolicy;
+use xmtp_mls_identity::identity_lifecycle::test_support::PeerFeatures;
 
 const BUDGET: Duration = Duration::from_millis(250);
 const OUTER_BOUND: Duration = Duration::from_secs(2);

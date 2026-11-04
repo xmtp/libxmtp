@@ -303,7 +303,7 @@ where
     ) -> Result<(), GroupError> {
         let message_cursor = u64::try_from(message_cursor.unwrap_or(0))
             .map_err(|_| xmtp_proto::ConversionError::Unspecified("negative Welcome cursor"))?;
-        let units = crate::state_tx::state_write(self.context.mls_storage(), |_tx| {
+        let units = xmtp_mls_core::state_tx::state_write(self.context.mls_storage(), |_tx| {
             self.prepare_welcome_envelopes(action, message_cursor)?
                 .into_iter()
                 .map(PublishUnit::single)
@@ -324,7 +324,7 @@ where
         &self,
         epoch_delta_range: RangeInclusive<i64>,
     ) -> Result<Zeroizing<Vec<HmacKey>>, StorageError> {
-        crate::state_tx::state_write_with_events(
+        xmtp_mls_core::state_tx::state_write_with_events(
             self.context.mls_storage(),
             self.context.events(),
             |tx, events| {
@@ -345,13 +345,13 @@ where
     pub fn hmac_keys_in(
         &self,
         conn: impl xmtp_db::DbQuery,
-        events: &impl xmtp_events::EventWriter<crate::core::events::InternalEvent>,
+        events: &impl xmtp_events::EventWriter<xmtp_mls_core::events::InternalEvent>,
         epoch_delta_range: RangeInclusive<i64>,
     ) -> Result<Zeroizing<Vec<HmacKey>>, StorageError> {
         // implements: SYNC-026
         let (root_key, made) = ensure_root_key(&conn)?;
         if made {
-            crate::core::events::emit_root_key_changed(events, &conn, true)?;
+            xmtp_mls_core::events::emit_root_key_changed(events, &conn, true)?;
         }
         let root_key = root_key.as_slice();
         let group_id = self.group_id.as_ref();
@@ -387,7 +387,7 @@ where
         &self,
         payloads: Vec<(&[u8], bool)>,
     ) -> Result<Vec<PublishUnit>, GroupError> {
-        crate::state_tx::state_write_with_events(
+        xmtp_mls_core::state_tx::state_write_with_events(
             self.context.mls_storage(),
             self.context.events(),
             |tx, events| {
@@ -409,7 +409,7 @@ where
     pub(super) fn prepare_group_envelopes_in(
         &self,
         conn: impl xmtp_db::DbQuery,
-        events: &impl xmtp_events::EventWriter<crate::core::events::InternalEvent>,
+        events: &impl xmtp_events::EventWriter<xmtp_mls_core::events::InternalEvent>,
         group: &OpenMlsGroup,
         payloads: Vec<(&[u8], bool)>,
     ) -> Result<Vec<ClientEnvelope>, GroupError> {

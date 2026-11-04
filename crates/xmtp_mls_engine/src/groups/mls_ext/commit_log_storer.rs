@@ -1,6 +1,5 @@
 use crate::groups::GroupError;
 use crate::groups::{mls_sync::GroupMessageProcessingError, validated_commit::ValidatedCommit};
-use crate::identity::Identity;
 use openmls::group::{MlsGroup, MlsGroupCreateConfig, StagedCommit};
 use openmls::prelude::CredentialWithKey;
 use openmls::prelude::GroupEpoch;
@@ -18,6 +17,7 @@ use xmtp_db::{
     prelude::*,
     remote_commit_log::CommitResult,
 };
+use xmtp_mls_core::identity::Identity;
 use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 

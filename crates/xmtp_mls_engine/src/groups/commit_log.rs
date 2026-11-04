@@ -1,5 +1,3 @@
-use crate::core::config::ForkRecoveryPolicy;
-use crate::core::events::dm_event_context;
 use crate::groups::MlsGroup;
 use crate::groups::mls_sync::retry_due;
 use crate::groups::oneshot::Oneshot;
@@ -27,6 +25,8 @@ use xmtp_db::{
     readd_status::QueryReaddStatus,
     remote_commit_log::{CommitResult, NewRemoteCommitLog},
 };
+use xmtp_mls_core::config::ForkRecoveryPolicy;
+use xmtp_mls_core::events::dm_event_context;
 use xmtp_mls_group_keys::commit_log::{open_entry, seal_entry, sign_entry_author};
 use xmtp_mls_group_keys::group_keys::{GroupKeys, SealError};
 use xmtp_mls_group_state::app_data::group_root::group_keys_from_extensions;
@@ -38,12 +38,9 @@ use xmtp_proto::types::{CommitLogEntry as DecodedCommitLogEntry, Topic, TopicCur
 use xmtp_proto::xmtp::mls::message_contents::CommitResult as ProtoCommitResult;
 use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
 
-use crate::{
-    context::XmtpSharedContext,
-    groups::GroupError,
-    worker::{
-        BoxedWorker, NeedsDbReconnect, NewWorker, Worker, WorkerFactory, WorkerKind, WorkerResult,
-    },
+use crate::groups::{GroupError, context::XmtpSharedContext};
+use xmtp_mls_core::worker::{
+    BoxedWorker, NeedsDbReconnect, NewWorker, Worker, WorkerFactory, WorkerKind, WorkerResult,
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     OneshotMessage, ReaddRequest, oneshot_message::MessageType,
@@ -478,7 +475,7 @@ where
     ) -> Result<Option<PendingPublish>, CommitLogError> {
         // Recovery and its durable cutoff share the MLS state transaction.
         // Enumeration includes unrecovered groups even when their old flag is false.
-        let recovery = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+        let recovery = xmtp_mls_core::state_tx::state_write(self.context.mls_storage(), |tx| {
             tx.with_group(*conversation_id, |group, storage| {
                 use crate::groups::mls_ext::CommitLogStorer;
                 let db = storage.db();
@@ -781,7 +778,7 @@ where
             )?
             .0;
         let (active, publishers, boundaries, reader_epoch_floor) =
-            crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+            xmtp_mls_core::state_tx::state_write(self.context.mls_storage(), |tx| {
                 tx.with_group(*group_id, |g, storage| {
                     use crate::groups::mls_ext::CommitLogStorer;
                     Ok::<_, GroupError>((
@@ -895,7 +892,7 @@ where
         &self,
         conversation_id: &GroupId,
     ) -> Result<Option<bool>, CommitLogError> {
-        crate::state_tx::state_write_with_events(
+        xmtp_mls_core::state_tx::state_write_with_events(
             self.context.mls_storage(),
             self.context.events(),
             |tx, events| {
@@ -1750,9 +1747,9 @@ mod disconnect_propagation_tests {
     //! Pins that a dropped-pool signal survives this owner's error types, so
     //! `needs_db_reconnect()` stays `true` for the worker that surfaces them.
     use super::CommitLogError;
-    use crate::core::reconnect::NeedsDbReconnect;
     use crate::groups::GroupError;
     use xmtp_db::{ConnectionError, PlatformStorageError, StorageError};
+    use xmtp_mls_core::reconnect::NeedsDbReconnect;
 
     /// A `StorageError` that signals the connection pool was dropped.
     fn disconnect_storage() -> StorageError {

@@ -4,7 +4,7 @@ set working-directory := ".."
 
 nix_system := arch() + "-" + if os() == "macos" { "darwin" } else { "linux" }
 
-wasm_packages := "-p xmtp_mls -p xmtp_mls_messages -p xmtp_mls_server_config -p xmtp_mls_core -p xmtp_mls_identity -p xmtp_cryptography -p xmtp_common -p xmtp_api -p xmtp_api_grpc -p xmtp_id -p xmtp_db -p xmtp_api_backend -p xmtp_content_types -p xmtp_attachments -p xmtp_sdk"
+wasm_packages := "-p xmtp_mls -p xmtp_mls_messages -p xmtp_mls_server_config -p xmtp_mls_core -p xmtp_mls_identity -p xmtp_mls_engine -p xmtp_mls_attachments -p xmtp_cryptography -p xmtp_common -p xmtp_api -p xmtp_api_grpc -p xmtp_id -p xmtp_db -p xmtp_api_backend -p xmtp_content_types -p xmtp_attachments -p xmtp_sdk"
 
 lint:
     dev/agent-run cargo clippy --locked --target wasm32-unknown-unknown -p xmtp_sdk --all-targets --no-deps -- -Dwarnings

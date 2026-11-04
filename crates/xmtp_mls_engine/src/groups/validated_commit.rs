@@ -1,18 +1,15 @@
 #[cfg(test)]
 mod identity_tests;
-use crate::{
-    context::XmtpSharedContext,
-    identity_updates::{
-        IdentityDependencyError, IdentityRequirement, InstallationDiff, InstallationDiffError,
-        MissingProofs, get_installation_diff_local, require_association_state,
-        required_leaf_removals,
-    },
-};
+use crate::groups::context::XmtpSharedContext;
 use openmls::{
     extensions::Extensions,
     group::{GroupContext, MlsGroup as OpenMlsGroup, QueuedProposal, StagedCommit},
     messages::proposals::Proposal,
     prelude::{LeafNodeIndex, Sender},
+};
+use xmtp_mls_identity::identity_updates::{
+    IdentityDependencyError, IdentityRequirement, InstallationDiff, InstallationDiffError,
+    MissingProofs, get_installation_diff_local, require_association_state, required_leaf_removals,
 };
 
 use super::traits::FromWith;
@@ -70,7 +67,7 @@ pub enum CommitValidationError {
     Rule(#[from] CommitRuleError),
 }
 
-impl crate::worker::NeedsDbReconnect for CommitValidationError {
+impl xmtp_mls_core::worker::NeedsDbReconnect for CommitValidationError {
     #[deny(clippy::wildcard_enum_match_arm)]
     fn needs_db_reconnect(&self) -> bool {
         match self {
@@ -198,8 +195,11 @@ impl ValidatedCommit {
                 Err(CommitValidationError::IdentityDependency(IdentityDependencyError::Need(
                     requirements,
                 ))) => {
-                    crate::identity_updates::resolve_identity_requirements(context, &requirements)
-                        .await?;
+                    xmtp_mls_identity::identity_updates::resolve_identity_requirements(
+                        context,
+                        &requirements,
+                    )
+                    .await?;
                 }
                 result => return result,
             }

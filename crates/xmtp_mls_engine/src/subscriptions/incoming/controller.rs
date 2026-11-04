@@ -1,10 +1,5 @@
 use super::*;
-use crate::{
-    groups::MlsGroup,
-    identity_updates::IdentityRequirement,
-    mls_store::{MlsStore, ReceivedPage},
-    subscriptions::incoming::stream_api::GroupSetGate,
-};
+use crate::{groups::MlsGroup, subscriptions::incoming::stream_api::GroupSetGate};
 use futures::{StreamExt, stream::FuturesUnordered};
 use std::{
     collections::{BTreeSet, HashMap, HashSet, VecDeque},
@@ -17,6 +12,8 @@ use xmtp_db::{
     incoming_envelope::{NetworkEntityKind, StreamTopic, kind_pool_usage},
     prelude::*,
 };
+use xmtp_mls_core::mls_store::{MlsStore, ReceivedPage};
+use xmtp_mls_identity::identity_updates::IdentityRequirement;
 use xmtp_proto::types::{Cursor, IncomingEvent, OrderedEnvelopeBatch, TopicKind};
 
 mod dependencies;
@@ -93,7 +90,7 @@ enum Opened {
 
 type OpenFuture = BoxDynFuture<'static, Result<Opened, NetworkError>>;
 enum ReadOutcome {
-    Fetched(Result<ReceivedPage, crate::mls_store::MlsStoreError>),
+    Fetched(Result<ReceivedPage, xmtp_mls_core::mls_store::MlsStoreError>),
     Rejected(Arc<IncomingError>),
 }
 type ReadResult = (Topic, Option<Cursor>, ReadOutcome);
@@ -455,7 +452,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                         // An empty pending queue cannot report an already inactive group.
                         let group = match MlsGroup::load_by_id(&self.context, group_id) {
                             Ok(group) => group,
-                            Err(crate::mls_store::MlsStoreError::NotFound(_)) => {
+                            Err(xmtp_mls_core::mls_store::MlsStoreError::NotFound(_)) => {
                                 self.missing_group_topics.insert(topic);
                                 continue;
                             }
@@ -1032,7 +1029,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             .min(limits.topic.bytes)
             .min(limits.kind.bytes);
         let capacity_error = || {
-            crate::mls_store::MlsStoreError::Api(xmtp_api::ApiError::Envelope(
+            xmtp_mls_core::mls_store::MlsStoreError::Api(xmtp_api::ApiError::Envelope(
                 xmtp_api_backend::envelope::EnvelopeError::Capacity,
             ))
         };
@@ -1047,7 +1044,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             self.context.incoming_runtime().policy().fetched_limits(),
         )
         .map_err(xmtp_api::ApiError::from)
-        .map_err(crate::mls_store::MlsStoreError::from)?;
+        .map_err(xmtp_mls_core::mls_store::MlsStoreError::from)?;
         let mut pending = batches
             .into_iter()
             .flat_map(|batch| batch.envelopes)
@@ -1081,9 +1078,9 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 .and_then(|meta| meta.cursor.as_ref())
                 .map(|cursor| Cursor(cursor.sequence_id))
                 .ok_or_else(|| {
-                    crate::mls_store::MlsStoreError::Api(xmtp_api::ApiError::InvalidResponse(
-                        "incoming cursor",
-                    ))
+                    xmtp_mls_core::mls_store::MlsStoreError::Api(
+                        xmtp_api::ApiError::InvalidResponse("incoming cursor"),
+                    )
                 })?;
             let admitted = store.admit_incoming_batch(&chunk, limits)?;
             if let Some(subscription) = self.transport.subscription() {
@@ -1388,7 +1385,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 self.topics.entry(topic.clone()).or_default().error = None;
             }
             Err(error) => {
-                let rejected = matches!(&error, crate::mls_store::MlsStoreError::Api(_))
+                let rejected = matches!(&error, xmtp_mls_core::mls_store::MlsStoreError::Api(_))
                     && crate::subscriptions::recovery::rejected_request(&error);
                 let cause = Arc::new(IncomingError::from(error));
                 if rejected && let Some(cursor) = cursor {
@@ -1439,7 +1436,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
     fn receive_error_shared(&mut self, topic: Topic, error: Arc<IncomingError>) {
         let query_failure = matches!(
             error.as_ref(),
-            IncomingError::Store(crate::mls_store::MlsStoreError::Api(_))
+            IncomingError::Store(xmtp_mls_core::mls_store::MlsStoreError::Api(_))
         );
         // A refused read leaves the stream untouched: only a request was denied,
         // and the stream still delivers. The topic's read waits out the delay.
@@ -1602,7 +1599,7 @@ pub(crate) fn topic_key(topic: &Topic) -> Result<StreamTopic, IncomingError> {
 fn capacity(error: &IncomingError) -> bool {
     matches!(
         error,
-        IncomingError::Store(crate::mls_store::MlsStoreError::Storage(
+        IncomingError::Store(xmtp_mls_core::mls_store::MlsStoreError::Storage(
             xmtp_db::StorageError::Stream(
                 xmtp_db::stream_storage::StreamStorageError::Capacity { .. }
             )

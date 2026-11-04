@@ -24,10 +24,7 @@ use super::incoming::{
     IncomingCoordinator, IncomingError, IncomingProcessing, IncomingReceivePolicy, IncomingScope,
     stream_api::GroupSetGate,
 };
-use crate::{
-    context::XmtpSharedContext,
-    groups::{GroupError, MlsGroup},
-};
+use crate::groups::{GroupError, MlsGroup, context::XmtpSharedContext};
 
 /// Why one fixed processing obligation is unfinished.
 #[derive(Debug, Clone)]
@@ -139,7 +136,7 @@ impl RetryableError for BarrierError {
     }
 }
 
-impl crate::worker::NeedsDbReconnect for BarrierError {
+impl xmtp_mls_core::worker::NeedsDbReconnect for BarrierError {
     #[deny(clippy::wildcard_enum_match_arm)]
     fn needs_db_reconnect(&self) -> bool {
         let Self::Incomplete { unfinished, .. } = self;

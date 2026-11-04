@@ -286,7 +286,7 @@ async fn test_queued_writes_keep_their_sync_error() {
 
     let (intent, writes) = queue_write(&bo_group, STATUS, ComponentType::String, b"away")?;
     bo.context.server_configuration().block_connection(
-        crate::server_configuration::BlockedConnection::BackendMismatch {
+        xmtp_mls_server_config::server_configuration::BlockedConnection::BackendMismatch {
             stored: "old.example".into(),
             received: "new.example".into(),
         },

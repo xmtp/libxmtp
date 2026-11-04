@@ -10,26 +10,21 @@ use super::{
     validated_commit::{CommitValidationError, validate_proposal},
 };
 use crate::{
-    context::XmtpSharedContext,
-    core::hmac_epoch::hmac_epoch,
-    groups::traits::IntoWith,
     groups::{
+        context::XmtpSharedContext,
         group_membership::GroupMembership,
-        intents::MembershipDiffWithKeyPackages,
-        intents::{QueueIntent, ReaddInstallationsIntentData, UpdateMetadataIntentData},
+        hash::sha256,
+        intents::{
+            MembershipDiffWithKeyPackages, QueueIntent, ReaddInstallationsIntentData,
+            UpdateMetadataIntentData,
+        },
+        message_id::{calculate_message_id, calculate_message_id_for_intent},
         mls_ext::{CommitLogStorer, MlsGroupReload},
         mls_sync::update_group_membership::apply_readd_installations_intent,
+        traits::IntoWith,
         validated_commit::ValidatedCommit,
     },
-    groups::{
-        hash::sha256,
-        message_id::{calculate_message_id, calculate_message_id_for_intent},
-    },
-    identity::{IdentityError, parse_credential},
-    identity_updates::{IdentityUpdateError, IdentityUpdates, load_identity_updates_for_client},
     intents::ProcessIntentError,
-    messages::{decoded_message::MessageBody, enrichment::EnrichMessageError},
-    mls_store::MlsStore,
 };
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -91,12 +86,21 @@ use xmtp_db::{
 };
 use xmtp_events::{ClientEvent, EventContext, EventWriter};
 use xmtp_id::{InboxId, InboxIdRef};
+use xmtp_mls_core::{
+    hmac_epoch::hmac_epoch,
+    identity::{IdentityError, parse_credential},
+    mls_store::MlsStore,
+};
 use xmtp_mls_group_keys::mls_ext::payload_encryption::{
     WrapPayloadError, wrap_payload_hpke, wrap_payload_symmetric,
 };
 use xmtp_mls_group_state::app_data::component_id::ComponentId;
 use xmtp_mls_group_state::group_mutable_metadata::MetadataField;
 use xmtp_mls_group_state::libxmtp_version::LibXMTPVersion;
+use xmtp_mls_identity::identity_updates::{
+    IdentityUpdateError, IdentityUpdates, load_identity_updates_for_client,
+};
+use xmtp_mls_messages::{decoded_message::MessageBody, enrichment::EnrichMessageError};
 use xmtp_mls_validation::commit::{
     CommitRuleError, Inbox, MetadataChanges, extract_group_membership,
 };
@@ -165,7 +169,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         message_id: Vec<u8>,
         previous: xmtp_events::MessageStatus,
         current: xmtp_events::MessageStatus,
-        writer: &impl EventWriter<crate::core::events::InternalEvent>,
+        writer: &impl EventWriter<xmtp_mls_core::events::InternalEvent>,
     ) {
         if self.conversation_type.is_virtual() || previous == current {
             return;
@@ -194,7 +198,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         commit: &ValidatedCommit,
         group_active: bool,
         storage: &impl XmtpMlsStorageProvider,
-        writer: &impl EventWriter<crate::core::events::InternalEvent>,
+        writer: &impl EventWriter<xmtp_mls_core::events::InternalEvent>,
     ) -> Result<(), GroupMessageProcessingError> {
         if self.conversation_type.is_virtual() {
             return Ok(());
@@ -503,7 +507,7 @@ impl RetryableError for GroupMessageProcessingError {
     }
 }
 
-impl crate::worker::NeedsDbReconnect for GroupMessageProcessingError {
+impl xmtp_mls_core::worker::NeedsDbReconnect for GroupMessageProcessingError {
     #[deny(clippy::wildcard_enum_match_arm)]
     fn needs_db_reconnect(&self) -> bool {
         match self {
@@ -986,7 +990,7 @@ pub(crate) mod tests {
                 should_push: false,
                 idempotency_key: String::new(),
             };
-            let result = crate::state_tx::state_write_with_events(
+            let result = xmtp_mls_core::state_tx::state_write_with_events(
                 storage,
                 alix.context.events(),
                 |tx, buffer| {

@@ -1,12 +1,12 @@
-use crate::context::XmtpSharedContext;
 use crate::groups::MlsGroup;
-use crate::messages::decoded_message::DecodedMessage;
-use crate::messages::enrichment::{
-    EnrichMessageError, EnrichedStoredMessage, enrich_messages, enrich_messages_with_stored,
-};
+use crate::groups::context::XmtpSharedContext;
 use xmtp_db::DbQuery;
 use xmtp_db::group_message::{ContentType as DbContentType, MsgQueryArgs};
 use xmtp_db::prelude::QueryGroupMessage;
+use xmtp_mls_messages::decoded_message::DecodedMessage;
+use xmtp_mls_messages::enrichment::{
+    EnrichMessageError, EnrichedStoredMessage, enrich_messages, enrich_messages_with_stored,
+};
 
 mod page;
 pub use page::{EnrichedHistoryPage, EnrichedRecoveryPage};
@@ -102,7 +102,6 @@ mod tests {
         create_and_store_message, create_test_message, create_test_message_raw, ids, ref_to,
     };
     use crate::groups::test_support::{EnginePeer, EngineTestPeer};
-    use crate::messages::decoded_message::{ContentDecodeFailureKind, MessageBody};
     use crate::prelude::*;
     use hex::ToHexExt;
     use xmtp_common::time::now_ns;
@@ -110,6 +109,7 @@ mod tests {
     use xmtp_content_types::reaction::ReactionCodec;
     use xmtp_content_types::test_utils::TestContentGenerator;
     use xmtp_content_types::text::TextCodec;
+    use xmtp_mls_messages::decoded_message::{ContentDecodeFailureKind, MessageBody};
 
     use xmtp_db::Store;
     use xmtp_db::group_message::{ContentType as DbContentType, DeliveryStatus, GroupMessageKind};

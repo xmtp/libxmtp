@@ -1396,10 +1396,10 @@ mod app_data_update_intent_tests {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use crate::context::CoreContext;
     use crate::groups::send_message_opts::SendMessageOpts;
     use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer};
     use openmls::prelude::{ProcessedMessageContent, ProtocolMessage};
+    use xmtp_mls_core::context::CoreContext;
 
     use xmtp_db::XmtpOpenMlsProviderRef;
 

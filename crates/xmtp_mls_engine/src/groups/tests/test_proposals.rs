@@ -5,14 +5,12 @@
 //! 2. That proposal-based group operations work on dictionary-native groups
 
 use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer, EngineTestPeerOps};
-use crate::prelude::*;
-use crate::{
+use crate::groups::{
     context::XmtpSharedContext,
-    groups::{
-        intents::{CommitPendingProposalsIntentData, ProposeMemberUpdateIntentData},
-        send_message_opts::SendMessageOpts,
-    },
+    intents::{CommitPendingProposalsIntentData, ProposeMemberUpdateIntentData},
+    send_message_opts::SendMessageOpts,
 };
+use crate::prelude::*;
 use rstest::rstest;
 use xmtp_db::{group_intent::IntentKind, prelude::*};
 use xmtp_mls_validation::commit::CommitRuleError;
@@ -1044,7 +1042,7 @@ async fn missing_proposal_absent_vs_lost() {
         ));
     }
     let proposals_handled = bo.context.db().topic_progress(&topic)?.processed;
-    crate::state_tx::state_write(bo.context.mls_storage(), |tx| {
+    xmtp_mls_core::state_tx::state_write(bo.context.mls_storage(), |tx| {
         tx.with_group(bo_group.group_id, |mls, storage| {
             let references: Vec<_> = mls
                 .pending_proposals()

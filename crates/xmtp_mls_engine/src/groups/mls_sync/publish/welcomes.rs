@@ -333,7 +333,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         let limits = self.context.api().limits();
         // An ended intent is committed with the writer; its error is returned
         // after it.
-        crate::state_tx::state_write_durable(self.context.mls_storage(), |tx| {
+        xmtp_mls_core::state_tx::state_write_durable(self.context.mls_storage(), |tx| {
             let storage = tx.storage();
             let db = storage.db();
             let Some(intent) = Fetch::<StoredGroupIntent>::fetch(&db, &id)? else {
@@ -445,7 +445,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         if receipts.len() != sent_welcomes.envelopes.len() {
             return Err(xmtp_api::ApiError::InvalidResponse("Welcome metadata count").into());
         }
-        crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+        xmtp_mls_core::state_tx::state_write(self.context.mls_storage(), |tx| {
             let storage = tx.storage();
             let db = storage.db();
             let Some((encoded, mut current)) = self.current_welcome_batch(&db, id, sent_attempt)?
@@ -490,7 +490,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         id: i32,
         sent_attempt: &PreparedAttempt,
     ) -> Result<(), GroupError> {
-        let ended = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+        let ended = xmtp_mls_core::state_tx::state_write(self.context.mls_storage(), |tx| {
             let storage = tx.storage();
             let db = storage.db();
             let open = self

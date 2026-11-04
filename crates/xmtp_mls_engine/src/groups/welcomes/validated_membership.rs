@@ -1,14 +1,14 @@
-use crate::context::XmtpSharedContext;
+use crate::groups::context::XmtpSharedContext;
 use crate::groups::{GroupError, GroupMembership};
-use crate::identity::parse_credential;
-use crate::identity_updates::{
-    IdentityDependencyError, IdentityRequirement, InstallationDiffError, MissingProofs,
-    resolve_identity_requirements,
-};
 use openmls::prelude::{BasicCredential, StagedWelcome};
 use std::collections::{HashMap, HashSet};
 use xmtp_common::snippet::Snippet;
 use xmtp_db::DbQuery;
+use xmtp_mls_core::identity::parse_credential;
+use xmtp_mls_identity::identity_updates::{
+    IdentityDependencyError, IdentityRequirement, InstallationDiffError, MissingProofs,
+    resolve_identity_requirements,
+};
 use xmtp_mls_validation::{
     commit::extract_group_membership_with_failures, group_membership::FailedInstallations,
 };

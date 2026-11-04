@@ -1,8 +1,8 @@
 //! Pause and recovery paths.
 
-use crate::context::CoreContext;
 use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 use xmtp_db::prelude::*;
+use xmtp_mls_core::context::CoreContext;
 
 /// XIP §3 steady-state pause path: when a dictionary-native client bumps
 /// `MIN_SUPPORTED_PROTOCOL_VERSION` on a dictionary-native group, the
@@ -21,8 +21,8 @@ use xmtp_db::prelude::*;
 /// it is not used to check the protocol floor.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_steady_state_pause_on_min_version_bump_via_app_data_update() {
-    use crate::core::version::VersionInfo;
     use crate::groups::tests::increment_patch_version;
+    use xmtp_mls_core::version::VersionInfo;
 
     // Alix runs one patch ahead of the default pkg_version so she can
     // legitimately bump the floor to her own version — the send-side
@@ -156,8 +156,8 @@ async fn test_steady_state_pause_on_min_version_bump_via_app_data_update() {
 /// guard's placement in `process_message_with_app_data`.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_downgraded_client_pauses_on_dictionary_group_with_higher_floor() {
-    use crate::core::version::VersionInfo;
     use crate::groups::tests::increment_patch_version;
+    use xmtp_mls_core::version::VersionInfo;
 
     // Both clients start one patch above the default version so the
     // floor can be raised to a value the default version doesn't meet.
@@ -219,7 +219,7 @@ async fn test_downgraded_client_pauses_on_dictionary_group_with_higher_floor() {
     // (lower) pkg_version.
     let bo_group_id = bo_group.group_id;
     let bo_owner = bo.owner.clone();
-    let bo_strategy = crate::identity_lifecycle::identity_setup(&bo_owner);
+    let bo_strategy = xmtp_mls_identity::identity_lifecycle::identity_setup(&bo_owner);
     drop(bo);
     let bo_downgraded =
         EngineTestPeer::open_persistent(bo_owner, &bo_db_path, bo_strategy, |options| {

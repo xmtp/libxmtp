@@ -1,7 +1,6 @@
 //! Welcome pointer fixtures, and single attempts at a pending Welcome, for
 //! tests on either side of the engine.
 
-use crate::context::CoreContext;
 use crate::groups::context::XmtpSharedContext;
 use crate::groups::mls_ext::WelcomePointersExtension;
 use crate::groups::test_support::EnginePeer;
@@ -10,6 +9,7 @@ use crate::groups::{GroupError, MlsGroup};
 use prost::Message;
 use xmtp_configuration::WELCOME_HPKE_LABEL;
 use xmtp_id::key_package::WrapperAlgorithm;
+use xmtp_mls_core::context::CoreContext;
 use xmtp_mls_group_keys::mls_ext::payload_encryption::{wrap_payload_hpke, wrap_payload_symmetric};
 use xmtp_proto::types::{Cursor, WelcomeMessage};
 use xmtp_proto::xmtp::mls::message_contents::WelcomeMetadata;
@@ -109,7 +109,7 @@ pub async fn publish_commit_without_welcome<C: XmtpSharedContext>(
     )
     .await
     .unwrap();
-    let (action, payloads) = crate::state_tx::state_write(context.mls_storage(), |tx| {
+    let (action, payloads) = xmtp_mls_core::state_tx::state_write(context.mls_storage(), |tx| {
         tx.with_group(group.group_id, |openmls_group, storage| {
             let publish_intent_data =
                 crate::groups::mls_sync::update_group_membership::apply_update_group_membership_intent(storage, openmls_group, intent, changes, &[], signer)?
@@ -202,7 +202,7 @@ pub async fn publish_pointer<P: EnginePeer>(
     use xmtp_proto::backend_v1::welcome_message::{Version, WelcomePointer};
     use xmtp_proto::xmtp::mls::message_contents::welcome_pointer::Version as PointerVersion;
 
-    let package = crate::identity_lifecycle::new_key_package(
+    let package = xmtp_mls_identity::identity_lifecycle::new_key_package(
         recipient.context().identity(),
         &recipient.context().mls_provider(),
         true,

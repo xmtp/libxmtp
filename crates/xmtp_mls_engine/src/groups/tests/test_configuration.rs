@@ -1,11 +1,11 @@
 //! Group additions and commit-log writes under a deployment's published
 //! configuration, applied through the static provider.
 
-use crate::context::CoreContext;
 use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer};
 use std::sync::Arc;
 use xmtp_configuration::{ConfigProvider, ServerConfiguration, StaticConfigProvider};
 use xmtp_db::prelude::*;
+use xmtp_mls_core::context::CoreContext;
 
 fn provider(edit: impl FnOnce(&mut ServerConfiguration)) -> Arc<dyn ConfigProvider> {
     Arc::new(StaticConfigProvider::edited(edit))

@@ -168,7 +168,7 @@ pub(super) fn inject_test_key_packages(
         >,
     >,
 ) {
-    use crate::identity_lifecycle::test_mocks::{
+    use xmtp_mls_identity::identity_lifecycle::test_mocks::{
         get_test_mode_malformed_installations, record_injected_key_package,
         test_mode_unchecked_key_package,
     };

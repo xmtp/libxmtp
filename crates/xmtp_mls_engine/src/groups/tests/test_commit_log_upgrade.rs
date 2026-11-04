@@ -12,10 +12,10 @@ use xmtp_db::refresh_state::EntityKind;
 use xmtp_db::remote_commit_log::RemoteCommitLogOrder;
 use xmtp_db::{ConnectionExt, StorageOption, Store};
 
-use crate::context::CoreContext;
 use crate::groups::UpdateAdminListType::{AddSuper, RemoveSuper};
 use crate::groups::commit_log::{CommitLogTestFunction, CommitLogWorker};
 use alloy::signers::local::PrivateKeySigner;
+use xmtp_mls_core::context::CoreContext;
 
 // Snapshot Tester restoration intentionally resets network progress. Reopen the
 // original file and cached identity to preserve the state a real restart keeps.
@@ -34,7 +34,7 @@ async fn reopen_commit_log_client_with_logging(
     EngineTestPeer::open_persistent(
         owner,
         database,
-        crate::identity_lifecycle::IdentityStrategy::CachedOnly,
+        xmtp_mls_identity::identity_lifecycle::IdentityStrategy::CachedOnly,
         |options| {
             if let Some(logging) = logging {
                 options.configure(|configuration| {

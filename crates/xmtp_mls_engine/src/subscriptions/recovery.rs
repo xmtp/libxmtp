@@ -53,7 +53,7 @@ pub(crate) fn terminal_source(error: &(dyn std::error::Error + 'static)) -> bool
         );
     }
     if error
-        .downcast_ref::<crate::server_configuration::BlockedConnection>()
+        .downcast_ref::<xmtp_mls_server_config::server_configuration::BlockedConnection>()
         .is_some()
     {
         return true;
@@ -321,7 +321,7 @@ mod tests {
             tonic::Code::Unimplemented,
         ] {
             assert!(terminal_source(&tonic::Status::new(code, "")));
-            let query = IncomingError::Store(crate::mls_store::MlsStoreError::Api(
+            let query = IncomingError::Store(xmtp_mls_core::mls_store::MlsStoreError::Api(
                 xmtp_api::ApiError::Api(xmtp_proto::api::NetworkError::new(
                     xmtp_api_grpc::error::GrpcError::Status(tonic::Status::new(code, "")),
                 )),
@@ -390,11 +390,11 @@ mod tests {
             }
         }
         for error in [
-            crate::server_configuration::BlockedConnection::BackendMismatch {
+            xmtp_mls_server_config::server_configuration::BlockedConnection::BackendMismatch {
                 stored: "first".into(),
                 received: "second".into(),
             },
-            crate::server_configuration::BlockedConnection::ClientVersionTooOld {
+            xmtp_mls_server_config::server_configuration::BlockedConnection::ClientVersionTooOld {
                 client: "1.0.0".into(),
                 minimum: "2.0.0".into(),
             },

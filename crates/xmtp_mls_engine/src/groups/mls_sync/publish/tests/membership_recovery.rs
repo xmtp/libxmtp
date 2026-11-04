@@ -96,12 +96,14 @@ async fn requested_add_cannot_succeed_after_its_last_package_becomes_unusable(
         .context
         .db()
         .raw_query(xmtp_db::sql_key_store::OpenMlsKeyValue::hash_all)?;
-    crate::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage(
+    xmtp_mls_identity::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage(
         true,
         Some(vec![caro.context.installation_id().to_vec()]),
     );
     let result = group.publish_intents().await;
-    crate::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage(false, None);
+    xmtp_mls_identity::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage(
+        false, None,
+    );
     assert!(
         matches!(result, Err(GroupError::InvalidPublicKeys(_))),
         "{result:?}"
@@ -581,7 +583,7 @@ async fn non_admin_commits_valid_subset_without_resigning_admin_add(
         Ok(())
     })?;
     if missing {
-        crate::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage(
+        xmtp_mls_identity::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage(
             true,
             Some(vec![caro.context.installation_id().to_vec()]),
         );
@@ -627,7 +629,7 @@ async fn non_admin_commits_valid_subset_without_resigning_admin_add(
         .queue(&bo_group)?;
     let (_, attempt) = prepare_kind(&bo_group, IntentKind::CommitPendingProposals).await?;
     if missing {
-        crate::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage(
+        xmtp_mls_identity::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage(
             false, None,
         );
     }
@@ -861,7 +863,7 @@ async fn rejected_removal_with_new_installation_does_not_block_publication(
             })
             .ok_or(GroupError::UninitializedResult)
     })?;
-    let retired_hash = crate::identity::serialize_key_package_hash_ref(
+    let retired_hash = xmtp_mls_core::identity::serialize_key_package_hash_ref(
         &retained_package,
         &XmtpOpenMlsProviderRef::new(bo2.context.mls_storage()),
     )?;
@@ -874,7 +876,7 @@ async fn rejected_removal_with_new_installation_does_not_block_publication(
     // Model completed retirement. The old pending Add remains,
     // but the recipient can only open a Welcome for the current package.
     bo2.rotate_and_upload_key_package().await?;
-    crate::worker::key_package_maintenance::delete_key_package(
+    xmtp_mls_identity::key_package_maintenance::delete_key_package(
         &bo2.context,
         retired.key_package_hash_ref,
         retired.post_quantum_public_key,
@@ -942,7 +944,7 @@ async fn rejected_removal_with_new_installation_does_not_block_publication(
         let restarted = EngineTestPeer::open_persistent(
             owner,
             &database,
-            crate::identity_lifecycle::IdentityStrategy::CachedOnly,
+            xmtp_mls_identity::identity_lifecycle::IdentityStrategy::CachedOnly,
             |_| {},
         )
         .await;
@@ -1124,7 +1126,7 @@ async fn accepted_add_that_expires_before_commit_does_not_block_publication()
     })
     .await
     .expect("Bo must process the initial Welcome");
-    let package = crate::state_tx::state_write(caro.context.mls_storage(), |tx| {
+    let package = xmtp_mls_core::state_tx::state_write(caro.context.mls_storage(), |tx| {
         let storage = tx.storage();
         let provider = XmtpOpenMlsProviderRef::new(&storage);
         let now = u64::try_from(xmtp_common::time::now_secs()).unwrap();
@@ -1501,7 +1503,7 @@ async fn publish_installation_add(
         .expect("installation has a key package")
         .expect("key package verifies")
         .inner;
-    let payload = crate::state_tx::state_write(author.context.mls_storage(), |tx| {
+    let payload = xmtp_mls_core::state_tx::state_write(author.context.mls_storage(), |tx| {
         tx.with_group(author.group_id, |mls, storage| {
             let provider = XmtpOpenMlsProviderRef::new(storage);
             let (message, _) = mls
@@ -1548,7 +1550,7 @@ pub(super) fn propose_membership_payload(
     use openmls::messages::proposals::AppDataUpdateOperation;
     use xmtp_mls_group_state::app_data::component_id::ComponentId;
     Ok(
-        crate::state_tx::state_write(author.context.mls_storage(), |tx| {
+        xmtp_mls_core::state_tx::state_write(author.context.mls_storage(), |tx| {
             tx.with_group(author.group_id, |mls, storage| {
                 let provider = XmtpOpenMlsProviderRef::new(storage);
                 let (message, _) = mls
@@ -1611,7 +1613,7 @@ async fn stored_stale_membership_proposal_does_not_block_sends()
     publish_standalone_proposal(&caro_group, stale_delta, &members).await?;
     // The stale request also removed the installation added after S2. Alix
     // is permitted to remove members, so every member stores the Remove too.
-    let removal = crate::state_tx::state_write(group.context.mls_storage(), |tx| {
+    let removal = xmtp_mls_core::state_tx::state_write(group.context.mls_storage(), |tx| {
         tx.with_group(group.group_id, |mls, storage| {
             let leaf = mls
                 .members()

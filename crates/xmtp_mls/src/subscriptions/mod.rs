@@ -21,16 +21,14 @@ mod bidi_tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod bidi_fuzz_tests;
 // One-shot bounded catch-up through the shared receiver.
-pub mod barrier;
+pub use xmtp_mls_engine::subscriptions::barrier;
 pub mod catch_up;
-pub(crate) mod connection_state;
-pub mod incoming;
 #[doc(hidden)]
 pub use crate::core::events as internal;
+pub use xmtp_mls_engine::subscriptions::incoming;
 pub mod local_delivery;
 pub mod message_reader;
 pub(crate) use crate::core::policy;
-pub(crate) mod recovery;
 mod stream_all;
 pub mod stream_conversations;
 pub mod stream_failure;

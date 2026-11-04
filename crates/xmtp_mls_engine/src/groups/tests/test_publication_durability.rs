@@ -1,8 +1,8 @@
 //! Every state write that prepares a publication commits durably.
 
-use crate::context::CoreContext;
-use crate::core::precommit_test_hook;
 use crate::groups::test_support::{EnginePeer, EngineTestPeer};
+use xmtp_mls_core::context::CoreContext;
+use xmtp_mls_core::precommit_test_hook;
 
 #[cfg(not(target_arch = "wasm32"))]
 // verifies: STORE-026, SEND-001, SEND-006
@@ -76,7 +76,7 @@ async fn publication_prepare_points_are_durable(
             group.add_members(&[bo.inbox_id()]).await?;
         }
         _ => {
-            crate::identity_lifecycle::generate_and_store_key_package(
+            xmtp_mls_identity::identity_lifecycle::generate_and_store_key_package(
                 alix.context.identity(),
                 alix.context.mls_storage(),
                 false,

@@ -5,10 +5,7 @@
 //! No secret MLS state, group key, or message contents leave these
 //! snapshots.
 
-use crate::{
-    context::XmtpSharedContext,
-    groups::{GroupError, MlsGroup},
-};
+use crate::groups::{GroupError, MlsGroup, context::XmtpSharedContext};
 use openmls::prelude::BasicCredential;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -102,7 +99,7 @@ pub(crate) fn recent_commit_records(
 impl<C: XmtpSharedContext> MlsGroup<C> {
     /// Read every field under one database writer, including cross-process writers.
     pub fn diagnostic_snapshot(&self) -> Result<GroupSnapshot, GroupError> {
-        crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+        xmtp_mls_core::state_tx::state_write(self.context.mls_storage(), |tx| {
             let storage = tx.storage();
             let db = storage.db();
             let stored = db
@@ -157,7 +154,7 @@ impl<C: XmtpSharedContext> MlsGroup<C> {
                 .map(|member| {
                     let credential = BasicCredential::try_from(member.credential)?;
                     Ok(MemberSnapshot {
-                        inbox_id: crate::identity::parse_credential(credential.identity())?,
+                        inbox_id: xmtp_mls_core::identity::parse_credential(credential.identity())?,
                         installation_id: hex::encode(member.signature_key),
                     })
                 })

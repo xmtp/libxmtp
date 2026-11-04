@@ -1,5 +1,5 @@
 use super::{GroupError, MlsGroup, PreconfiguredPolicies};
-use crate::context::XmtpSharedContext;
+use crate::groups::context::XmtpSharedContext;
 use xmtp_common::RetryableError;
 use xmtp_common::snippet::Snippet;
 use xmtp_db::{
@@ -203,7 +203,7 @@ fn delete_oneshot_if_settled<C: XmtpSharedContext>(
     {
         return Ok(false);
     }
-    crate::state_tx::state_write(group.context.mls_storage(), |tx| {
+    xmtp_mls_core::state_tx::state_write(group.context.mls_storage(), |tx| {
         let storage = tx.storage();
         let mut mls = openmls::group::MlsGroup::load(&storage, &group.group_id.to_openmls())?
             .ok_or(xmtp_db::StorageError::from(xmtp_db::NotFound::MlsGroup(

@@ -1,14 +1,12 @@
 use super::*;
-use crate::{
-    groups::{
-        MlsGroup,
-        mls_sync::GroupHeadOutcome,
-        welcome_sync::{WelcomeHeadOutcome, WelcomeRequirement, WelcomeService},
-    },
-    identity_updates::{IdentityDependencyError, resolve_identity_requirements},
+use crate::groups::{
+    MlsGroup,
+    mls_sync::GroupHeadOutcome,
+    welcome_sync::{WelcomeHeadOutcome, WelcomeRequirement, WelcomeService},
 };
 use prost::Message;
 use xmtp_db::{identity_update::StoredIdentityUpdate, incoming_envelope::IncomingRetry};
+use xmtp_mls_identity::identity_updates::{IdentityDependencyError, resolve_identity_requirements};
 
 pub(super) enum DependencyResult<C> {
     Identity(
@@ -57,7 +55,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     let group = match MlsGroup::load_by_id(&self.context, &group_id) {
                         Ok(group) => group,
                         // A welcome can install this group on a later pass.
-                        Err(crate::mls_store::MlsStoreError::NotFound(_)) => continue,
+                        Err(xmtp_mls_core::mls_store::MlsStoreError::NotFound(_)) => continue,
                         Err(error) => {
                             self.topic_error(topic, error.into());
                             continue;
@@ -433,7 +431,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         let wire = xmtp_proto::backend_v1::ServerEnvelope::decode(pending.envelope.as_slice())
             .map_err(|_| IncomingError::Storage(xmtp_db::StorageError::DbDeserialize))?;
         let entry = xmtp_api_backend::envelope::decode_identity_update(wire).map_err(|error| {
-            IncomingError::Store(crate::mls_store::MlsStoreError::Api(error.into()))
+            IncomingError::Store(xmtp_mls_core::mls_store::MlsStoreError::Api(error.into()))
         })?;
         self.context
             .db()
@@ -484,7 +482,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                             let mut permanent = self.rejected_requests.lock();
                             if !permanent.iter().any(|(key, _)| key == &request) {
                                 let cause = Arc::new(IncomingError::Store(
-                                    crate::mls_store::MlsStoreError::Api(error),
+                                    xmtp_mls_core::mls_store::MlsStoreError::Api(error),
                                 ));
                                 permanent.push((request, cause));
                             }

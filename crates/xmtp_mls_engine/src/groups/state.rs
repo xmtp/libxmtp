@@ -44,8 +44,11 @@ where
             .ok_or(NotFound::GroupById(self.group_id))?;
         let consent_state = consent.unwrap_or(ConsentState::Unknown);
         let notification = db.notification_record()?;
-        let notifications_enabled =
-            crate::core::notifications::enabled_from_record(&notification, &stored, consent_state)?;
+        let notifications_enabled = xmtp_mls_core::notifications::enabled_from_record(
+            &notification,
+            &stored,
+            consent_state,
+        )?;
         let disappearing_settings = match (
             stored.message_disappear_from_ns,
             stored.message_disappear_in_ns,
@@ -183,7 +186,7 @@ where
     /// Set the consent of this conversation, as a decision.
     #[tracing::instrument(skip_all, level = "trace")]
     pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
-        crate::state_tx::state_write_with_events(
+        xmtp_mls_core::state_tx::state_write_with_events(
             self.context.mls_storage(),
             self.context.events(),
             |tx, events| {
@@ -198,7 +201,7 @@ where
                 let changes: Vec<_> = write_consent(&db, &key, decision, Owed::Mark)?
                     .into_iter()
                     .collect();
-                crate::core::events::emit_consent_changes(&self.context, events, &db, &changes)?;
+                xmtp_mls_core::events::emit_consent_changes(&self.context, events, &db, &changes)?;
                 Ok::<_, GroupError>(Continue(()))
             },
         )?

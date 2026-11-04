@@ -3,10 +3,10 @@
 //! native pool errors. Browser connection lifecycle tests cover closed
 //! persistent handles in the WASM database module.
 
-use crate::core::reconnect::NeedsDbReconnect;
 use crate::groups::GroupError;
-use crate::mls_store::MlsStoreError;
 use xmtp_db::{ConnectionError, PlatformStorageError, StorageError};
+use xmtp_mls_core::mls_store::MlsStoreError;
+use xmtp_mls_core::reconnect::NeedsDbReconnect;
 
 /// A `StorageError` that signals the connection pool was dropped.
 fn disconnect_storage() -> StorageError {

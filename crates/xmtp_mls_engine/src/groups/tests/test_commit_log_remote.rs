@@ -1,9 +1,9 @@
-use crate::context::XmtpSharedContext;
 use crate::groups::MlsGroup;
 use crate::groups::PolicySet;
 use crate::groups::commit_log::{
     CommitLogTestFunction, CommitLogWorker, Factory, should_skip_remote_commit_log_entry,
 };
+use crate::groups::context::XmtpSharedContext;
 use crate::groups::send_message_opts::SendMessageOpts;
 use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer, EngineTestPeerOps};
 use crate::prelude::*;
@@ -814,7 +814,7 @@ async fn a_failed_publish_ends_the_turn_not_the_worker() {
     const INTERVAL: Duration = Duration::from_secs(10);
     const AFTER_PUBLISH: Duration = Duration::from_secs(2);
     let alix = EngineTestPeer::new_with(|o| {
-        o.fork_recovery_opts = crate::core::config::ForkRecoveryOpts {
+        o.fork_recovery_opts = xmtp_mls_core::config::ForkRecoveryOpts {
             worker_interval_ns: Some(INTERVAL.as_nanos() as u64),
             ..Default::default()
         }
@@ -1862,7 +1862,7 @@ async fn the_publisher_flag_follows_the_super_admin_list() {
     );
 
     // Model the cached role left by an older client before replacing its MLS state.
-    crate::state_tx::state_write(alix.context.mls_storage(), |tx| {
+    xmtp_mls_core::state_tx::state_write(alix.context.mls_storage(), |tx| {
         use xmtp_db::XmtpMlsStorageProvider;
         tx.storage()
             .db()

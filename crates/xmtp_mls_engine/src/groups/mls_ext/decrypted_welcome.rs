@@ -1,4 +1,3 @@
-use crate::state_tx::state_write;
 use openmls::{
     group::{MlsGroupJoinConfig, StagedWelcome, WireFormatPolicy},
     prelude::{
@@ -11,8 +10,9 @@ use tls_codec::{Deserialize, Serialize};
 use xmtp_db::TransactionOutcome;
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::XmtpOpenMlsProviderRef;
+use xmtp_mls_core::state_tx::state_write;
 
-use crate::{groups::GroupError, identity::parse_credential};
+use crate::groups::GroupError;
 use xmtp_configuration::{
     MAX_PAST_EPOCHS, SENDER_RATCHET_MAX_FORWARD_DISTANCE, SENDER_RATCHET_OUT_OF_ORDER_TOLERANCE,
     WELCOME_HPKE_LABEL,
@@ -23,6 +23,7 @@ use xmtp_db::{
     sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY, codec as kv_codec},
 };
 use xmtp_id::key_package::{WrapperAlgorithm, WrapperEncryptionExtension};
+use xmtp_mls_core::identity::parse_credential;
 use xmtp_mls_group_keys::mls_ext::payload_encryption::{
     unwrap_payload_hpke, unwrap_payload_symmetric,
 };
@@ -170,7 +171,7 @@ impl ResolvedWelcome {
     /// Resolve pointer data without holding the database writer during network I/O.
     pub(crate) async fn resolve(
         welcome: &WelcomeMessage,
-        context: &impl crate::context::XmtpSharedContext,
+        context: &impl crate::groups::context::XmtpSharedContext,
     ) -> Result<Self, GroupError> {
         let pointer = match &welcome.variant {
             WelcomeMessageType::V1(_) => return Ok(Self { pointee: None }),

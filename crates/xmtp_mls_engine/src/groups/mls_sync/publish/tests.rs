@@ -150,7 +150,7 @@ async fn prepare_kind<C: XmtpSharedContext>(
     group: &MlsGroup<C>,
     kind: IntentKind,
 ) -> Result<(StoredGroupIntent, PreparedAttempt), GroupError> {
-    let requirements = crate::state_tx::state_write(group.context.mls_storage(), |tx| {
+    let requirements = xmtp_mls_core::state_tx::state_write(group.context.mls_storage(), |tx| {
         tx.with_group(group.group_id, |mls_group, storage| {
             let intent = storage
                 .db()
@@ -601,7 +601,7 @@ async fn rejected_intent_keeps_its_typed_cause_after_restart_and_later_rejection
     let restarted = EngineTestPeer::open_persistent(
         owner,
         &database,
-        crate::identity_lifecycle::IdentityStrategy::CachedOnly,
+        xmtp_mls_identity::identity_lifecycle::IdentityStrategy::CachedOnly,
         |_| {},
     )
     .await;
@@ -662,7 +662,7 @@ async fn prepared_proposals_keep_wire_order_after_reload() {
             _ => panic!("unexpected proposal"),
         }
     }
-    let pending = crate::state_tx::state_write(group.context.mls_storage(), |tx| {
+    let pending = xmtp_mls_core::state_tx::state_write(group.context.mls_storage(), |tx| {
         tx.with_group(group.group_id, |mls_group, _| {
             Ok::<_, GroupError>(Continue(mls_group.pending_proposals().count()))
         })
@@ -755,7 +755,7 @@ async fn late_publish_reply_cannot_update_replacement_attempt() {
         .await?;
 
     // Model ordered supersession while the first publish reply is delayed.
-    crate::state_tx::state_write(group.context.mls_storage(), |tx| {
+    xmtp_mls_core::state_tx::state_write(group.context.mls_storage(), |tx| {
         tx.storage()
             .db()
             .set_group_intent_to_publish(old_intent.id)?;
@@ -859,7 +859,7 @@ async fn preparation_rejects_changed_proposal_refs_at_the_same_epoch()
         .queue(&group)?;
     group.sync_until_intent_resolved(proposal.id).await?;
     let intent = QueueIntent::commit_pending_proposals().queue(&group)?;
-    let requirements = crate::state_tx::state_write(group.context.mls_storage(), |tx| {
+    let requirements = xmtp_mls_core::state_tx::state_write(group.context.mls_storage(), |tx| {
         tx.with_group(group.group_id, |mls, storage| {
             let intent = Fetch::<StoredGroupIntent>::fetch(&storage.db(), &intent.id)?
                 .ok_or(GroupError::UninitializedResult)?;
@@ -874,7 +874,7 @@ async fn preparation_rejects_changed_proposal_refs_at_the_same_epoch()
         assert!(pending.len() >= 2);
         Ok(pending[0].proposal_reference_ref().clone())
     })?;
-    crate::state_tx::state_write(group.context.mls_storage(), |tx| {
+    xmtp_mls_core::state_tx::state_write(group.context.mls_storage(), |tx| {
         tx.with_group(group.group_id, |mls, storage| {
             mls.remove_pending_proposal(storage, &reference).unwrap();
             Ok::<_, GroupError>(Continue(()))
@@ -907,7 +907,7 @@ async fn preparation_fences_a_second_snapshot_of_the_same_intent() {
     QueueIntent::update_group_membership()
         .data(data)
         .queue(&group)?;
-    let requirements = crate::state_tx::state_write(group.context.mls_storage(), |tx| {
+    let requirements = xmtp_mls_core::state_tx::state_write(group.context.mls_storage(), |tx| {
         tx.with_group(group.group_id, |mls_group, storage| {
             let intent = storage
                 .db()
@@ -1037,7 +1037,7 @@ async fn welcome_followup_requires_ordered_commit_cursor() {
         .data(data)
         .queue(&group)?;
     let (intent, _) = prepare_kind(&group, IntentKind::UpdateGroupMembership).await?;
-    crate::state_tx::state_write(group.context.mls_storage(), |tx| {
+    xmtp_mls_core::state_tx::state_write(group.context.mls_storage(), |tx| {
         tx.storage()
             .db()
             .set_group_intent_committed(intent.id, Cursor(0))?;
@@ -1376,7 +1376,7 @@ async fn rejected_own_application_echo_fails_atomically_and_survives_restart() {
     let restarted = EngineTestPeer::open_persistent(
         owner,
         &database,
-        crate::identity_lifecycle::IdentityStrategy::CachedOnly,
+        xmtp_mls_identity::identity_lifecycle::IdentityStrategy::CachedOnly,
         |_| {},
     )
     .await;

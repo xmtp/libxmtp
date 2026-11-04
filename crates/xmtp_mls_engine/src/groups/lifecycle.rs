@@ -2,12 +2,12 @@
 
 use super::intents::UpdateGroupMembershipIntentData;
 use super::*;
-use crate::core::events::{dm_event_context, emit_consent_changes};
-use crate::mls_store::MlsStoreError;
 use xmtp_db::consent_record::{
     ConsentChange, ConsentKey, ConsentWrite, Decision, Owed, fold_into_inbox, write_consent,
 };
 use xmtp_db::group::GroupQueryArgs;
+use xmtp_mls_core::events::{dm_event_context, emit_consent_changes};
+use xmtp_mls_core::mls_store::MlsStoreError;
 
 mod restored;
 use xmtp_db::TransactionalKeyStore;
@@ -346,7 +346,7 @@ where
         if query_ids.is_empty() {
             return Ok(HashMap::new());
         }
-        let store = crate::mls_store::MlsStore::new(self.context.clone());
+        let store = xmtp_mls_core::mls_store::MlsStore::new(self.context.clone());
 
         let verified = store
             .get_key_packages_for_installation_ids(query_ids)
@@ -510,7 +510,7 @@ where
         let commit_log_enabled = context.server_configuration().commit_log_enabled();
         if !emit_created_event || conversation_type.is_virtual() {
             if emit_created_event && conversation_type == ConversationType::Sync {
-                return crate::state_tx::state_write_with_events(
+                return xmtp_mls_core::state_tx::state_write_with_events(
                     context.mls_storage(),
                     context.events(),
                     |tx, events| {
@@ -526,7 +526,7 @@ where
                         )?;
                         if created {
                             // implements: SYNC-001
-                            crate::core::sync_tasks::schedule_add_missing_installations(
+                            xmtp_mls_core::sync_tasks::schedule_add_missing_installations(
                                 &tx.storage().db(),
                                 events,
                                 stored_group.id,
@@ -536,7 +536,7 @@ where
                             context.task_channels().mark_notification_changed();
                             events.emit(
                                 None,
-                                Some(crate::core::events::InternalEvent::GroupJoined {
+                                Some(xmtp_mls_core::events::InternalEvent::GroupJoined {
                                     group_id: stored_group.id,
                                     is_sync: true,
                                 }),
@@ -563,7 +563,7 @@ where
             .map(|outcome| (outcome.into_continued(), None));
         }
 
-        let result = crate::state_tx::state_write_with_events(
+        let result = xmtp_mls_core::state_tx::state_write_with_events(
             context.mls_storage(),
             context.events(),
             |tx, events| {
@@ -613,7 +613,7 @@ where
                             adder_inbox_id: None,
                         },
                     )),
-                    Some(crate::core::events::InternalEvent::GroupJoined {
+                    Some(xmtp_mls_core::events::InternalEvent::GroupJoined {
                         group_id: stored_group.id,
                         is_sync: false,
                     }),
@@ -688,7 +688,7 @@ where
     )]
     fn insert_group_row(
         context: &Context,
-        tx: &mut crate::state_tx::StateTx<'_, impl TransactionalKeyStore>,
+        tx: &mut xmtp_mls_core::state_tx::StateTx<'_, impl TransactionalKeyStore>,
         id: NewGroupId,
         membership_state: GroupMembershipState,
         conversation_type: ConversationType,
@@ -872,7 +872,7 @@ where
             .into_continued()
             .0
         } else {
-            crate::state_tx::state_write_with_events(
+            xmtp_mls_core::state_tx::state_write_with_events(
                 context.mls_storage(),
                 context.events(),
                 |tx, events| {
@@ -901,7 +901,7 @@ where
                                         adder_inbox_id: None,
                                     },
                                 )),
-                                Some(crate::core::events::InternalEvent::GroupJoined {
+                                Some(xmtp_mls_core::events::InternalEvent::GroupJoined {
                                     group_id: stored_group.id,
                                     is_sync: false,
                                 }),
@@ -931,7 +931,7 @@ where
     )]
     fn insert_dm_row(
         context: &Context,
-        tx: &mut crate::state_tx::StateTx<'_, impl TransactionalKeyStore>,
+        tx: &mut xmtp_mls_core::state_tx::StateTx<'_, impl TransactionalKeyStore>,
         membership_state: GroupMembershipState,
         dm_members: &DmMembers<InboxId>,
         opts: &GroupMetadataOptions,

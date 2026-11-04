@@ -1,10 +1,10 @@
 //! Prepare and publish durable outgoing attempts.
 
 use super::*;
-use crate::core::api_status::backend_status;
-pub(crate) use crate::core::api_status::definite_refusal;
 use crate::groups::app_data::GroupAppDataError;
 use xmtp_db::group_intent::QueryPreparedEnvelope;
+use xmtp_mls_core::api_status::backend_status;
+pub(crate) use xmtp_mls_core::api_status::definite_refusal;
 use xmtp_mls_group_state::app_data::component_source::ComponentSourceError;
 use xmtp_mls_validation::commit::CommitRuleError;
 
@@ -85,7 +85,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         };
 
         loop {
-            let next = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+            let next = xmtp_mls_core::state_tx::state_write(self.context.mls_storage(), |tx| {
                 tx.with_group(self.group_id, |group, storage| {
                     let intent = storage.db().next_publish_intent(
                         self.group_id.as_ref(),
@@ -333,7 +333,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
     ) -> Result<bool, GroupError> {
         // The failed preparation transaction already rolled back its ratchets.
         // Only definite local request or authorization errors enter this path.
-        crate::state_tx::state_write_with_events(
+        xmtp_mls_core::state_tx::state_write_with_events(
             self.context.mls_storage(),
             self.context.events(),
             |tx, event_writer| {
@@ -368,7 +368,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         intent: &StoredGroupIntent,
         attempt: &PreparedAttempt,
     ) -> Result<bool, GroupError> {
-        crate::state_tx::state_write_with_events(
+        xmtp_mls_core::state_tx::state_write_with_events(
             self.context.mls_storage(),
             self.context.events(),
             |tx, event_writer| {
@@ -419,7 +419,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         &self,
         db: &impl DbQuery,
         intent: &StoredGroupIntent,
-        event_writer: &impl xmtp_events::EventWriter<crate::core::events::InternalEvent>,
+        event_writer: &impl xmtp_events::EventWriter<xmtp_mls_core::events::InternalEvent>,
     ) -> Result<(), GroupError> {
         let message_id = calculate_message_id_for_intent(intent)?;
         let previous_status = message_id
@@ -450,7 +450,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         dependencies: &mut PublishDependencies,
     ) -> Result<Option<PreparedAttempt>, GroupError> {
         let (storage, bus) = (self.context.mls_storage(), self.context.events());
-        crate::state_tx::state_write_with_events_durable(storage, bus, |tx, events| {
+        xmtp_mls_core::state_tx::state_write_with_events_durable(storage, bus, |tx, events| {
             let mut no_op = None;
             let result = tx.savepoint(|tx| {
                 tx.with_group(self.group_id, |group, storage| {

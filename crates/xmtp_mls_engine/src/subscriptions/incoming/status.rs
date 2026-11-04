@@ -36,7 +36,7 @@ pub enum IncomingError {
     #[error(transparent)]
     Storage(#[from] xmtp_db::StorageError),
     #[error(transparent)]
-    Store(#[from] crate::mls_store::MlsStoreError),
+    Store(#[from] xmtp_mls_core::mls_store::MlsStoreError),
     #[error(transparent)]
     Transport(#[from] xmtp_proto::api::NetworkError),
     #[error(transparent)]
@@ -44,7 +44,7 @@ pub enum IncomingError {
     #[error(transparent)]
     Processing(#[from] crate::groups::mls_sync::GroupMessageProcessingError),
     #[error(transparent)]
-    Identity(#[from] crate::identity_updates::IdentityDependencyError),
+    Identity(#[from] xmtp_mls_identity::identity_updates::IdentityDependencyError),
     #[error("unsupported incoming topic")]
     UnsupportedTopic,
 }
@@ -57,7 +57,7 @@ impl RetryableError for IncomingError {
             Self::Storage(xmtp_db::StorageError::Stream(
                 xmtp_db::stream_storage::StreamStorageError::MissingPrefix { .. },
             ))
-            | Self::Store(crate::mls_store::MlsStoreError::Storage(
+            | Self::Store(xmtp_mls_core::mls_store::MlsStoreError::Storage(
                 xmtp_db::StorageError::Stream(
                     xmtp_db::stream_storage::StreamStorageError::MissingPrefix { .. },
                 ),
@@ -85,7 +85,7 @@ impl RetryableError for IncomingError {
     }
 }
 
-impl crate::worker::NeedsDbReconnect for IncomingError {
+impl xmtp_mls_core::worker::NeedsDbReconnect for IncomingError {
     #[deny(clippy::wildcard_enum_match_arm)]
     fn needs_db_reconnect(&self) -> bool {
         match self {

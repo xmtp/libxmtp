@@ -5,7 +5,7 @@ use crate::prelude::*;
 use xmtp_db::group_message::{ContentType, MsgQueryArgs};
 use xmtp_db::prelude::*;
 
-use crate::context::XmtpSharedContext;
+use crate::groups::context::XmtpSharedContext;
 use crate::groups::{
     GroupError, MlsGroup,
     intents::{QueueIntent, UpdateMetadataIntentData},

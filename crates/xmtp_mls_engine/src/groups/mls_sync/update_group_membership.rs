@@ -5,8 +5,6 @@ use crate::groups::{
     GroupError,
     intents::{PostCommitAction, UpdateGroupMembershipIntentData},
 };
-use crate::identity::parse_credential;
-use crate::identity_updates::required_leaf_removals;
 use openmls::{
     credentials::BasicCredential,
     key_packages::KeyPackage,
@@ -17,6 +15,7 @@ use openmls_traits::signatures::Signer;
 use prost::Message;
 use tls_codec::VLBytes;
 use xmtp_configuration::ApplicationComponentDefinition;
+use xmtp_mls_core::identity::parse_credential;
 use xmtp_mls_group_state::{
     app_data::{
         component_id::ComponentId,
@@ -28,6 +27,7 @@ use xmtp_mls_group_state::{
     },
     inbox_id::InboxId,
 };
+use xmtp_mls_identity::identity_updates::required_leaf_removals;
 use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
 use xmtp_mls_validation::commit::{
     CommitRuleError, extract_group_membership, inbox_id_from_credential, leaf_owners,
@@ -92,8 +92,8 @@ pub(super) fn build_membership_delta(
     old: &GroupMembership,
     new: &GroupMembership,
 ) -> Result<Vec<u8>, GroupError> {
-    use crate::identity_updates::{IdentityRequirement, require_association_state};
     use xmtp_mls_group_state::app_data::component_source::ComponentSourceError;
+    use xmtp_mls_identity::identity_updates::{IdentityRequirement, require_association_state};
     let prior =
         GroupMembershipComponent::decode_value(old_bytes).map_err(ComponentSourceError::from)?;
     let wanted: HashSet<_> = new.failed_installations.iter().cloned().collect();
@@ -274,7 +274,7 @@ pub(crate) fn apply_update_group_membership_intent(
             &changes_with_kps.removed_installations,
             &leaf_owners(openmls_group.members())?,
         )
-        .map_err(crate::identity_updates::InstallationDiffError::from)?,
+        .map_err(xmtp_mls_identity::identity_updates::InstallationDiffError::from)?,
     );
 
     let leaf_nodes_to_remove: Vec<LeafNodeIndex> =
@@ -525,7 +525,7 @@ pub(crate) fn installations_for_staged_adds(
             let key_package = proposal.add_proposal().key_package();
             #[cfg(any(test, feature = "test-hooks"))]
             if let Some(unchecked) =
-                crate::identity_lifecycle::test_mocks::test_mode_unchecked_key_package(
+                xmtp_mls_identity::identity_lifecycle::test_mocks::test_mode_unchecked_key_package(
                     key_package.leaf_node().signature_key().as_slice(),
                 )
             {
@@ -641,7 +641,7 @@ mod tests {
         )
         .await?;
         let outcome: TransactionOutcome<()> =
-            crate::state_tx::state_write(group.context.mls_storage(), |tx| {
+            xmtp_mls_core::state_tx::state_write(group.context.mls_storage(), |tx| {
                 tx.with_group(group.group_id, |mls, storage| {
                     let payload =
                         build_group_membership_app_data_payload(&storage.db(), mls, &old, &new)?;

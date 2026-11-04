@@ -74,7 +74,7 @@ async fn accept_delta(group: &EngineTestGroup, payload: Vec<u8>) -> Result<(), G
 /// Restore a membership state an older receiver accepted, bypassing today's
 /// stricter identity-removal check. This creates the pre-upgrade test state only.
 fn legacy_entry(group: &EngineTestGroup, payload: Vec<u8>) -> Result<(), GroupError> {
-    crate::state_tx::state_write(group.context.mls_storage(), |tx| {
+    xmtp_mls_core::state_tx::state_write(group.context.mls_storage(), |tx| {
         tx.with_group(group.group_id, |mls, storage| {
             let provider = XmtpOpenMlsProviderRef::new(storage);
             crate::groups::app_data::stage_app_data_proposals_and_commit(
@@ -205,7 +205,7 @@ async fn failed_key_remove_does_not_cover_a_pending_refresh()
         entry_update(bo.inbox_id(), raised, vec![key.clone()]),
     )
     .await?;
-    let remove = crate::state_tx::state_write(group.context.mls_storage(), |tx| {
+    let remove = xmtp_mls_core::state_tx::state_write(group.context.mls_storage(), |tx| {
         tx.with_group(group.group_id, |mls, storage| {
             let provider = XmtpOpenMlsProviderRef::new(storage);
             let leaf = mls

@@ -6,7 +6,6 @@ use super::membership_recovery::receive_completed_prefix;
 use super::*;
 use crate::groups::send_message_opts::SendMessageOpts;
 use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
-use crate::messages::decoded_message::MessageBody;
 use std::sync::atomic::Ordering;
 use xmtp_content_types::{
     ContentCodec, encoded_content_to_bytes,
@@ -14,6 +13,7 @@ use xmtp_content_types::{
     text::TextCodec,
 };
 use xmtp_db::group_message::DeliveryStatus;
+use xmtp_mls_messages::decoded_message::MessageBody;
 
 pub(super) fn intents_in<C: XmtpSharedContext>(
     group: &MlsGroup<C>,

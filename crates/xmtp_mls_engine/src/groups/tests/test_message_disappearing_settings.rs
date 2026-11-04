@@ -8,7 +8,8 @@ use xmtp_mls_group_state::{
     group::GroupMetadataOptions, group_mutable_metadata::MessageDisappearingSettings,
 };
 
-use crate::{groups::GroupError, messages::decoded_message::MessageBody};
+use crate::groups::GroupError;
+use xmtp_mls_messages::decoded_message::MessageBody;
 
 // verifies: META-076
 #[xmtp_common::test(unwrap_try = true)]

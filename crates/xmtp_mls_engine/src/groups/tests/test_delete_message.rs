@@ -3,13 +3,13 @@ use crate::groups::error::DeleteMessageError;
 use crate::groups::send_message_opts::SendMessageOpts;
 use crate::groups::test_support::message_rows::cached_text_row;
 use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer, EngineTestPeerOps};
-use crate::messages::decoded_message::{DeletedBy, MessageBody};
 use xmtp_content_types::{ContentCodec, compression::compress, text::TextCodec};
 use xmtp_db::Store;
 use xmtp_db::group_message::{
     ContentType, DeliveryStatus, GroupMessageKind, MsgQueryArgs, QueryGroupMessage,
 };
 use xmtp_db::message_deletion::QueryMessageDeletion;
+use xmtp_mls_messages::decoded_message::{DeletedBy, MessageBody};
 use xmtp_proto::xmtp::mls::message_contents::Compression;
 
 /// The inbox that marked `id` deleted, or `None` while it is unmarked.
@@ -397,8 +397,8 @@ async fn test_out_of_order_deletion() {
 // verifies: PROC-056
 #[xmtp_common::test(unwrap_try = true)]
 async fn unauthorized_pending_delete_does_not_block_super_admin_delete() {
-    use crate::context::CoreContext;
     use xmtp_content_types::delete_message::DeleteMessageCodec;
+    use xmtp_mls_core::context::CoreContext;
     use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 
     let alix = EngineTestPeer::new().await;
@@ -442,7 +442,7 @@ async fn unauthorized_pending_delete_does_not_block_super_admin_delete() {
         .db()
         .get_group_message(&malicious_delete_id)?
         .expect("the attacker's deletion message is stored");
-    crate::state_tx::state_write_with_events(
+    xmtp_mls_core::state_tx::state_write_with_events(
         alix.context.mls_storage(),
         alix.context.events(),
         |tx, buffer| {
@@ -493,8 +493,8 @@ async fn unauthorized_pending_delete_does_not_block_super_admin_delete() {
 // verifies: PROC-056
 #[xmtp_common::test(unwrap_try = true)]
 async fn cross_group_pending_delete_does_not_block_super_admin_delete() {
-    use crate::context::CoreContext;
     use xmtp_content_types::delete_message::DeleteMessageCodec;
+    use xmtp_mls_core::context::CoreContext;
     use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 
     let alix = EngineTestPeer::new().await;
@@ -777,8 +777,8 @@ async fn test_reply_to_deleted_message() {
 // verifies: PROC-037
 #[xmtp_common::test(unwrap_try = true)]
 async fn deletion_clears_original_evidence_on_message_and_parent() {
-    use crate::messages::enrichment::deleted_message_content_type;
     use xmtp_content_types::reply::ReplyCodec;
+    use xmtp_mls_messages::enrichment::deleted_message_content_type;
 
     let alix = EngineTestPeer::new().await;
     let bo = EngineTestPeer::new().await;
@@ -855,8 +855,8 @@ async fn deletion_clears_original_evidence_on_message_and_parent() {
 // verifies: CTYPE-018, PROC-037
 #[xmtp_common::test(unwrap_try = true)]
 async fn deletion_clears_an_undecodable_deletable_row_and_parent() {
-    use crate::messages::decoded_message::ContentDecodeFailureKind;
     use xmtp_content_types::reply::ReplyCodec;
+    use xmtp_mls_messages::decoded_message::ContentDecodeFailureKind;
 
     let alix = EngineTestPeer::new().await;
     let bo = EngineTestPeer::new().await;
@@ -1180,7 +1180,7 @@ async fn test_sender_and_admin_both_delete() {
 // verifies: PROC-037, PROC-056, EVENT-001, EVENT-007
 #[xmtp_common::test(unwrap_try = true)]
 async fn request_queues_and_applies_at_echo() {
-    use crate::context::CoreContext;
+    use xmtp_mls_core::context::CoreContext;
 
     let alix = EngineTestPeer::new().await;
     let bo = EngineTestPeer::new().await;

@@ -213,7 +213,7 @@ async fn an_inbox_over_the_envelope_limit_keeps_its_removes(
     let bo = EngineTestPeer::new().await;
     let caro = EngineTestPeer::new().await;
     let caro2 = caro.new_installation().await;
-    crate::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage(
+    xmtp_mls_identity::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage(
         true,
         Some(vec![caro2.context.installation_id().to_vec()]),
     );
@@ -223,7 +223,9 @@ async fn an_inbox_over_the_envelope_limit_keeps_its_removes(
     let probe = alix
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
-    crate::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage(false, None);
+    xmtp_mls_identity::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage(
+        false, None,
+    );
     assert!(group.with_group_snapshot(|mls| {
         Ok::<_, GroupError>(
             extract_group_membership(mls.extensions())?

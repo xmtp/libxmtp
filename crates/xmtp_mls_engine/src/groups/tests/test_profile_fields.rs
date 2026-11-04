@@ -41,16 +41,14 @@ use xmtp_mls_validation::commit::MAX_DICTIONARY_BYTES;
 use xmtp_proto::xmtp::mls::message_contents::{ComponentType, metadata_policy::MetadataBasePolicy};
 
 use super::test_dictionary_creation::{definition, value};
-use crate::{
+use crate::groups::{
+    GroupError, MlsGroup, UpdateAdminListType,
+    app_data::{AppDataBatch, GroupAppDataError, load_component_registry},
     context::XmtpSharedContext,
-    groups::{
-        GroupError, MlsGroup, UpdateAdminListType,
-        app_data::{AppDataBatch, GroupAppDataError, load_component_registry},
-        intents::{AppDataUpdateIntentData, ProposeMemberUpdateIntentData, QueueIntent},
-        mls_sync::generate_prepared_commit,
-    },
-    state_tx::state_write,
+    intents::{AppDataUpdateIntentData, ProposeMemberUpdateIntentData, QueueIntent},
+    mls_sync::generate_prepared_commit,
 };
+use xmtp_mls_core::state_tx::state_write;
 
 const MAX_ELEMENT: usize = 8192;
 

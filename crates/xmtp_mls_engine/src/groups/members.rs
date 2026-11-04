@@ -1,4 +1,5 @@
-use crate::{context::XmtpSharedContext, identity_updates::IdentityUpdates};
+use crate::groups::context::XmtpSharedContext;
+use xmtp_mls_identity::identity_updates::IdentityUpdates;
 
 use super::{GroupError, MlsGroup};
 use xmtp_db::prelude::*;

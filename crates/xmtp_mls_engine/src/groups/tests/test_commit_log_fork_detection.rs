@@ -1,4 +1,3 @@
-use crate::context::CoreContext;
 use crate::groups::app_data::process_message_with_app_data;
 use crate::groups::commit_log::{CommitLogTestFunction, CommitLogWorker};
 use crate::groups::mls_ext::CommitLogStorer;
@@ -16,6 +15,7 @@ use xmtp_db::prelude::*;
 use xmtp_db::{
     MlsProviderExt, StorageError, TransactionOutcome, TransactionalKeyStore, XmtpOpenMlsProviderRef,
 };
+use xmtp_mls_core::context::CoreContext;
 use xmtp_proto::types::{Cursor, Topic};
 
 // A conversation whose log is not read has no remote entry to compare, so no

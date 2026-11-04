@@ -1,0 +1,132 @@
+[package]
+name = "xmtp_mls_engine"
+description = "XMTP MLS engine: groups, their intents and sync, welcomes and the stream receiver"
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# Read-only observations for convergence and liveness checks (apps/chaos).
+diagnostics = []
+# Hook state and dispatch points that change runtime behavior for a test.
+# Never enabled outside tests.
+test-hooks = [
+  "xmtp_mls_core/test-hooks",
+  "xmtp_mls_identity/test-hooks",
+  "xmtp_mls_server_config/test-hooks",
+]
+test-utils = [
+  "dep:alloy",
+  "xmtp_api/test-utils",
+  "xmtp_api_backend/test-utils",
+  "xmtp_api_grpc/test-utils",
+  "xmtp_common/test-utils-network",
+  "xmtp_configuration/test-utils",
+  "xmtp_content_types/test-utils",
+  "xmtp_db/test-utils",
+  "xmtp_id/test-utils-anvil",
+  "xmtp_mls_core/test-utils",
+  "xmtp_mls_identity/test-utils",
+  "xmtp_mls_messages/test-utils",
+  "xmtp_mls_server_config/test-utils",
+  "xmtp_proto/test-utils-network",
+]
+
+[dependencies]
+alloy = { workspace = true, optional = true }
+async-trait.workspace = true
+bytes.workspace = true
+derive_builder.workspace = true
+futures = { workspace = true, features = ["alloc", "std"] }
+hex.workspace = true
+hkdf.workspace = true
+hmac = "0.12.1"
+openmls.workspace = true
+openmls_rust_crypto.workspace = true
+openmls_traits.workspace = true
+parking_lot.workspace = true
+prost = { workspace = true, features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tls_codec.workspace = true
+tokio.workspace = true
+tonic.workspace = true
+tracing.workspace = true
+xmtp-workspace-hack.workspace = true
+xmtp_api.workspace = true
+xmtp_api_backend.workspace = true
+xmtp_api_grpc.workspace = true
+xmtp_common.workspace = true
+xmtp_configuration.workspace = true
+xmtp_content_types.workspace = true
+xmtp_cryptography.workspace = true
+xmtp_db.workspace = true
+xmtp_events.workspace = true
+xmtp_id.workspace = true
+xmtp_macro.workspace = true
+xmtp_mls_core.workspace = true
+xmtp_mls_group_keys.workspace = true
+xmtp_mls_group_state.workspace = true
+xmtp_mls_identity.workspace = true
+xmtp_mls_messages.workspace = true
+xmtp_mls_server_config.workspace = true
+xmtp_mls_tls_collections.workspace = true
+xmtp_mls_validation.workspace = true
+xmtp_proto.workspace = true
+zeroize.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+chrono = { workspace = true, features = ["clock"] }
+
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+chrono = { workspace = true, features = ["wasmbind"] }
+
+[dev-dependencies]
+alloy.workspace = true
+cbor4ii.workspace = true
+diesel = { workspace = true, features = [
+  "returning_clauses_for_sqlite_3_35",
+  "sqlite",
+  "32-column-tables",
+] }
+openmls = { workspace = true, features = ["test-utils"] }
+openmls_basic_credential.workspace = true
+rstest = { workspace = true, features = ["async-timeout"] }
+wasm-bindgen-test.workspace = true
+xmtp_api = { workspace = true, features = ["test-utils"] }
+xmtp_api_backend = { workspace = true, features = ["test-utils"] }
+xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
+xmtp_common = { workspace = true, features = ["test-utils-network"] }
+xmtp_configuration = { workspace = true, features = ["test-utils"] }
+xmtp_content_types = { workspace = true, features = ["test-utils"] }
+xmtp_cryptography = { workspace = true, features = [
+  "exposed-keys",
+  "test-utils",
+] }
+xmtp_db = { workspace = true, features = ["test-utils"] }
+xmtp_id = { workspace = true, features = ["test-utils-anvil"] }
+xmtp_logging = { workspace = true, features = ["test-utils"] }
+xmtp_mls_core = { workspace = true, features = ["test-hooks", "test-utils"] }
+xmtp_mls_identity = { workspace = true, features = [
+  "test-hooks",
+  "test-utils",
+] }
+xmtp_mls_messages = { workspace = true, features = ["test-utils"] }
+xmtp_mls_server_config = { workspace = true, features = [
+  "test-hooks",
+  "test-utils",
+] }
+xmtp_mls_validation = { workspace = true, features = ["test-utils"] }
+xmtp_proto = { workspace = true, features = ["test-utils-network"] }
+
+[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dev-dependencies]
+tempfile = "3.27.0"
+tokio = { workspace = true, features = ["rt-multi-thread", "test-util"] }

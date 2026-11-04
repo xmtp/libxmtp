@@ -1,8 +1,8 @@
 //! The context the engine runs on.
 
-use crate::context::CoreContext;
-use crate::identity_updates::IdentityContext;
 use crate::subscriptions::incoming::IncomingRuntime;
+use xmtp_mls_core::context::CoreContext;
+use xmtp_mls_identity::identity_updates::IdentityContext;
 
 /// The engine's feature slot: the client's incoming runtime.
 pub trait EngineFeatures {

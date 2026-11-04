@@ -2,11 +2,6 @@
 
 use super::*;
 use crate::groups::welcome_sync::GroupSyncSummary;
-use crate::identity::Identity;
-use crate::identity_updates::IdentityUpdates;
-use crate::identity_updates::load_identity_updates_for_client;
-use crate::inbox_handles::account_targets;
-use crate::mls_store::MlsStore;
 use std::collections::HashMap;
 use xmtp_configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION;
 use xmtp_db::consent_record::ConsentState;
@@ -14,7 +9,12 @@ use xmtp_id::InboxOwner;
 use xmtp_id::associations::AssociationState;
 use xmtp_id::associations::Identifier;
 use xmtp_id::key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2};
+use xmtp_mls_core::identity::Identity;
+use xmtp_mls_core::mls_store::MlsStore;
 use xmtp_mls_core::version::VersionInfo;
+use xmtp_mls_identity::identity_updates::IdentityUpdates;
+use xmtp_mls_identity::identity_updates::load_identity_updates_for_client;
+use xmtp_mls_identity::inbox_handles::account_targets;
 
 /// The client reads and operations that only the engine's own suites run on
 /// an `EngineTestPeer`'s context.
@@ -135,14 +135,14 @@ impl<A: XmtpApi + 'static> EngineSuiteOps for TestPeer<EngineTestFeatures, A> {
     }
 
     async fn rotate_and_upload_key_package(&self) -> Result<(), GroupError> {
-        crate::identity_lifecycle::rotate_and_upload_key_package(
+        xmtp_mls_identity::identity_lifecycle::rotate_and_upload_key_package(
             self.context.identity(),
             self.context.api(),
             self.context.mls_storage(),
             CREATE_PQ_KEY_PACKAGE_EXTENSION,
         )
         .await?;
-        crate::worker::key_package_maintenance::nudge_deletion(&self.context)?;
+        xmtp_mls_identity::key_package_maintenance::nudge_deletion(&self.context)?;
         Ok(())
     }
 

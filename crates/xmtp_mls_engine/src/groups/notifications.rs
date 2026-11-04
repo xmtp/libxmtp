@@ -1,17 +1,17 @@
 //! Per-conversation notification rules.
 
 use super::MlsGroup;
-use crate::context::XmtpSharedContext;
-use crate::core::notifications::{
-    NotificationOverride, enabled_from_record, notification_settings_changed,
-};
+use crate::groups::context::XmtpSharedContext;
 use xmtp_db::consent_record::conversation_consent;
 use xmtp_db::{StorageError, TransactionOutcome::Continue, XmtpMlsStorageProvider, prelude::*};
+use xmtp_mls_core::notifications::{
+    NotificationOverride, enabled_from_record, notification_settings_changed,
+};
 
 impl<Context: XmtpSharedContext> MlsGroup<Context> {
     /// Set an override after which the task recomputes the desired set.
     pub fn set_notifications(&self, value: NotificationOverride) -> Result<(), StorageError> {
-        crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+        xmtp_mls_core::state_tx::state_write(self.context.mls_storage(), |tx| {
             tx.storage().db().set_notification_override(
                 &self.group_id,
                 match value {

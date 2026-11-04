@@ -1,13 +1,13 @@
 //! Stored message rows that message-list tests seed.
 
 use crate::groups::QueryableContentFields;
-use crate::messages::decoded_message::DecodedMessage;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::{ContentCodec, text::TextCodec};
 use xmtp_db::Store;
 use xmtp_db::group_message::{
     ContentType as DbContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage,
 };
+use xmtp_mls_messages::decoded_message::DecodedMessage;
 use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 

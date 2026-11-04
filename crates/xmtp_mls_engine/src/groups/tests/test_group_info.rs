@@ -2,16 +2,12 @@
 //! root, which may leave the client only inside a Welcome.
 
 use crate::groups::test_support::{EnginePeer, EngineTestPeer};
-use crate::{
-    context::CoreContext,
-    groups::{
-        GroupError, app_data::stage_app_data_proposals_and_commit,
-        mls_sync::generate_prepared_commit,
-    },
-    state_tx::state_write,
+use crate::groups::{
+    GroupError, app_data::stage_app_data_proposals_and_commit, mls_sync::generate_prepared_commit,
 };
 use openmls::messages::proposals::AppDataUpdateOperation;
 use xmtp_db::TransactionOutcome::Continue;
+use xmtp_mls_core::{context::CoreContext, state_tx::state_write};
 use xmtp_mls_group_state::app_data::component_id::ComponentId;
 
 /// XMTP groups use the ratchet-tree extension, so OpenMLS exports a

@@ -1,4 +1,3 @@
-use crate::context::CoreContext;
 use crate::groups::mls_ext::WelcomePointersExtension;
 use crate::groups::test_support::welcome_pointers::{
     publish_commit_without_welcome, publish_pointer, random_pointer, sealed_pointee,
@@ -7,16 +6,17 @@ use crate::groups::test_support::{
     EnginePeer, EngineSuiteOps, EngineTestGroup, EngineTestPeer, EngineTestPeerOps,
 };
 use crate::groups::welcome_pointer::resolve_welcome_pointer;
-use crate::identity::{ENABLE_WELCOME_POINTERS, WelcomePointersHook};
 use prost::Message;
 use std::time::Duration;
 use xmtp_configuration::WELCOME_HPKE_LABEL;
 use xmtp_db::group::QueryGroup;
 use xmtp_db::incoming_envelope::QueryIncomingEnvelope;
 use xmtp_id::key_package::WrapperAlgorithm;
+use xmtp_mls_core::context::CoreContext;
 use xmtp_mls_group_keys::mls_ext::payload_encryption::{
     unwrap_payload_symmetric, wrap_payload_hpke, wrap_payload_symmetric,
 };
+use xmtp_mls_identity::identity_lifecycle::{ENABLE_WELCOME_POINTERS, WelcomePointersHook};
 use xmtp_proto::types::{DecryptedWelcomePointer, WelcomeMessage, WelcomeMessageType};
 use xmtp_proto::xmtp::mls::message_contents::WelcomeMetadata;
 use xmtp_proto::xmtp::mls::message_contents::welcome_pointer::WelcomeV1Pointer;
@@ -283,7 +283,7 @@ async fn test_welcome_pointer_round_trip(
 async fn classical_pointee_recipient_gets_an_inline_welcome(#[case] pq_recipients: usize) {
     let alix = EngineTestPeer::new().await;
     let bo = EngineTestPeer::new().await;
-    crate::identity_lifecycle::rotate_and_upload_key_package(
+    xmtp_mls_identity::identity_lifecycle::rotate_and_upload_key_package(
         bo.identity(),
         bo.context.api(),
         bo.context.mls_storage(),
@@ -735,7 +735,7 @@ async fn welcome_wrapper_matches_advertisement(
     let group = alix.create_group(None, None).unwrap();
     let (welcome_message, join_anchor) =
         publish_commit_without_welcome(&group, bo.inbox_id()).await;
-    let package = crate::identity_lifecycle::new_key_package(
+    let package = xmtp_mls_identity::identity_lifecycle::new_key_package(
         bo.context.identity(),
         &bo.context.mls_provider(),
         post_quantum_package,

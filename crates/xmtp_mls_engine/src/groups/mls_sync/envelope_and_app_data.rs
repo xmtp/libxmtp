@@ -78,7 +78,7 @@ where
         storage: &impl XmtpMlsStorageProvider,
         envelope: &GroupMessage,
         error: &GroupMessageProcessingError,
-        event_writer: &impl EventWriter<crate::core::events::InternalEvent>,
+        event_writer: &impl EventWriter<xmtp_mls_core::events::InternalEvent>,
     ) -> Result<(), GroupMessageProcessingError> {
         let db = storage.db();
         if !group.is_active() {
@@ -490,7 +490,7 @@ where
         mls_group: &mut OpenMlsGroup,
         storage: &impl XmtpMlsStorageProvider,
         envelope: &GroupMessage,
-        event_writer: &impl xmtp_events::EventWriter<crate::core::events::InternalEvent>,
+        event_writer: &impl xmtp_events::EventWriter<xmtp_mls_core::events::InternalEvent>,
     ) -> Result<ProcessedMessageOutcome, GroupMessageProcessingError> {
         let db = storage.db();
 

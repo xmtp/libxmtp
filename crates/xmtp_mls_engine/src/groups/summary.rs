@@ -40,13 +40,13 @@ impl RetryableError for SyncSummary {
     }
 }
 
-impl crate::worker::NeedsDbReconnect for SyncSummary {
+impl xmtp_mls_core::worker::NeedsDbReconnect for SyncSummary {
     fn needs_db_reconnect(&self) -> bool {
         self.publish_errors
             .iter()
             .chain(self.post_commit_errors.iter())
             .chain(self.other.as_deref())
-            .any(crate::worker::NeedsDbReconnect::needs_db_reconnect)
+            .any(xmtp_mls_core::worker::NeedsDbReconnect::needs_db_reconnect)
             || self
                 .process
                 .errored

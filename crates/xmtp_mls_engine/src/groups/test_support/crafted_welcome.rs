@@ -42,10 +42,10 @@ use xmtp_proto::{
     },
 };
 
-use crate::context::CoreContext;
 use crate::groups::test_support::EnginePeer;
 use crate::groups::{build_group_config, group_permissions::PolicySet, intents::Installation};
-use crate::mls_store::MlsStore;
+use xmtp_mls_core::context::CoreContext;
+use xmtp_mls_core::mls_store::MlsStore;
 
 /// What a crafted Welcome claims besides its group id and root. The default
 /// is a group the creator could have made, at epoch 1 with join anchor 1.

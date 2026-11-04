@@ -34,7 +34,7 @@ impl QueueIntentBuilder {
     where
         C: XmtpSharedContext,
     {
-        crate::state_tx::state_write(group.context.mls_storage(), |tx| {
+        xmtp_mls_core::state_tx::state_write(group.context.mls_storage(), |tx| {
             let storage = tx.storage();
             let db = storage.db();
             self.queue_in(&db, group).map(Continue)

@@ -1,9 +1,7 @@
 use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer, EngineTestPeerOps};
-use crate::{
-    context::CoreContext,
-    groups::{UpdateAdminListType, commit_log::CommitLogWorker, oneshot::Oneshot},
-};
+use crate::groups::{UpdateAdminListType, commit_log::CommitLogWorker, oneshot::Oneshot};
 use xmtp_db::{consent_record::ConsentState, group::QueryGroup, prelude::QueryReaddStatus};
+use xmtp_mls_core::context::CoreContext;
 
 use xmtp_proto::{
     types::GroupId,
@@ -365,9 +363,6 @@ async fn a_readd_without_a_usable_key_package_waits(
         intents::{QueueIntent, ReaddInstallationsIntentData},
         mls_sync::{note_retries, retry_due},
     };
-    use crate::identity_lifecycle::test_mocks::{
-        RestoreKeyPackages, set_test_mode_upload_malformed_keypackage,
-    };
     use openmls::prelude::{AppDataUpdateOperation, Proposal};
     use tls_codec::Serialize;
     use xmtp_db::{
@@ -376,6 +371,9 @@ async fn a_readd_without_a_usable_key_package_waits(
     };
     use xmtp_db::{group_intent::IntentKind, prelude::QueryGroupIntent};
     use xmtp_mls_group_state::app_data::component_id::ComponentId;
+    use xmtp_mls_identity::identity_lifecycle::test_mocks::{
+        RestoreKeyPackages, set_test_mode_upload_malformed_keypackage,
+    };
     use xmtp_mls_validation::commit::extract_group_membership;
     use xmtp_proto::types::Topic;
 
@@ -415,7 +413,7 @@ async fn a_readd_without_a_usable_key_package_waits(
                 tls_codec::VLBytes::new(entry.encode_to_vec()),
             )
             .tls_serialize_detached()?;
-        let proposal = crate::state_tx::state_write(alix.context.mls_storage(), |tx| {
+        let proposal = xmtp_mls_core::state_tx::state_write(alix.context.mls_storage(), |tx| {
             tx.with_group(group.group_id, |mls, storage| {
                 let provider = XmtpOpenMlsProviderRef::new(storage);
                 let (message, _) = mls
@@ -452,7 +450,7 @@ async fn a_readd_without_a_usable_key_package_waits(
     worker._tick().await?;
 
     // An admitted standalone Remove must not bypass the usable-package gate.
-    let removal = crate::state_tx::state_write(alix.context.mls_storage(), |tx| {
+    let removal = xmtp_mls_core::state_tx::state_write(alix.context.mls_storage(), |tx| {
         tx.with_group(group.group_id, |mls, storage| {
             let leaf = mls
                 .members()

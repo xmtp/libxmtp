@@ -3,7 +3,7 @@
 use super::mls_sync::publish::OutgoingPreparationError;
 use super::*;
 use crate::groups::deletion::may_delete;
-use crate::messages::decoded_message::carries_reserved_transcript;
+use xmtp_mls_messages::decoded_message::carries_reserved_transcript;
 
 /// An installation refresh before a send applies its membership change even
 /// when the Welcomes for the installations it adds cannot be sent. That
@@ -241,7 +241,7 @@ where
         }
         self.ensure_not_paused().await?;
 
-        let queued = crate::state_tx::state_write_with_events(
+        let queued = xmtp_mls_core::state_tx::state_write_with_events(
             self.context.mls_storage(),
             self.context.events(),
             |tx, events| {
@@ -289,7 +289,7 @@ where
         if !self.is_active()? {
             return Err(GroupError::GroupInactive);
         }
-        crate::state_tx::state_write_with_events(
+        xmtp_mls_core::state_tx::state_write_with_events(
             self.context.mls_storage(),
             self.context.events(),
             |tx, events| {
@@ -369,7 +369,7 @@ where
         &self,
         db: &impl DbQuery,
         message: &StoredGroupMessage,
-        events: &impl xmtp_events::EventWriter<crate::core::events::InternalEvent>,
+        events: &impl xmtp_events::EventWriter<xmtp_mls_core::events::InternalEvent>,
     ) -> Result<bool, GroupError> {
         if message.group_id != self.group_id {
             return Err(GroupError::NotFound(NotFound::MessageById(
@@ -436,7 +436,7 @@ where
     ) -> QueryableContentFields {
         // Return early with default if decoding fails or type is missing
         let Ok(content_type_id) =
-            crate::messages::encoded_content_type(message).inspect_err(|_| {
+            xmtp_mls_messages::encoded_content_type(message).inspect_err(|_| {
                 tracing::debug!("No queryable content fields, msg not formatted as encoded content")
             })
         else {
@@ -472,7 +472,7 @@ where
         message: &[u8],
         opts: send_message_opts::SendMessageOpts,
     ) -> Result<Vec<u8>, GroupError> {
-        crate::state_tx::state_write_with_events_durable(
+        xmtp_mls_core::state_tx::state_write_with_events_durable(
             self.context.mls_storage(),
             self.context.events(),
             |tx, events| {
@@ -505,7 +505,7 @@ where
     fn queue_stored_message(
         &self,
         db: &impl DbQuery,
-        events: &impl xmtp_events::EventWriter<crate::core::events::InternalEvent>,
+        events: &impl xmtp_events::EventWriter<xmtp_mls_core::events::InternalEvent>,
         message: &StoredGroupMessage,
     ) -> Result<Option<i32>, GroupError> {
         if message.delivery_status == DeliveryStatus::Published {
@@ -543,7 +543,7 @@ where
     fn allow_after_send(
         &self,
         db: &impl DbQuery,
-        events: &impl xmtp_events::EventWriter<crate::core::events::InternalEvent>,
+        events: &impl xmtp_events::EventWriter<xmtp_mls_core::events::InternalEvent>,
         message: &StoredGroupMessage,
     ) -> Result<(), GroupError> {
         let Some(decision) = Decision::on_send(self.conversation_type, message.content_type) else {
@@ -558,7 +558,7 @@ where
         let changes: Vec<_> = write_consent(db, &key, ConsentWrite::Decide(decision), Owed::Mark)?
             .into_iter()
             .collect();
-        crate::core::events::emit_consent_changes(&self.context, events, db, &changes)?;
+        xmtp_mls_core::events::emit_consent_changes(&self.context, events, db, &changes)?;
         Ok(())
     }
 
@@ -566,7 +566,7 @@ where
     // implements: SEND-005
     fn ensure_active_for_send<T: xmtp_db::TransactionalKeyStore>(
         &self,
-        tx: &mut crate::state_tx::StateTx<'_, T>,
+        tx: &mut xmtp_mls_core::state_tx::StateTx<'_, T>,
     ) -> Result<(), GroupError> {
         let stored = tx
             .storage()

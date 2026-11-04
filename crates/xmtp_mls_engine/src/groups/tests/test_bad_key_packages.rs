@@ -15,12 +15,12 @@ use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer, En
 async fn commit_adding_unusable_package_is_applied_by_members() {
     use crate::groups::mls_ext::WelcomePointersExtension;
     use crate::groups::test_support::key_package_with_extensions;
-    use crate::identity_lifecycle::test_mocks::set_test_mode_unchecked_key_package;
     use openmls::prelude::{Extension, KeyPackageIn, UnknownExtension, tls_codec::Deserialize};
     use openmls_traits::OpenMlsProvider;
     use xmtp_configuration::WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID;
     use xmtp_cryptography::configuration::MLS_PROTOCOL_VERSION;
     use xmtp_id::key_package::{VerifiedKeyPackageV2, WrapperEncryptionExtension};
+    use xmtp_mls_identity::identity_lifecycle::test_mocks::set_test_mode_unchecked_key_package;
     use xmtp_proto::xmtp::identity::MlsCredential;
 
     let alix = EngineTestPeer::new().await;
@@ -55,9 +55,11 @@ async fn commit_adding_unusable_package_is_applied_by_members() {
     });
 
     alix_group.add_members(&[bo.inbox_id()]).await?;
-    assert!(crate::identity_lifecycle::test_mocks::key_package_injected(
-        &bo.context.installation_id().to_vec()
-    ));
+    assert!(
+        xmtp_mls_identity::identity_lifecycle::test_mocks::key_package_injected(
+            &bo.context.installation_id().to_vec()
+        )
+    );
     caro_group.sync().await?;
     let caro_members: Vec<String> = caro_group
         .members()
@@ -144,7 +146,7 @@ async fn test_create_from_welcome_validation() {
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_can_make_inbox_with_a_bad_key_package_an_admin() {
-    use crate::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage;
+    use xmtp_mls_identity::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage;
 
     // 1) Prepare clients
     let amal = EngineTestPeer::new().await;

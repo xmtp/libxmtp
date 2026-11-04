@@ -5,11 +5,11 @@ use crate::groups::send_message_opts::SendMessageOpts;
 use crate::groups::test_support::{
     EnginePeer, EngineSuiteOps, EngineTestGroup, EngineTestPeer, EngineTestPeerOps,
 };
-use crate::messages::decoded_message::{DeletedBy, MessageBody};
 use EngineTestGroup as Group;
 use xmtp_content_types::delete_message::DeleteMessageCodec;
 use xmtp_content_types::{ContentCodec, text::TextCodec};
 use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs, QueryGroupMessage};
+use xmtp_mls_messages::decoded_message::{DeletedBy, MessageBody};
 use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 
 #[derive(Debug, Clone, Copy)]
@@ -76,7 +76,7 @@ fn view(group: &Group, id: &[u8]) -> Option<(Option<String>, bool, Option<Delete
 #[case::sender_then_admin(Case::SenderThenAdmin)]
 #[xmtp_common::test]
 async fn deletion_rules(#[case] case: Case) {
-    use crate::context::CoreContext;
+    use xmtp_mls_core::context::CoreContext;
     let alix = EngineTestPeer::new().await;
     let bo = EngineTestPeer::new().await;
     let caro = EngineTestPeer::new().await;

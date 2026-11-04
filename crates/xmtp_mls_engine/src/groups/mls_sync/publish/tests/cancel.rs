@@ -24,7 +24,7 @@ fn deletion_rows<C: XmtpSharedContext>(group: &MlsGroup<C>) -> usize {
 }
 
 fn deleted_events(
-    events: &xmtp_events::Subscription<crate::core::events::InternalEvent>,
+    events: &xmtp_events::Subscription<xmtp_mls_core::events::InternalEvent>,
     id: &[u8],
 ) -> Vec<xmtp_events::DeletionCause> {
     events
@@ -328,7 +328,7 @@ async fn topic_deletion_of_a_queued_send_removes_it() {
         sent_at_ns: xmtp_common::time::now_ns(),
         ..queued
     };
-    crate::state_tx::state_write_with_events(
+    xmtp_mls_core::state_tx::state_write_with_events(
         alix.context.mls_storage(),
         alix.context.events(),
         |tx, buffer| {

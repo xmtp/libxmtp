@@ -95,7 +95,7 @@ async fn fixed_welcome_discovery_excludes_later_scope_and_keeps_rejoined_groups(
     let context = alix.context.clone();
     // Complete Welcome installation at the old gap between discovery and progress.
     let _hook = on_next_progress_read(move || {
-        crate::state_tx::state_write(context.mls_storage(), |tx| {
+        xmtp_mls_core::state_tx::state_write(context.mls_storage(), |tx| {
             let storage = tx.storage();
             let db = storage.db();
             db.record_welcome_discovery(discovered_id, welcome_target)?;
@@ -315,8 +315,8 @@ async fn welcome_discovery_reads_groups_once_per_generation() {
 /// no reconnect.
 #[xmtp_common::test(unwrap_try = true)]
 async fn barrier_failure_code_is_stable() {
-    use crate::worker::NeedsDbReconnect;
     use xmtp_common::{ErrorCode, RetryableError};
+    use xmtp_mls_core::worker::NeedsDbReconnect;
     let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let topic = Topic::new_group_message(group.group_id);

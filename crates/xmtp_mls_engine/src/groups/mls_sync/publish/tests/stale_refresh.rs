@@ -6,7 +6,7 @@ use super::membership_recovery::{
 };
 use super::*;
 use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer, EngineTestPeerOps};
-use crate::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage;
+use xmtp_mls_identity::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage;
 
 /// A refresh records an installation whose key package it could not fetch.
 /// By publication that installation can have a leaf: the publish-time fetch
@@ -211,7 +211,7 @@ async fn revocation_removes_a_leaf_that_an_entry_lists_as_failed()
     // Write Bo's entry with bo2 listed as failed, as an older client could.
     // The payload resolves bo2's owner, so read through the transaction's
     // connection; another connection waits on this transaction.
-    let payload = crate::state_tx::state_write(group.context.mls_storage(), |tx| {
+    let payload = xmtp_mls_core::state_tx::state_write(group.context.mls_storage(), |tx| {
         tx.with_group(group.group_id, |mls, storage| {
             let old = extract_group_membership(mls.extensions())?;
             let mut listed = old.clone();
@@ -347,7 +347,7 @@ async fn check_false_failure_claim(selection: bool) -> Result<(), Box<dyn std::e
             .expect("receiver group is stored");
     let signer = caro.context.identity().installation_keys.clone();
     let (payloads, staged, sender) =
-        crate::state_tx::state_write(caro.context.mls_storage(), |tx| {
+        xmtp_mls_core::state_tx::state_write(caro.context.mls_storage(), |tx| {
             tx.with_group(caro_group.group_id, |mls, storage| {
                 let sender = mls.own_leaf_index();
                 let ((proposals, bundle), staged, _) =

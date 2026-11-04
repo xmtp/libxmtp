@@ -67,7 +67,6 @@ fn recovery_visibility_filter_moves_raw_bound_buffers() {
 mod snapshot {
     use super::*;
     use crate::groups::QueryableContentFields;
-    use crate::messages::decoded_message::MessageBody;
     use xmtp_common::Generate;
     use xmtp_content_types::{ContentCodec, test_utils::TestContentGenerator, text::TextCodec};
     use xmtp_db::{
@@ -77,6 +76,7 @@ mod snapshot {
         group_message::QueryGroupMessage,
         group_message::{SortBy, StoredGroupMessage},
     };
+    use xmtp_mls_messages::decoded_message::MessageBody;
     use xmtp_proto::{
         types::GroupId,
         xmtp::mls::message_contents::{EncodedContent, content_types::ReactionAction},

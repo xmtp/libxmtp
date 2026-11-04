@@ -6,19 +6,13 @@
 use crate::groups::test_support::{
     EnginePeer, EngineSuiteOps, EngineTestGroup, EngineTestPeer, EngineTestPeerOps,
 };
-use crate::{
-    context::CoreContext,
-    groups::{
-        GroupError,
-        app_data::{membership_upkeep::membership_upkeep, stage_app_data_proposals_and_commit},
-        mls_ext::commit_without_group_info,
-        mls_sync::{
-            generate_prepared_commit,
-            update_group_membership::build_group_membership_app_data_payload,
-        },
+use crate::groups::{
+    GroupError,
+    app_data::{membership_upkeep::membership_upkeep, stage_app_data_proposals_and_commit},
+    mls_ext::commit_without_group_info,
+    mls_sync::{
+        generate_prepared_commit, update_group_membership::build_group_membership_app_data_payload,
     },
-    identity::{XmtpKeyPackage, create_credential},
-    state_tx::state_write,
 };
 use openmls::{
     messages::proposals::AppDataUpdateOperation,
@@ -40,7 +34,9 @@ use xmtp_id::associations::{
     test_utils::{WalletTestExt, add_wallet_signature},
     unverified::UnverifiedSignature,
 };
+use xmtp_mls_core::{context::CoreContext, identity::create_credential, state_tx::state_write};
 use xmtp_mls_group_state::app_data::component_id::ComponentId;
+use xmtp_mls_identity::identity_lifecycle::XmtpKeyPackage;
 use xmtp_mls_validation::{
     commit::{extract_group_membership, inbox_id_from_credential},
     group_membership::GroupMembership,
@@ -423,7 +419,7 @@ enum Leafless {
 async fn own_inbox_retries_leafless_key(
     #[case] row: Leafless,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use crate::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage;
+    use xmtp_mls_identity::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage;
     let alix = EngineTestPeer::new().await;
     let bo = EngineTestPeer::new().await;
     let caro = EngineTestPeer::new().await;
@@ -972,12 +968,10 @@ async fn dictionary_delete_cannot_hide_a_live_leaf() {
 async fn misattributed_pending_delta_is_omitted(
     #[case] propose_correct_request: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use crate::{
-        groups::intents::{ProposeMemberUpdateIntentData, QueueIntent},
-        mls_store::MlsStore,
-    };
+    use crate::groups::intents::{ProposeMemberUpdateIntentData, QueueIntent};
     use prost::Message as _;
     use tls_codec::VLBytes;
+    use xmtp_mls_core::mls_store::MlsStore;
     use xmtp_mls_group_state::inbox_id::InboxId;
     use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
     use xmtp_proto::xmtp::mls::message_contents::{

@@ -1,11 +1,11 @@
 //! A backend client that never answers one kind of call, for tests of the
 //! deadlines that bound a stalled request.
 
-use crate::identity_lifecycle::test_support::PeerApi;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
+use xmtp_mls_identity::identity_lifecycle::test_support::PeerApi;
 use xmtp_proto::backend_v1::client_envelope::Payload;
 use xmtp_proto::{api::ApiClientError, api_client::XmtpBackendClient, backend_v1 as wire};
 

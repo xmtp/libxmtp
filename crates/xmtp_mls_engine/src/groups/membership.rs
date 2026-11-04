@@ -35,8 +35,10 @@ where
     ) -> Result<UpdateGroupMembershipResult, GroupError> {
         // The member limit is enforced in `add_members`, the one method every
         // entry point reaches.
-        self.add_members_by_targets(&crate::inbox_handles::account_targets(account_identifiers))
-            .await
+        self.add_members_by_targets(&xmtp_mls_identity::inbox_handles::account_targets(
+            account_identifiers,
+        ))
+        .await
     }
 
     #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", skip_all, fields(inbox_id = %self.context.inbox_id(), inbox_ids = ?inbox_ids.as_ref().iter().map(|i| i.as_ref()).collect::<Vec<_>>())))]
@@ -233,7 +235,7 @@ where
         &self,
         account_addresses_to_remove: &[Identifier],
     ) -> Result<(), GroupError> {
-        self.remove_members_by_targets(&crate::inbox_handles::account_targets(
+        self.remove_members_by_targets(&xmtp_mls_identity::inbox_handles::account_targets(
             account_addresses_to_remove,
         ))
         .await

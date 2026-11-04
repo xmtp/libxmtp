@@ -31,7 +31,7 @@ use xmtp_db::{
     prelude::*,
 };
 
-impl crate::worker::NeedsDbReconnect for AttachmentClientError {
+impl xmtp_mls_core::worker::NeedsDbReconnect for AttachmentClientError {
     fn needs_db_reconnect(&self) -> bool {
         false
     }
@@ -39,7 +39,7 @@ impl crate::worker::NeedsDbReconnect for AttachmentClientError {
 use xmtp_events::{AttachmentFailed, AttachmentRef, ClientEvent, EventWriter as _};
 use xmtp_proto::{api::grpc_status, backend_v1::CreateUploadRequest};
 
-use crate::context::CoreContext;
+use xmtp_mls_core::context::CoreContext;
 
 /// The attachments feature slot: the client's attachment runtime.
 pub trait AttachmentFeatures {
@@ -2644,7 +2644,9 @@ impl<Context: AttachmentContext> PendingAttachment<Context> {
 /// The worker that sweeps expired pending attachments.
 pub mod cleanup {
     use super::*;
-    use crate::worker::{BoxedWorker, NewWorker, Worker, WorkerFactory, WorkerKind, WorkerResult};
+    use xmtp_mls_core::worker::{
+        BoxedWorker, NewWorker, Worker, WorkerFactory, WorkerKind, WorkerResult,
+    };
 
     /// Periodically deletes expired pending attachments and their files.
     pub struct AttachmentCleanup<Context> {

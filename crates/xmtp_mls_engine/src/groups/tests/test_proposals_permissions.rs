@@ -1,11 +1,9 @@
 //! Admin and permission enforcement for proposals.
 
+use crate::groups::intents::{CommitPendingProposalsIntentData, ProposeMemberUpdateIntentData};
 use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
-use crate::{
-    context::CoreContext,
-    groups::intents::{CommitPendingProposalsIntentData, ProposeMemberUpdateIntentData},
-};
 use xmtp_db::{group_intent::IntentKind, prelude::*};
+use xmtp_mls_core::context::CoreContext;
 
 use super::test_proposals::{
     assert_insufficient_permissions, assert_insufficient_permissions_before_publish,
@@ -610,13 +608,11 @@ async fn test_admin_removing_super_admin_publishes_nothing() {
 // verifies: GMOD-019
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_receivers_reject_raw_membership_delete_of_super_admin() {
-    use crate::{
-        groups::{GroupError, UpdateAdminListType},
-        state_tx::state_write,
-    };
+    use crate::groups::{GroupError, UpdateAdminListType};
     use openmls::{messages::proposals::AppDataUpdateOperation, prelude::tls_codec::Serialize};
     use tls_codec::VLBytes;
     use xmtp_db::{TransactionOutcome::Continue, XmtpOpenMlsProviderRef};
+    use xmtp_mls_core::state_tx::state_write;
     use xmtp_mls_group_state::{
         app_data::{
             component_id::ComponentId, components::tls_map_components::GroupMembershipComponent,
@@ -936,14 +932,12 @@ async fn test_registry_alone_controls_action_policy_view() {
 /// sequential sender API path.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_removing_all_super_admins_is_rejected() {
-    use crate::{
-        groups::{
-            app_data::stage_app_data_proposals_and_commit, mls_sync::generate_prepared_commit,
-        },
-        state_tx::state_write,
+    use crate::groups::{
+        app_data::stage_app_data_proposals_and_commit, mls_sync::generate_prepared_commit,
     };
     use openmls::{messages::proposals::AppDataUpdateOperation, prelude::tls_codec::Serialize};
     use xmtp_db::TransactionOutcome::Continue;
+    use xmtp_mls_core::state_tx::state_write;
     use xmtp_mls_group_state::{
         app_data::{
             component_id::ComponentId, components::inbox_id_set::SuperAdminListComponent,

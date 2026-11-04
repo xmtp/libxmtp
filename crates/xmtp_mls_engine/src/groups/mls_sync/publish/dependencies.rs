@@ -1,8 +1,8 @@
 //! Immutable requirements for outgoing MLS preparation.
 
 use super::*;
-use crate::identity_updates::{IdentityRequirement, resolve_identity_requirements};
 use std::collections::HashMap;
+use xmtp_mls_identity::identity_updates::{IdentityRequirement, resolve_identity_requirements};
 use xmtp_mls_validation::commit::inbox_id_from_credential;
 
 /// Immutable inputs copied under the writer before any dependency request.
@@ -133,13 +133,13 @@ impl PublishDependencies {
         storage: &impl XmtpMlsStorageProvider,
     ) -> Result<(), GroupError> {
         if let Some((old, new)) = &self.memberships {
-            crate::identity_updates::get_installation_diff_local(
+            xmtp_mls_identity::identity_updates::get_installation_diff_local(
                 &storage.db(),
                 old,
                 new,
                 &old.diff(new),
             )
-            .map_err(crate::identity_updates::InstallationDiffError::from)?;
+            .map_err(xmtp_mls_identity::identity_updates::InstallationDiffError::from)?;
         }
         Ok(())
     }

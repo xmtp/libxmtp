@@ -2,12 +2,7 @@ use super::group_permissions::GroupMutablePermissionsError;
 use super::mls_sync::GroupMessageProcessingError;
 use super::summary::SyncSummary;
 use super::{intents::IntentError, validated_commit::CommitValidationError};
-use crate::identity::IdentityError;
-use crate::mls_store::MlsStoreError;
-use crate::{
-    identity_updates::{IdentityUpdateError, InstallationDiffError},
-    intents::ProcessIntentError,
-};
+use crate::intents::ProcessIntentError;
 use openmls::{
     error::LibraryError,
     group::{
@@ -23,9 +18,12 @@ use xmtp_content_types::CodecError;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::NotFound;
 use xmtp_db::sql_key_store;
+use xmtp_mls_core::identity::IdentityError;
+use xmtp_mls_core::mls_store::MlsStoreError;
 use xmtp_mls_group_keys::mls_ext::payload_encryption::{UnwrapPayloadError, WrapPayloadError};
 use xmtp_mls_group_state::group_metadata::GroupMetadataError;
 use xmtp_mls_group_state::group_mutable_metadata::GroupMutableMetadataError;
+use xmtp_mls_identity::identity_updates::{IdentityUpdateError, InstallationDiffError};
 use xmtp_proto::types::GroupId;
 
 /// Installation IDs that failed key package verification during a membership update.
@@ -145,7 +143,7 @@ pub enum GroupError {
     /// This database is bound to a different deployment, or the deployment
     /// now requires a newer client. Not retryable.
     #[error("connection blocked: {0}")]
-    Blocked(#[from] crate::server_configuration::BlockedConnection),
+    Blocked(#[from] xmtp_mls_server_config::server_configuration::BlockedConnection),
     /// Receive error.
     ///
     /// Processing received group message failed. May be retryable.
@@ -686,7 +684,7 @@ impl RetryableError for GroupError {
     }
 }
 
-impl crate::worker::NeedsDbReconnect for GroupError {
+impl xmtp_mls_core::worker::NeedsDbReconnect for GroupError {
     /// Forwards a dropped-pool signal from storage-bearing variants so a worker
     /// catching `GroupError`s per item can stop on disconnect; else `false`.
     #[deny(clippy::wildcard_enum_match_arm)]

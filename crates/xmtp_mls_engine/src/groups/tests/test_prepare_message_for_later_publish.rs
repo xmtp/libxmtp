@@ -1,4 +1,3 @@
-use crate::context::CoreContext;
 use crate::groups::message_id::calculate_message_id;
 use crate::groups::send_message_opts::SendMessageOpts;
 use crate::groups::test_support::{EnginePeer, EngineTestPeer};
@@ -6,6 +5,7 @@ use crate::groups::{DeliveryStatus, GroupError};
 use xmtp_common::RetryableError;
 use xmtp_db::group_intent::{IntentKind, IntentState, QueryGroupIntent};
 use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs};
+use xmtp_mls_core::context::CoreContext;
 
 /// Prepared messages stay local until an explicit publish. Repeated publish is idempotent.
 #[xmtp_common::test(unwrap_try = true)]

@@ -1,7 +1,3 @@
-use crate::context::CoreContext;
-use crate::core::notifications::{
-    NotificationChannel, NotificationConfig, NotificationOverride, encode_config,
-};
 use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
 use crate::groups::{GroupError, SendMessageOpts, UpdateAdminListType};
 use xmtp_content_types::{
@@ -15,6 +11,10 @@ use xmtp_db::group::{GroupQueryArgs, GroupQueryOrderBy};
 use xmtp_db::group_message::{ContentType, GroupMessageKind};
 use xmtp_db::prelude::*;
 use xmtp_db::sql_key_store::count_kv_reads;
+use xmtp_mls_core::context::CoreContext;
+use xmtp_mls_core::notifications::{
+    NotificationChannel, NotificationConfig, NotificationOverride, encode_config,
+};
 
 fn assert_notifications(group: &EngineTestGroup, expected: bool) -> Result<(), GroupError> {
     assert_eq!(group.state_snapshot()?.notifications_enabled, expected);

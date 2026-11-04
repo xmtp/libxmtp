@@ -215,7 +215,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         &self,
         intent_id: i32,
     ) -> Result<SyncSummary, GroupError> {
-        crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+        xmtp_mls_core::state_tx::state_write(self.context.mls_storage(), |tx| {
             let storage = tx.storage();
             let db = storage.db();
             let intent = Fetch::<StoredGroupIntent>::fetch(&db, &intent_id)?

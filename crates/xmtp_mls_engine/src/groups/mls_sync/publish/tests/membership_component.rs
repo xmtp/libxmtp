@@ -37,21 +37,22 @@ async fn accepted_membership_component_remove_does_not_block_publication(
 
     // The creator is authorized by the committed Delete policy. Publish its
     // signed standalone proposal and let the peer validate it through ingestion.
-    let (payload, reference) = crate::state_tx::state_write(group.context.mls_storage(), |tx| {
-        tx.with_group(group.group_id, |mls, storage| {
-            let provider = XmtpOpenMlsProviderRef::new(storage);
-            let (message, reference) = mls
-                .propose_app_data_update(
-                    &provider,
-                    &group.context.identity().installation_keys,
-                    ComponentId::GROUP_MEMBERSHIP.as_u16(),
-                    AppDataUpdateOperation::Remove,
-                )
-                .map_err(GroupError::Proposal)?;
-            Ok::<_, GroupError>(Continue((message.tls_serialize_detached()?, reference)))
-        })
-    })?
-    .into_continued();
+    let (payload, reference) =
+        xmtp_mls_core::state_tx::state_write(group.context.mls_storage(), |tx| {
+            tx.with_group(group.group_id, |mls, storage| {
+                let provider = XmtpOpenMlsProviderRef::new(storage);
+                let (message, reference) = mls
+                    .propose_app_data_update(
+                        &provider,
+                        &group.context.identity().installation_keys,
+                        ComponentId::GROUP_MEMBERSHIP.as_u16(),
+                        AppDataUpdateOperation::Remove,
+                    )
+                    .map_err(GroupError::Proposal)?;
+                Ok::<_, GroupError>(Continue((message.tls_serialize_detached()?, reference)))
+            })
+        })?
+        .into_continued();
     let messages = group.prepare_group_messages(vec![(payload.as_slice(), false)])?;
     let receipts = group.context.api().send_group_messages(messages).await?;
     let topic = Topic::new_group_message(group.group_id);

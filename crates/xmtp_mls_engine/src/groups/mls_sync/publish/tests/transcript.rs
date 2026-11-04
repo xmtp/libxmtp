@@ -207,10 +207,6 @@ async fn reply_wrapping_a_transcript_type_is_never_sent() {
 // verifies: GMOD-054
 #[xmtp_common::test(unwrap_try = true)]
 async fn over_budget_reply_is_refused_before_writes() {
-    use crate::messages::decoded_message::{
-        MAX_REPLY_NESTING_DEPTH, MessageBody, carries_reserved_transcript,
-    };
-    use crate::messages::test_support::nested_reply;
     use xmtp_content_types::{
         ContentCodec, compression,
         group_updated::GroupUpdatedCodec,
@@ -218,6 +214,10 @@ async fn over_budget_reply_is_refused_before_writes() {
         text::TextCodec,
     };
     use xmtp_db::group_intent::QueryPreparedEnvelope;
+    use xmtp_mls_messages::decoded_message::{
+        MAX_REPLY_NESTING_DEPTH, MessageBody, carries_reserved_transcript,
+    };
+    use xmtp_mls_messages::test_support::nested_reply;
     use xmtp_proto::xmtp::mls::message_contents::{Compression, GroupUpdated};
 
     let content = nested_reply(
@@ -417,7 +417,7 @@ async fn stored_reserved_message_with_saved_attempt_is_not_refused() {
     // envelope that an older build would have queued. The creation and
     // preparation checks refuse to build one directly.
     let intent = legacy_message_intent(&group, b"ordinary bytes", key)?;
-    let requirements = crate::state_tx::state_write(group.context.mls_storage(), |tx| {
+    let requirements = xmtp_mls_core::state_tx::state_write(group.context.mls_storage(), |tx| {
         tx.with_group(group.group_id, |mls_group, _| {
             PublishRequirements::capture(mls_group, &intent).map(Continue)
         })
@@ -467,7 +467,7 @@ async fn publish_raw_application<Context: XmtpSharedContext>(
         })),
     }
     .encode_to_vec();
-    let envelopes = crate::state_tx::state_write(group.context.mls_storage(), |tx| {
+    let envelopes = xmtp_mls_core::state_tx::state_write(group.context.mls_storage(), |tx| {
         tx.with_group(group.group_id, |mls_group, storage| {
             let provider = XmtpOpenMlsProviderRef::new(storage);
             let message = mls_group.create_message(
