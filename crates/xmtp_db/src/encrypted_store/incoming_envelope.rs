@@ -7,8 +7,9 @@
 
 use diesel::{
     prelude::*,
-    sql_types::{BigInt, Binary, Bool, Integer},
+    sql_types::{BigInt, Binary, Bool, Integer, Text},
 };
+use std::fmt::Write;
 use xmtp_proto::types::{Cursor, GroupId};
 
 use super::{
@@ -22,7 +23,7 @@ use super::{
 use crate::{ConnectionExt, StorageError};
 
 /// Separate network queues with independent pending-work budgets.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NetworkEntityKind {
     /// Independent Welcome work for an installation.
     Welcome,
@@ -43,7 +44,7 @@ impl NetworkEntityKind {
 }
 
 /// The database key for one network log and its received/processed positions.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StreamTopic {
     /// Group ID, installation ID, or inbox ID bytes, without the wire topic prefix.
     pub entity_id: Vec<u8>,
@@ -153,6 +154,76 @@ pub struct AdmissionResult {
 pub struct TerminalRejection {
     pub sequence_id: Cursor,
     pub code: String,
+}
+
+/// The first pending envelope of a group or identity topic.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingHead {
+    pub topic: StreamTopic,
+    pub sequence_id: Cursor,
+    pub blocked: bool,
+}
+
+#[derive(QueryableByName)]
+struct PendingHeadRow {
+    #[diesel(sql_type = Binary)]
+    entity_id: Vec<u8>,
+    #[diesel(sql_type = Integer)]
+    entity_kind: EntityKind,
+    #[diesel(sql_type = BigInt)]
+    sequence_id: i64,
+    #[diesel(sql_type = Bool)]
+    blocked: bool,
+}
+
+/// The topics a scoped read covers, bound as one JSON array of
+/// `[entity kind, hex entity id]` pairs. One parameter keeps the statement
+/// count fixed, and the join seeks each topic by its key, so the read costs
+/// what those topics hold rather than what the database holds.
+macro_rules! wanted_topics {
+    () => {
+        "WITH wanted(entity_id, entity_kind) AS \
+         (SELECT unhex(value ->> 1), value ->> 0 FROM json_each(?1)) "
+    };
+}
+
+/// Each wanted topic's head, when it is blocked or past its retry time.
+const HEADS_SQL: &str = concat!(
+    wanted_topics!(),
+    "SELECT i.entity_id, i.entity_kind, i.sequence_id, i.blocked FROM wanted w ",
+    "JOIN incoming_envelopes i ON i.entity_id = w.entity_id AND i.entity_kind = w.entity_kind ",
+    "AND i.sequence_id = (SELECT MIN(sequence_id) FROM incoming_envelopes ",
+    "WHERE entity_id = w.entity_id AND entity_kind = w.entity_kind) ",
+    "WHERE i.blocked OR i.retry_at_ns <= ?2"
+);
+
+fn wanted_param<'a>(topics: impl IntoIterator<Item = &'a StreamTopic>) -> String {
+    let mut json = String::from("[");
+    for (index, topic) in topics.into_iter().enumerate() {
+        if index > 0 {
+            json.push(',');
+        }
+        let kind = topic.kind.entity_kind() as i32;
+        let _ = write!(json, "[{kind},\"{}\"]", hex::encode(&topic.entity_id));
+    }
+    json.push(']');
+    json
+}
+
+fn row_topic(entity_id: Vec<u8>, kind: EntityKind) -> Result<StreamTopic, StorageError> {
+    let kind = match kind {
+        EntityKind::Welcome => NetworkEntityKind::Welcome,
+        EntityKind::ApplicationMessage => NetworkEntityKind::Group,
+        EntityKind::Identity => NetworkEntityKind::Identity,
+        _ => return Err(StorageError::DbDeserialize),
+    };
+    Ok(StreamTopic { entity_id, kind })
+}
+
+fn row_cursor(sequence_id: i64) -> Result<Cursor, StorageError> {
+    Ok(Cursor(
+        u64::try_from(sequence_id).map_err(|_| StorageError::DbDeserialize)?,
+    ))
 }
 
 /// Queue size metadata used to pause full topics without reading ciphertext.
@@ -434,6 +505,34 @@ pub trait QueryIncomingEnvelope: ConnectionExt + Sized {
     /// Read P and F from the same row; an unseen topic starts at zero.
     fn topic_progress(&self, topic: &StreamTopic) -> Result<TopicProgress, StorageError> {
         self.raw_query(|conn| Ok(load_progress(conn, topic)))?
+    }
+
+    /// Read the head of each of `topics` that is blocked or past its retry
+    /// time, without loading ciphertext. Other heads have no work to attempt yet.
+    fn due_or_blocked_heads(
+        &self,
+        topics: &[StreamTopic],
+        now_ns: i64,
+    ) -> Result<Vec<PendingHead>, StorageError> {
+        if topics.is_empty() {
+            return Ok(Vec::new());
+        }
+        let wanted = wanted_param(topics);
+        let rows = self.raw_query(|conn| {
+            diesel::sql_query(HEADS_SQL)
+                .bind::<Text, _>(wanted.as_str())
+                .bind::<BigInt, _>(now_ns)
+                .load::<PendingHeadRow>(conn)
+        })?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(PendingHead {
+                    topic: row_topic(row.entity_id, row.entity_kind)?,
+                    sequence_id: row_cursor(row.sequence_id)?,
+                    blocked: row.blocked,
+                })
+            })
+            .collect()
     }
 
     /// Read the next actual ID. Missing integer IDs are not queue entries.

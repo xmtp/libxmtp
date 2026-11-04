@@ -244,7 +244,7 @@ async fn an_invalid_supported_head_does_not_hold_a_later_valid_message() {
                 .collect(),
         },
     ))));
-    assert!(controller.process_ready());
+    assert!(controller.process_ready(&mut false).await);
     assert_eq!(
         bo.context.db().topic_progress(&key)?.processed,
         Cursor(before.received.0 + 1)
@@ -276,7 +276,7 @@ async fn an_invalid_supported_head_does_not_hold_a_later_valid_message() {
         ))
     ));
     assert_eq!(bo_group.epoch_authenticator().await?, authenticator);
-    assert!(controller.process_ready());
+    assert!(controller.process_ready(&mut false).await);
     controller.refresh_statuses();
     assert_eq!(
         controller.state.statuses.lock()[&1].processing,
@@ -375,9 +375,9 @@ async fn an_invalid_supported_head_does_not_hold_a_later_valid_message() {
             .sequence_id,
         reused_cursor
     );
-    assert!(controller.process_ready());
+    assert!(controller.process_ready(&mut false).await);
     // The dictionary-native metadata update has a proposal before its commit.
-    assert!(controller.process_ready());
+    assert!(controller.process_ready(&mut false).await);
     assert_eq!(
         bo.context.db().topic_progress(&key)?.processed,
         commit_cursor
@@ -400,4 +400,81 @@ async fn an_invalid_supported_head_does_not_hold_a_later_valid_message() {
             .count(),
         1
     );
+}
+
+/// Welcomes are independent: a held Welcome does not keep a later ready one
+/// from processing.
+// verifies: PROC-013
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_ready_welcome_behind_a_held_one_is_processed() {
+    let alix = EngineTestPeer::new().await;
+    let topic = Topic::new_welcome_message(alix.context.installation_id());
+    let key = topic_key(&topic)?;
+    let mut controller = controller(alix.context.clone());
+    controller.command(Command::Acquire {
+        id: 1,
+        scope: IncomingScope::Topics(vec![topic.clone()]),
+    });
+    controller.reconcile()?;
+    admit_empty(&mut controller, &topic, &[10, 20]);
+    retry_at(&alix.context, &topic, 10, i64::MAX, false);
+    // The first pass finishes the new controller's scan of blocked Welcomes.
+    controller.process_ready(&mut false).await;
+    controller.process_ready(&mut false).await;
+    let db = alix.context.db();
+    assert!(db.pending_envelope(&key, Cursor(10))?.is_some());
+    assert!(db.pending_envelope(&key, Cursor(20))?.is_none());
+}
+
+/// Each controller rechecks a blocked head once: a new controller rechecks it,
+/// and so does one that rechecked an earlier head of the same topic.
+// verifies: PROC-012
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_blocked_head_is_rechecked_once_per_controller_and_head() {
+    let alix = EngineTestPeer::new().await;
+    let topics = local_groups(&alix.context, 3);
+    let (restarted, moved, rechecked) = (&topics[0], &topics[1], &topics[2]);
+    let mut controller = controller(alix.context.clone());
+    controller.command(Command::Acquire {
+        id: 1,
+        scope: IncomingScope::Topics(topics.clone()),
+    });
+    controller.reconcile()?;
+    for topic in &topics {
+        admit_empty(&mut controller, topic, &[10, 20]);
+    }
+    let db = alix.context.db();
+    db.complete_pending_envelope(&topic_key(moved)?, Cursor(10))?;
+    for (topic, head) in [(restarted, 10), (moved, 20), (rechecked, 10)] {
+        retry_at(&alix.context, topic, head, 0, true);
+    }
+    // This controller rechecked `moved` at an earlier head, and `rechecked` at its current one.
+    for topic in [moved, rechecked] {
+        controller
+            .topics
+            .entry(topic.clone())
+            .or_default()
+            .processing
+            .retried_head = Some(Cursor(10));
+    }
+    controller.process_ready(&mut false).await;
+    // A recheck processes the malformed head, which completes it.
+    let pending = |topic: &Topic, head| {
+        db.pending_envelope(&topic_key(topic).unwrap(), Cursor(head))
+            .unwrap()
+    };
+    assert!(pending(restarted, 10).is_none());
+    assert!(pending(moved, 20).is_none());
+    assert!(pending(rechecked, 10).is_some());
+}
+
+/// A turn rechecks a blocked head once per cursor, which matters when a failed
+/// heads read gives every queued topic a turn.
+#[xmtp_common::test(unwrap_try = true)]
+fn a_turn_rechecks_a_blocked_head_once_per_cursor() {
+    let mut controller = controller(context());
+    let topic = Topic::new_group_message(GroupId::generate());
+    assert!(controller.retry_blocked_head(&topic, Cursor(10), true));
+    assert!(!controller.retry_blocked_head(&topic, Cursor(10), true));
+    assert!(controller.retry_blocked_head(&topic, Cursor(20), true));
 }

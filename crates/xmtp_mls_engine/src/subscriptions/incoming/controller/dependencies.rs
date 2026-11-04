@@ -55,6 +55,11 @@ impl DependencyRegistry {
             .any(|entry| entry.parents.contains(parent))
     }
 
+    /// Every parent waiting for dependency work, queued or running.
+    pub(super) fn parents(&self) -> impl Iterator<Item = &DependencyParent> {
+        self.entries.values().flat_map(|entry| &entry.parents)
+    }
+
     /// All Welcomes awaiting dependency work, whether queued or running.
     pub(super) fn welcome_cursors(&self) -> Vec<Cursor> {
         self.entries

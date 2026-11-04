@@ -1,6 +1,6 @@
 use super::*;
 use crate::{groups::MlsGroup, subscriptions::incoming::stream_api::GroupSetGate};
-use futures::{StreamExt, stream::FuturesUnordered};
+use futures::{FutureExt, StreamExt, stream::FuturesUnordered};
 use std::{
     collections::{BTreeSet, HashMap, HashSet, VecDeque},
     hash::Hash,
@@ -32,6 +32,11 @@ mod reconcile;
 
 /// Commands applied in one run-loop step before the next pass.
 const MAX_COMMANDS_PER_PASS: usize = 256;
+/// Transport events already waiting that one admission point takes.
+const MAX_EVENTS_PER_ADMISSION: usize = 32;
+/// Processing turns between admission points. At about 2 ms per turn, turns
+/// keep the wire waiting about 64 ms at most.
+const TURNS_BETWEEN_ADMISSIONS: usize = 32;
 
 struct Scope {
     generation: u64,
@@ -123,6 +128,9 @@ struct ReceiptSchedule {
     /// A rate-limited Query is not sent again before this instant (RATE-041).
     rate_limited_until: Option<Instant>,
     last_read: Option<Instant>,
+    /// The durable received cursor this controller last read. It only grows,
+    /// so a floor at or above a target proves receipt.
+    received_floor: Option<Cursor>,
 }
 
 impl ReceiptSchedule {
@@ -167,6 +175,13 @@ pub(super) struct Controller<C: XmtpSharedContext> {
     /// that delay ends. Other topics' captures are not held (RATE-041).
     target_floors: HashMap<Topic, Instant>,
     read_queue: VecDeque<Topic>,
+    /// The group and identity topics that have pending rows, as this pass's
+    /// reconcile read them, plus each topic this controller admitted to since.
+    /// Only these topics have heads to read. `None` when reconcile has not read
+    /// them, and then every queued topic is read.
+    pending_topics: Option<HashSet<StreamTopic>>,
+    /// The connection state the last status rebuild published.
+    published_connection: IncomingConnection,
     dependencies: FuturesUnordered<BoxDynFuture<'static, DependencyResult<C>>>,
     dependency_registry: DependencyRegistry,
     /// Deadline and final catch-up of each Welcome with a group-prefix watch.
@@ -225,6 +240,8 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             targets_retry_at: None,
             target_floors: HashMap::new(),
             read_queue: VecDeque::new(),
+            pending_topics: None,
+            published_connection: IncomingConnection::Connecting,
             dependencies: FuturesUnordered::new(),
             dependency_registry: DependencyRegistry::default(),
             prefix_holds: HashMap::new(),
@@ -247,20 +264,15 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
 
     pub(super) async fn run(mut self) {
         let cancellation = self.context.cancellation_token().clone();
+        let mut follow_up = false;
         loop {
             if self.stop_if_idle() {
                 break;
             }
-            self.storage_error = self.reconcile().err().map(Arc::new);
-            let progress = self.process_ready();
-            self.refresh_statuses();
-            self.retire_exhausted_streams();
-            self.start_open();
-            self.start_read();
-            self.start_targets();
+            let more = self.run_pass(follow_up).await;
             // The next pass re-evaluates network interest.
             // implements: PROC-051
-            let interval = if progress {
+            let interval = if more {
                 Duration::ZERO
             } else {
                 self.context
@@ -268,16 +280,14 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     .policy()
                     .active_database_poll_interval
             };
+            follow_up = false;
             tokio::select! {
                 _ = cancellation.cancelled() => break,
                 command = self.commands.recv() => match command {
                     Some(command) => self.command_burst(command),
                     None => break,
                 },
-                event = self.transport.next() => match event {
-                    TransportEvent::Opened(result) => self.opened(result),
-                    TransportEvent::Incoming(event) => self.incoming(event),
-                },
+                event = self.transport.next() => self.transport_event(event),
                 result = async { self.read.as_mut().expect("read exists").await }, if self.read.is_some() => {
                     self.read = None;
                     self.read_finished(result);
@@ -289,7 +299,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 result = self.dependencies.next(), if !self.dependencies.is_empty() => {
                     if let Some(result) = result { self.dependency_finished(result); }
                 },
-                _ = xmtp_common::time::sleep(interval) => {},
+                _ = xmtp_common::time::sleep(interval) => follow_up = interval.is_zero(),
             }
         }
         for status in self.state.statuses.lock().values_mut() {
@@ -299,6 +309,61 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             self.state.connection_states.close(id);
         }
         self.state.notify();
+    }
+
+    /// Admit waiting events, give every topic with ready work one turn, then
+    /// publish status and start network work. A `follow_up` pass runs at once
+    /// after a pass that had work. Returns whether the next pass has work now:
+    /// processing made progress, or events were admitted.
+    async fn run_pass(&mut self, follow_up: bool) -> bool {
+        let mut admitted = self.admission_point().await;
+        self.storage_error = self.reconcile().err().map(Arc::new);
+        let progress = self.process_ready(&mut admitted).await;
+        admitted |= self.admission_point().await;
+        // The pass before a follow-up published status. Rebuilding it with no
+        // new work would hold the next frame behind a read of every scoped
+        // topic; other changes wait for the next wake, as after an idle pass.
+        // A changed connection is published at once (EVENT-027).
+        let connection = self.transport.connection();
+        if admitted || progress || !follow_up || connection != self.published_connection {
+            self.refresh_statuses();
+            self.published_connection = connection;
+        }
+        self.retire_exhausted_streams();
+        self.start_open();
+        self.start_read();
+        self.start_targets();
+        progress || admitted
+    }
+
+    /// Take the transport events that are already waiting, at most
+    /// `MAX_EVENTS_PER_ADMISSION`, then yield, so received envelopes do not
+    /// wait behind processing and a reader that processing woke runs before
+    /// the status rebuild. Returns whether any event was handled.
+    async fn admission_point(&mut self) -> bool {
+        let mut admitted = false;
+        for _ in 0..MAX_EVENTS_PER_ADMISSION {
+            // The next event could change the connection again before a
+            // rebuild publishes this change (EVENT-027). It waits for the
+            // next pass, or wakes the run loop.
+            if self.transport.connection() != self.published_connection {
+                break;
+            }
+            let Some(event) = self.transport.next().now_or_never() else {
+                break;
+            };
+            self.transport_event(event);
+            admitted = true;
+        }
+        xmtp_common::task::yield_now().await;
+        admitted
+    }
+
+    fn transport_event(&mut self, event: TransportEvent) {
+        match event {
+            TransportEvent::Opened(result) => self.opened(result),
+            TransportEvent::Incoming(event) => self.incoming(event),
+        }
     }
 
     fn stop_if_idle(&mut self) -> bool {
@@ -455,6 +520,16 @@ fn merge_read_queue<T: Clone + Eq + Hash, K: Ord>(
         .collect();
     additions.sort_by_key(sort_key);
     queue.extend(additions);
+}
+
+/// The topic of a stream key; the inverse of `topic_key`.
+fn key_topic(key: &StreamTopic) -> Topic {
+    let kind = match key.kind {
+        NetworkEntityKind::Group => TopicKind::GroupMessagesV1,
+        NetworkEntityKind::Welcome => TopicKind::WelcomeMessagesV1,
+        NetworkEntityKind::Identity => TopicKind::IdentityUpdatesV1,
+    };
+    kind.create(&key.entity_id)
 }
 
 pub(crate) fn topic_key(topic: &Topic) -> Result<StreamTopic, IncomingError> {

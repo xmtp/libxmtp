@@ -77,6 +77,9 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             .into_iter()
             .flat_map(|batch| batch.envelopes)
             .peekable();
+        if let Some(pending) = &mut self.pending_topics {
+            pending.insert(key.clone());
+        }
         let mut after = batch.after;
         let store = MlsStore::new(self.context.clone());
         while pending.peek().is_some() {
@@ -212,7 +215,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
 
     /// Explicit sync queries immediately. Stream-first targets keep one fixed receiver wait.
     pub(super) fn read_due(
-        &self,
+        &mut self,
         topic: &Topic,
         key: &StreamTopic,
         now: Instant,
@@ -248,6 +251,13 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 continue;
             };
             barrier |= deadline.is_some();
+            if self
+                .receipt(topic)
+                .received_floor
+                .is_some_and(|floor| floor >= target)
+            {
+                continue;
+            }
             let received = match received {
                 Some(received) => received,
                 None => {
@@ -255,6 +265,11 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     self.receipt_progress_reads
                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     let progress = self.context.db().topic_progress(key)?.received;
+                    self.topics
+                        .entry(topic.clone())
+                        .or_default()
+                        .receipt
+                        .received_floor = Some(progress);
                     received = Some(progress);
                     progress
                 }

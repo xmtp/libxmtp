@@ -188,7 +188,7 @@ async fn a_welcome_fetches_missing_member_proofs_in_one_request(#[case] pointer:
         .read_queue
         .push_back(Topic::new_welcome_message(bo.context.installation_id()));
     controller.welcome_blocked_scan = None;
-    controller.process_ready();
+    controller.process_ready(&mut false).await;
     assert_eq!(controller.dependencies.len(), 1);
 
     let queries = bo.api_stats().query.get_count();
@@ -249,7 +249,7 @@ async fn a_commit_fetches_missing_proofs_for_added_inboxes_in_one_request() {
     let mut controller = controller(bo.context.clone());
     controller.read_queue.push_back(topic);
     // Earlier heads from the add need no proofs. The commit then waits on one batch.
-    while controller.process_ready() {}
+    while controller.process_ready(&mut false).await {}
     assert_eq!(controller.dependencies.len(), 1);
 
     let queries = bo.api_stats().query.get_count();
@@ -264,7 +264,7 @@ async fn a_commit_fetches_missing_proofs_for_added_inboxes_in_one_request() {
     assert_eq!(inboxes, HashSet::from(added));
     controller.dependency_finished(result);
     assert_eq!(bo.api_stats().query.get_count() - queries, 1);
-    assert!(controller.process_ready());
+    assert!(controller.process_ready(&mut false).await);
     assert!(controller.dependencies.is_empty());
     assert_eq!(bo_group.members().await?.len(), 5);
 }

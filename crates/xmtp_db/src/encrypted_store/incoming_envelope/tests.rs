@@ -504,6 +504,49 @@ async fn pending_states_include_only_actual_topic_ids_through_the_target() {
     assert!(db.pending_states_through(&welcome, Cursor(0))?.is_empty());
 }
 
+/// The heads read returns each requested head that is blocked, whatever its
+/// retry time, or due; nothing for a topic whose head waits for its retry
+/// time, even when a later row is due; and nothing for a topic it was not
+/// asked about.
+#[xmtp_common::test(unwrap_try = true)]
+async fn due_or_blocked_heads_return_only_heads_with_work() {
+    let store = TestDb::create_persistent_store(None).await;
+    let db = store.db();
+    let blocked = topic(1, NetworkEntityKind::Group);
+    let due = topic(2, NetworkEntityKind::Identity);
+    let waiting = topic(3, NetworkEntityKind::Group);
+    let unasked = topic(4, NetworkEntityKind::Group);
+    for topic in [&blocked, &due, &waiting, &unasked] {
+        db.admit_ordered_batch(topic, Cursor(0), &batch(&[10, 20]), limits())?;
+    }
+    let later = |blocked| IncomingRetry {
+        retry_at_ns: i64::MAX,
+        blocked,
+        error_code: None,
+        retry_expires_at_ns: None,
+    };
+    assert!(db.set_incoming_retry(&blocked, Cursor(10), &later(true))?);
+    assert!(db.set_incoming_retry(&waiting, Cursor(10), &later(false))?);
+    let asked = [blocked.clone(), due.clone(), waiting];
+    let mut heads = db.due_or_blocked_heads(&asked, xmtp_common::time::now_ns())?;
+    heads.sort_by(|a, b| a.topic.entity_id.cmp(&b.topic.entity_id));
+    assert_eq!(
+        heads,
+        [
+            PendingHead {
+                topic: blocked,
+                sequence_id: Cursor(10),
+                blocked: true,
+            },
+            PendingHead {
+                topic: due,
+                sequence_id: Cursor(10),
+                blocked: false,
+            },
+        ]
+    );
+}
+
 /// Scheduled Welcomes must not consume ready-read budgets or lose their
 /// retention state, so a slow dependency cannot starve independent joins.
 // verifies: PROC-013
