@@ -80,25 +80,15 @@ The MLS validation of a proposal and a commit under [RFC 9420 §12.2](https://ww
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| GMOD-001 | Four proposal types | When a standalone proposal or a proposal inside a commit is not `add`, `update`, `remove`, or `app_data_update`, the client MUST refuse it under the unsupported-proposal table below. | |
 | GMOD-002 | Only members propose | When a proposal's or a commit's sender is not a `member` sender ([RFC 9420 §6.1](https://www.rfc-editor.org/rfc/rfc9420.html#section-6.1)) whose leaf node is in the group, the client MUST record a terminal rejection for it. | |
 | GMOD-003 | An update keeps its identity and key | When a standalone `update` proposal's credential names an inbox other than the proposer's, the client MUST record a terminal rejection for it. When a commit carries an `update` proposal whose leaf's `signature_key` differs from the `signature_key` of the leaf it replaces, the client MUST record a terminal rejection for the commit. | A member could otherwise place its leaf under another member's inbox. GMOD-046 compares `signature_key`s, so an update that copies a sibling leaf's key would let a commit remove one of the two leaves and keep the other after that key is revoked. |
 | GMOD-004 | Proposals travel with their commit | When a client publishes a commit that references proposals it created, it MUST publish those proposals and the commit in one publish request, the proposals first in the order it created them. | |
+| GMOD-059 | Only four proposal types | When a standalone proposal or a proposal inside a commit is not `add`, `update`, `remove`, or `app_data_update`, and the group's committed floor does not exceed the client's version, the client MUST record a terminal rejection for that proposal or commit. | A held proposal stops every later message and commit for every member, including the removal of its sender. |
 | GMOD-040 | The group id is a public key | When a client creates a group of any conversation type, other than a restored placeholder under ARCH-015, it MUST draw a 32-byte group root from a cryptographically secure random source for that group alone. It MUST set the MLS `group_id` to the 32-byte public key of the group signing key derived from that root under GMOD-041. | A root that is predictable or shared gives the publish key of a group to an installation the group never added. |
 | GMOD-041 | Keys derive from the root | The client MUST derive each key in the group key table from the group root with the salt and `info` the table gives, and MUST use each derived key only for the use the table names. | Installations that derive differently compute different topics and signatures, and a key used for two purposes lets a signature for one be presented as the other. |
 | GMOD-042 | The root stays in the group | A client MUST NOT write a group root, a private or symmetric key in the group key table, or a `GroupInfo` whose group context holds a root, to any destination other than its own client database and a Welcome or welcome pointee for an installation that a commit adds. | Whoever obtains the root can publish to the group's topics and find its commit-log topic for as long as the group exists, because the root never changes. |
 
-The unsupported-proposal table gives the outcome after MLS validation has accepted the message. Earlier MLS failures follow PROC-011 and PROC-012. A held proposal is not retained as an accepted proposal for a later commit.
-
-| Unsupported proposal | Standalone outcome | Commit outcome |
-| --- | --- | --- |
-| `GroupContextExtensions` | Hold | Hold |
-| `PreSharedKey` | Hold | Terminal rejection |
-| `ReInit` | Hold | Hold |
-| `ExternalInit` | Hold | Hold |
-| `SelfRemove` | Hold | Hold |
-| `AppEphemeral` | Hold | Hold |
-| Custom proposal | Hold | Hold |
+GMOD-059 applies after MLS validation has accepted the message; earlier MLS failures follow PROC-011 and PROC-012. A rejected proposal is not retained, so a commit that references it fails for a missing proposal. A release that accepts another proposal type raises the floor first under PERM-023, so a client that rejects that type pauses under GMOD-025 before it sees one.
 
 ### 1.1 Proposal-list validity
 
@@ -234,7 +224,7 @@ The sender of a member removal cleans up after the inboxes it removes, so a depa
 
 ## 5. Receiving a commit
 
-A received commit passes through the checks in this spec and in `PERM`, and is applied only when every one passes. A commit that fails leaves the group's state and epoch unchanged. What happens next depends on why it failed. PROC-011 owns terminal rejection and advancement. PROC-012 owns holding after a storage failure, an unresolved identity dependency, or an unsupported proposal. The proposal table in section 1 distinguishes an unsupported standalone PSK from a terminal committed PSK.
+A received commit passes through the checks in this spec and in `PERM`, and is applied only when every one passes. A commit that fails leaves the group's state and epoch unchanged. What happens next depends on why it failed. PROC-011 owns terminal rejection and advancement. PROC-012 owns holding after a storage failure or an unresolved identity dependency.
 
 The floor is different from both. A client below the group's floor cannot be sure it can even parse what the group now carries, and a rejection it issues alone is a fork. So it pauses: it applies nothing further on that group, publishes nothing to it, and records no rejection, until its version reaches the floor and it reprocesses from where it stopped. While the committed floor is supported, a commit that raises it is validated before it can pause the client. A terminal validation failure rejects that commit; an unresolved dependency or storage failure holds it under PROC-012. A committed floor that is already unsupported pauses the client before further commit validation. Versions compare under [Semantic Versioning 2.0.0 §11](https://semver.org/spec/v2.0.0.html#spec-item-11), including its pre-release precedence, unlike the backend's minimum under CONF-050. The floor only rises, because a lowered floor lets a paused client apply commits it cannot interpret. A new group is created with a floor at the first version that supports the dictionary, and PERM-023 says when a release raises it.
 
@@ -300,6 +290,8 @@ The floor pauses only the clients below it. Members at or above it continue, and
 A membership refresh is triggered by client activity. Its interval is an implementation choice, not a deadline for removing a revoked installation or adding a new one. No bound applies while all members are offline.
 
 Clients that predate GMOD-043, the coverage of `add` and update path leaves in GMOD-012, or the `signature_key` clause of GMOD-003 apply commits that newer clients reject: a commit with an unbound leaf, or one whose `update` changes its leaf's key. Without a version floor (PERM-023), the group forks between them. A forged commit causes either. An older client's own refresh can also cause the first, because it adds a key package whose credential names another inbox, which JOIN-093 excludes. An older client's commit can also cause the second: a client that predates the omission of pending `update` proposals from commits (section 1), including every `8.0.0-rc4` and earlier release, commits a member's standalone `update` that changes its leaf's key, which receivers accept on receipt. Every client is expected to run `8.0.0-rc5` or later, and the floor is raised to the first release with these checks when that release ships; until then, a group with an older member can fork this way. Clients that predate the own-inbox clause of GMOD-010 reject a commit in which an inbox adds back its own installation that holds no leaf, which newer clients accept. No client publishes such a commit before the group's floor includes that clause (GMOD-055), so only a forged commit from an installation of that inbox causes this fork.
+
+Clients that predate GMOD-059 hold, with no deadline, a standalone proposal of another type and a commit that carries a `GroupContextExtensions`, `ReInit`, or `ExternalInit` proposal; they already reject a commit that carries any other type. They apply nothing past a held message, so they do not fork, and after an upgrade they reject it and continue. A group with a floor of `8.0.0-0` or later pauses them under GMOD-025.
 
 Receivers check only that a readd adds back the installation it removes, not that the added key package is the newest one that installation published. A super admin, or either member of a DM (GMOD-052), can readd an installation with a key package whose private keys it destroyed under JOIN-074; that installation processes the removal, cannot open the Welcome, and keeps a leaf it cannot use, so it is out of the conversation until it is readded again. A super admin can already remove any member; for a DM member this is a new power.
 

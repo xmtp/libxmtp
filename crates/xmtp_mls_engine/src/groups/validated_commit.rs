@@ -246,7 +246,7 @@ impl ValidatedCommit {
                 CommitRuleError::ProtocolVersionTooLow(min_version),
             ));
         }
-        // implements: GMOD-001, GMOD-030
+        // implements: GMOD-059, GMOD-030
         validate_committed_proposals(
             staged_commit
                 .queued_proposals()
@@ -613,6 +613,7 @@ impl From<ValidatedCommit> for GroupMembershipChanges {
 ///
 /// This function should be called when receiving proposals to ensure they are valid
 /// before they are stored and later committed.
+// implements: GMOD-059
 pub fn validate_proposal(
     proposal: &QueuedProposal,
     openmls_group: &OpenMlsGroup,

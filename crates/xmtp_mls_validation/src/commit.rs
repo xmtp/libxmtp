@@ -147,7 +147,10 @@ impl RetryableError for CommitRuleError {
 
 impl CommitRuleError {
     /// Only authenticated, deterministic invalid input can advance the prefix.
-    /// Unsupported versions and proposal types leave the head pending.
+    /// An unsupported version leaves the head pending; an unsupported
+    /// proposal type is rejected, because no release accepts one below a
+    /// floor that pauses this client first.
+    // implements: GMOD-059
     pub fn is_safe_rejection(&self) -> bool {
         match self {
             Self::IdentitySequenceNotBeforeEnvelope { .. }
@@ -178,8 +181,9 @@ impl CommitRuleError {
             | Self::GroupMutableMetadata(_)
             | Self::GroupMutablePermissions(_)
             | Self::ComponentSource(_)
-            | Self::Conversion(_) => true,
-            Self::ProtocolVersionTooLow(_) | Self::UnsupportedProposalType(_) => false,
+            | Self::Conversion(_)
+            | Self::UnsupportedProposalType(_) => true,
+            Self::ProtocolVersionTooLow(_) => false,
         }
     }
 }
@@ -336,17 +340,17 @@ impl MetadataFieldChange {
 /// Validate the complete proposal list of a commit before any proposal is
 /// interpreted.
 ///
-/// Only `Add`, `Update`, `Remove`, and `AppDataUpdate` are allowed. Any other
-/// kind except `PreSharedKey` holds the commit
-/// ([`CommitRuleError::UnsupportedProposalType`]); a hold outranks every
-/// terminal rejection in the same list. `PreSharedKey` is a terminal
-/// rejection.
+/// Only `Add`, `Update`, `Remove`, and `AppDataUpdate` are allowed. Every
+/// other kind is a terminal rejection: `PreSharedKey` as
+/// [`CommitRuleError::NoPSKSupport`], and any other kind as
+/// [`CommitRuleError::UnsupportedProposalType`], which returns at once.
 ///
 /// The `AppDataUpdate` proposals must form a valid list under
 /// draft-ietf-mls-extensions-08 §4.7 whether or not a
 /// `GroupContextExtensions` proposal is present: per component, no Update
 /// together with a Remove, at most one Remove, and a Remove only for a
 /// component that `has_state` in the pre-commit dictionary.
+// implements: GMOD-059
 pub fn validate_committed_proposals<'a>(
     proposals: impl IntoIterator<Item = &'a Proposal>,
     has_state: impl Fn(ComponentId) -> bool,

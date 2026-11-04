@@ -3,7 +3,7 @@
 use super::*;
 use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer, EngineTestPeerOps};
 
-// verifies: PROC-055
+// verifies: PROC-061
 #[xmtp_common::test(unwrap_try = true)]
 async fn far_forward_application_message_is_rejected_and_later_message_arrives() {
     use crate::groups::mls_sync::{GroupHeadOutcome, GroupMessageProcessingError};
@@ -122,7 +122,7 @@ async fn far_forward_application_message_is_rejected_and_later_message_arrives()
     let first_cursor = Cursor(db.first_pending_envelope(&topic)?.unwrap().sequence_id as u64);
     let GroupHeadOutcome::Progress {
         cursor,
-        result: Err(GroupMessageProcessingError::FarForwardApplicationMessage),
+        result: Err(GroupMessageProcessingError::FarForwardSender),
     } = bo_group.process_pending_group_head(None)?
     else {
         panic!("far-forward application ciphertext must be terminally rejected");
@@ -153,14 +153,24 @@ async fn far_forward_application_message_is_rejected_and_later_message_arrives()
     assert_eq!(db.read_last_rejection(&topic)?, Some(rejection));
 }
 
-// verifies: PROC-055
+/// A proposal and then a commit whose sender generations are beyond the
+/// forward window are terminal rejections, so they cannot hold the group
+/// head. The rejected commit is logged as undecryptable at the current
+/// epoch, and the group is not marked as forked.
+// verifies: PROC-061
 #[xmtp_common::test(unwrap_try = true)]
-async fn far_forward_proposal_stays_held() {
-    use crate::groups::mls_sync::GroupHeadOutcome;
-    use openmls::prelude::LeafNodeParameters;
+async fn far_forward_proposal_is_rejected() {
+    use crate::groups::{
+        mls_ext::commit_without_group_info,
+        mls_sync::{GroupHeadOutcome, GroupMessageProcessingError, generate_prepared_commit},
+    };
+    use openmls::prelude::{LeafNodeParameters, tls_codec::Serialize as _};
+    use openmls_traits::OpenMlsProvider as _;
     use xmtp_db::{
         TransactionOutcome::Continue,
         incoming_envelope::{QueryIncomingEnvelope, StreamTopic},
+        local_commit_log::QueryLocalCommitLog,
+        remote_commit_log::CommitResult,
     };
     use xmtp_mls_core::state_tx::state_write;
     use xmtp_proto::types::{OrderedEnvelopeBatch, Topic};
@@ -172,29 +182,45 @@ async fn far_forward_proposal_stays_held() {
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
     let bo_group = receive_group_invite(&bo).await;
+    // A rejected commit right after the Welcome is not logged.
+    alix_group.update_group_name("logged".into()).await?;
     bo_group.receive().await?;
     let topic = StreamTopic::group(bo_group.group_id);
     let before = bo.context.db().topic_progress(&topic)?;
-    let message = state_write(alix.context.mls_storage(), |tx| {
+    let signer = alix.context.identity().installation_keys.clone();
+    let (proposal, commit) = state_write(alix.context.mls_storage(), |tx| {
         tx.with_group(alix_group.group_id, |mls_group, storage| {
             let mut last = None;
             for _ in 0..PROPOSAL_COUNT {
                 let (message, _) = mls_group
                     .propose_self_update(
                         &XmtpOpenMlsProviderRef::new(storage),
-                        &alix.context.identity().installation_keys,
+                        &signer,
                         LeafNodeParameters::default(),
                     )
                     .unwrap();
                 last = Some(message.to_bytes()?);
             }
-            Ok::<_, GroupError>(Continue(last.expect("at least one proposal")))
+            let (commit, _, _) = generate_prepared_commit(storage, mls_group, |mls, provider| {
+                let bundle = commit_without_group_info(mls, provider.storage(), |builder| {
+                    builder.consume_proposal_store(false)
+                })
+                .unwrap()
+                .build(provider.rand(), provider.crypto(), &signer, |_| true)
+                .unwrap()
+                .stage_commit(provider)
+                .unwrap();
+                bundle.into_messages().0.tls_serialize_detached()
+            })?;
+            Ok::<_, GroupError>(Continue((last.expect("at least one proposal"), commit)))
         })
     })?
     .into_continued();
     alix.context
         .api()
-        .send_group_messages(alix_group.prepare_group_messages(vec![(&message, false)])?)
+        .send_group_messages(
+            alix_group.prepare_group_messages(vec![(&proposal, false), (&commit, false)])?,
+        )
         .await?;
 
     let wire_topic = Topic::new_group_message(bo_group.group_id);
@@ -206,7 +232,7 @@ async fn far_forward_proposal_stays_held() {
             bo.context.api().limits().max_query_limit as u32,
         )
         .await?;
-    assert_eq!(envelopes.len(), 1);
+    assert_eq!(envelopes.len(), 2);
     bo.mls_store().admit_incoming_batch(
         &OrderedEnvelopeBatch {
             topic: wire_topic,
@@ -220,20 +246,31 @@ async fn far_forward_proposal_stays_held() {
     )?;
     let db = bo.context.db();
     let received = db.topic_progress(&topic)?.received;
-    let GroupHeadOutcome::Waiting {
-        cursor,
-        code,
-        blocked,
-    } = bo_group.process_pending_group_head(None)?
-    else {
-        panic!("far-forward proposal must stay held");
-    };
-    assert!(blocked);
-    assert_eq!(code, "mls_processing_failure");
-    assert_eq!(cursor, received);
-    assert_eq!(db.topic_progress(&topic)?.processed, before.processed);
-    assert_eq!(db.pending_states_through(&topic, received)?.len(), 1);
-    assert!(db.read_last_rejection(&topic)?.is_none());
+    let authenticator = bo_group.epoch_authenticator().await?;
+    for _ in 0..2 {
+        let GroupHeadOutcome::Progress {
+            cursor,
+            result: Err(GroupMessageProcessingError::FarForwardSender),
+        } = bo_group.process_pending_group_head(None)?
+        else {
+            panic!("a far-forward handshake must be terminally rejected");
+        };
+        let rejection = db.read_last_rejection(&topic)?.unwrap();
+        assert_eq!(rejection.sequence_id, cursor);
+        assert_eq!(rejection.code, "far_forward_generation");
+        assert_eq!(db.topic_progress(&topic)?.processed, cursor);
+    }
+    assert_eq!(db.topic_progress(&topic)?.processed, received);
+    assert!(db.first_pending_envelope(&topic)?.is_none());
+    let log = db.get_latest_log_for_group(&bo_group.group_id)?.unwrap();
+    assert_eq!(log.commit_result, CommitResult::Undecryptable);
+    assert_eq!(
+        log.last_epoch_authenticator,
+        log.applied_epoch_authenticator
+    );
+    assert_eq!(log.applied_epoch_authenticator, authenticator);
+    assert_eq!(bo_group.epoch_authenticator().await?, authenticator);
+    assert!(!bo_group.debug_info().await?.maybe_forked);
 }
 
 // verifies: EVENT-001, EVENT-010
