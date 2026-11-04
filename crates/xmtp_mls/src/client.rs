@@ -1610,6 +1610,13 @@ impl<Context: XmtpSharedContext> Client<Context> {
     pub fn attachments(&self) -> Attachments<Context> {
         Attachments::new(self.context.clone())
     }
+
+    /// The kinds of the workers this client registered.
+    #[cfg(any(test, feature = "test-utils"))]
+    #[doc(hidden)]
+    pub fn registered_worker_kinds(&self) -> Vec<crate::worker::WorkerKind> {
+        self.workers.registered_kinds()
+    }
 }
 
 impl<Context: XmtpSharedContext> Client<Context> {

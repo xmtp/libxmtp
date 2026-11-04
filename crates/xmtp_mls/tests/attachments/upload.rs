@@ -16,13 +16,10 @@ async fn cancelled_create_rolls_back_both_publication_points() {
             entered: tokio::sync::Notify::new(),
             resume: tokio::sync::Notify::new(),
         });
-        *alix
-            .client
+        alix.client
             .context
-            .features
-            .attachments
-            .create_publish_pause
-            .lock() = Some(pause.clone());
+            .attachment_runtime()
+            .set_create_publish_pause(Some(pause.clone()));
         let client = alix.client.clone();
         let create = tokio::spawn(async move { client.attachments().create(bytes()).await });
         tokio::time::timeout(Duration::from_secs(3), pause.entered.notified()).await?;
@@ -34,12 +31,11 @@ async fn cancelled_create_rolls_back_both_publication_points() {
             Duration::from_secs(3),
             alix.client
                 .context
-                .features
-                .attachments
-                .reconcile(&alix.client.context),
+                .attachment_runtime()
+                .reconcile_again(&alix.client.context),
         )
         .await??;
-        let store = alix.client.context.features.attachments.store()?;
+        let store = alix.client.context.attachment_runtime().local_store()?;
         assert!(!store.exists(&path).await?);
         assert!(!store.exists(&staged).await?);
         assert!(
@@ -78,16 +74,16 @@ impl xmtp_api_backend::AuthCallback for KnownCredential {
 // verifies: ATCH-027
 #[xmtp_common::test(unwrap_try = true)]
 async fn no_backend_credentials_on_storage_requests() {
-    use crate::utils::test::backend::EphemeralBackend;
+    use xmtp_backend::test_support::TestServer;
     use xmtp_proto::backend_v1::CreateUploadResponse;
-    let backend = EphemeralBackend::start(
+    let backend = TestServer::from_toml(
         "[auth]\nenabled = true\n[auth.api_keys]\nci = 'attachment-credential-unique-0123456789'",
     )
     .await?;
     let calls = Arc::new(AtomicUsize::new(0));
     let sender = tempfile::tempdir()?;
     let recipient = tempfile::tempdir()?;
-    tester!(alix, backend: &backend, auth: Arc::new(KnownCredential(calls.clone())), attachments_dir: sender.path(), configured: offer, disable_workers);
+    tester!(alix, backend_url: backend.url.as_str(), auth: Arc::new(KnownCredential(calls.clone())), attachments_dir: sender.path(), configured: offer, disable_workers);
     assert!(calls.load(Ordering::SeqCst) > 0);
     let pending = alix.client.attachments().create(bytes()).await?;
     let remote = pending.remote_attachment().clone();
@@ -103,7 +99,7 @@ async fn no_backend_credentials_on_storage_requests() {
             expires_in_seconds: 3600,
         })
     });
-    let sender_client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let sender_client = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(Arc::new(mock))
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
@@ -119,7 +115,7 @@ async fn no_backend_credentials_on_storage_requests() {
         .upload()
         .await?;
     tester!(bo, attachments_dir: recipient.path(), disable_workers);
-    let recipient_client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+    let recipient_client = xmtp_mls::builder::ClientBuilder::from_client(bo.client.clone())
         .attachment_options(AttachmentOptions {
             allow_private_network: true,
             ..Default::default()
@@ -350,9 +346,9 @@ async fn create_retained_fields_limit() {
         assert!(bo.client.attachments().list_local().await?.is_empty());
         assert!(
             bo.client
-                .attachments()
-                .runtime()
-                .store()?
+                .context
+                .attachment_runtime()
+                .local_store()?
                 .list_files()
                 .await?
                 .is_empty()
@@ -450,9 +446,9 @@ async fn empty_retained_values_use_decoder_limit() {
         assert!(bo.client.attachments().list_local().await?.is_empty());
         assert!(
             bo.client
-                .attachments()
-                .runtime()
-                .store()?
+                .context
+                .attachment_runtime()
+                .local_store()?
                 .list_files()
                 .await?
                 .is_empty()
@@ -560,9 +556,8 @@ async fn fifo_source_is_rejected_before_staging() {
     assert!(
         alix.client
             .context
-            .features
-            .attachments
-            .store()?
+            .attachment_runtime()
+            .local_store()?
             .list_files()
             .await?
             .is_empty()
@@ -581,13 +576,10 @@ async fn conflicting_plaintext_move_keeps_existing_file_and_record() {
         entered: tokio::sync::Notify::new(),
         resume: tokio::sync::Notify::new(),
     });
-    *alix
-        .client
+    alix.client
         .context
-        .features
-        .attachments
-        .create_move_pause
-        .lock() = Some(pause.clone());
+        .attachment_runtime()
+        .set_create_move_pause(Some(pause.clone()));
     let client = alix.client.clone();
     let create =
         xmtp_common::task::spawn(async move { client.attachments().create(bytes()).await });
@@ -625,9 +617,8 @@ async fn conflicting_plaintext_move_keeps_existing_file_and_record() {
     let files = alix
         .client
         .context
-        .features
-        .attachments
-        .store()?
+        .attachment_runtime()
+        .local_store()?
         .list_files()
         .await?;
     assert_eq!(files.len(), 2);
@@ -647,13 +638,10 @@ async fn existing_plaintext_without_record_is_adopted_on_create() {
         entered: tokio::sync::Notify::new(),
         resume: tokio::sync::Notify::new(),
     });
-    *alix
-        .client
+    alix.client
         .context
-        .features
-        .attachments
-        .create_move_pause
-        .lock() = Some(pause.clone());
+        .attachment_runtime()
+        .set_create_move_pause(Some(pause.clone()));
     let client = alix.client.clone();
     let create =
         xmtp_common::task::spawn(async move { client.attachments().create(bytes()).await });
@@ -695,13 +683,10 @@ async fn directory_plaintext_collision_rejects_create() {
         entered: tokio::sync::Notify::new(),
         resume: tokio::sync::Notify::new(),
     });
-    *alix
-        .client
+    alix.client
         .context
-        .features
-        .attachments
-        .create_move_pause
-        .lock() = Some(pause.clone());
+        .attachment_runtime()
+        .set_create_move_pause(Some(pause.clone()));
     let client = alix.client.clone();
     let create =
         xmtp_common::task::spawn(async move { client.attachments().create(bytes()).await });
@@ -745,13 +730,10 @@ async fn conflicting_pending_row_rolls_back_only_owned_files() {
             entered: tokio::sync::Notify::new(),
             resume: tokio::sync::Notify::new(),
         });
-        *alix
-            .client
+        alix.client
             .context
-            .features
-            .attachments
-            .create_move_pause
-            .lock() = Some(pause.clone());
+            .attachment_runtime()
+            .set_create_move_pause(Some(pause.clone()));
         let client = alix.client.clone();
         let create =
             xmtp_common::task::spawn(async move { client.attachments().create(bytes()).await });
@@ -795,9 +777,8 @@ async fn conflicting_pending_row_rolls_back_only_owned_files() {
         let files = alix
             .client
             .context
-            .features
-            .attachments
-            .store()?
+            .attachment_runtime()
+            .local_store()?
             .list_files()
             .await?;
         assert!(files.is_empty());
@@ -818,13 +799,10 @@ async fn existing_staged_ciphertext_is_reused_on_create() {
         entered: tokio::sync::Notify::new(),
         resume: tokio::sync::Notify::new(),
     });
-    *alix
-        .client
+    alix.client
         .context
-        .features
-        .attachments
-        .create_move_pause
-        .lock() = Some(pause.clone());
+        .attachment_runtime()
+        .set_create_move_pause(Some(pause.clone()));
     let client = alix.client.clone();
     let create =
         xmtp_common::task::spawn(async move { client.attachments().create(bytes()).await });
@@ -879,13 +857,10 @@ async fn damaged_staged_ciphertext_is_replaced_on_create() {
             entered: tokio::sync::Notify::new(),
             resume: tokio::sync::Notify::new(),
         });
-        *alix
-            .client
+        alix.client
             .context
-            .features
-            .attachments
-            .create_move_pause
-            .lock() = Some(pause.clone());
+            .attachment_runtime()
+            .set_create_move_pause(Some(pause.clone()));
         let client = alix.client.clone();
         let create =
             xmtp_common::task::spawn(async move { client.attachments().create(bytes()).await });
@@ -919,9 +894,8 @@ async fn damaged_staged_ciphertext_is_replaced_on_create() {
         let (digest, length) = alix
             .client
             .context
-            .features
-            .attachments
-            .store()?
+            .attachment_runtime()
+            .local_store()?
             .open_read(&staged)
             .await?
             .sha256(expected_length)
@@ -951,7 +925,7 @@ async fn one_pending_per_digest() {
         .attachments()
         .pending(first.remote_attachment())
         .await?;
-    assert!(Arc::ptr_eq(&first.shared, &second.shared));
+    assert!(first.probe().shares_with(&second.probe()));
     assert_eq!(alix.client.attachments().list_pending().await?.len(), 1);
 }
 
@@ -983,7 +957,7 @@ async fn staged_unusable() {
     ));
     let emitted = events.drain();
     assert_eq!(emitted.len(), 2);
-    let key = pending.reference().attachment_key;
+    let key = pending.reference_for_test().attachment_key;
     assert!(matches!(
         &emitted[0].client,
         Some(ClientEvent::AttachmentUploadStarted(reference)) if reference.attachment_key == key
@@ -1048,7 +1022,7 @@ async fn blocked_connection_upload_fails() {
     let pending = alix.client.attachments().create(bytes()).await?;
     let mut mock = xmtp_api_backend::MockBackendClient::new();
     mock.expect_create_upload().times(0);
-    let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(Arc::new(mock))
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
@@ -1074,93 +1048,6 @@ async fn blocked_connection_upload_fails() {
     );
 }
 
-/// A rate limit is a transient backend condition.
-// verifies: RATE-041
-#[xmtp_common::test(unwrap_try = true)]
-fn a_rate_limit_maps_to_a_transient_cause() {
-    use xmtp_proto::api::ApiClientError;
-    let limited = xmtp_api_grpc::error::rate_limited_status(
-        "upload",
-        xmtp_common::time::Duration::from_secs(5),
-    );
-    let error = ApiClientError::client(xmtp_api_grpc::error::GrpcError::Status(limited));
-    let mapped = api_error(xmtp_api::dyn_err(error));
-    assert_eq!(mapped.cause, Cause::BackendUnavailable);
-    assert!(!mapped.missing_scope);
-}
-
-// verifies: ATCH-060, ATCH-061
-#[xmtp_common::test(unwrap_try = true)]
-fn causes_map() {
-    use xmtp_proto::api::{ApiClientError, AuthError};
-    let credential = api_error(xmtp_api::ApiError::Auth(AuthError::CredentialRejected {
-        retryable: true,
-    }));
-    assert_eq!(credential.cause, Cause::Credential);
-    assert_eq!(
-        credential.credential_kind,
-        Some(CredentialFailureKind::CredentialRejected)
-    );
-    assert!(credential.retryable);
-    let no_credential = api_error(xmtp_api::ApiError::Auth(AuthError::MissingCredential));
-    assert_eq!(
-        no_credential.credential_kind,
-        Some(CredentialFailureKind::MissingCredential)
-    );
-    assert!(!no_credential.retryable);
-    for code in [
-        tonic::Code::InvalidArgument,
-        tonic::Code::OutOfRange,
-        tonic::Code::Unimplemented,
-    ] {
-        let network = ApiClientError::client(xmtp_api_grpc::error::GrpcError::Status(
-            tonic::Status::new(code, "rejected"),
-        ));
-        assert_eq!(
-            api_error(xmtp_api::dyn_err(network)).cause,
-            Cause::BackendRejected
-        );
-    }
-    // FAILED_PRECONDITION and INTERNAL clear when the operator corrects the backend.
-    for code in [
-        tonic::Code::Unavailable,
-        tonic::Code::FailedPrecondition,
-        tonic::Code::Internal,
-    ] {
-        let unavailable = ApiClientError::client(xmtp_api_grpc::error::GrpcError::Status(
-            tonic::Status::new(code, "not signed"),
-        ));
-        assert_eq!(
-            api_error(xmtp_api::dyn_err(unavailable)).cause,
-            Cause::BackendUnavailable
-        );
-    }
-    let target = AttachmentClientError::from(AttachmentError::new(Cause::TargetRejected));
-    assert_eq!(target.cause, Cause::TargetRejected);
-}
-
-// verifies: ATCH-061
-#[xmtp_common::test(unwrap_try = true)]
-fn credential_failure_kind_strings_round_trip() {
-    fn index(kind: CredentialFailureKind) -> usize {
-        match kind {
-            CredentialFailureKind::CredentialRejected => 0,
-            CredentialFailureKind::CallbackFailed => 1,
-            CredentialFailureKind::Exhausted => 2,
-            CredentialFailureKind::MissingCredential => 3,
-        }
-    }
-    for (expected, kind) in CredentialFailureKind::ALL.into_iter().enumerate() {
-        assert_eq!(index(kind), expected);
-        assert_eq!(CredentialFailureKind::parse(kind.as_str()), Some(kind));
-    }
-    assert_eq!(
-        index(CredentialFailureKind::MissingCredential) + 1,
-        CredentialFailureKind::ALL.len()
-    );
-    assert_eq!(CredentialFailureKind::parse("unknown"), None);
-}
-
 // verifies: ATCH-029, ATCH-034
 #[xmtp_common::test(unwrap_try = true)]
 async fn permanent_rejection_not_resent() {
@@ -1175,7 +1062,7 @@ async fn permanent_rejection_not_resent() {
             xmtp_api_grpc::error::GrpcError::Status(tonic::Status::invalid_argument("permanent")),
         ))
     });
-    let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(Arc::new(mock))
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
@@ -1214,7 +1101,7 @@ async fn permission_denied_is_missing_scope_credential() {
             )),
         ))
     });
-    let first = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let first = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(Arc::new(denied))
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
@@ -1243,7 +1130,7 @@ async fn permission_denied_is_missing_scope_credential() {
     assert_eq!(row.failure_cause.as_deref(), Some("credential"));
     assert_eq!(row.failure_missing_scope, Some(true));
     drop(first);
-    let renewed = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let renewed = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
         )))
@@ -1264,7 +1151,7 @@ async fn http_status_survives_restart() {
     let created = alix.client.attachments().create(bytes()).await?;
     let remote = created.remote_attachment().clone();
     let (url, entered, release) = paused_put(403).await;
-    let first = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let first = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(Arc::new(signed_put_api(url, 1)))
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
@@ -1294,7 +1181,7 @@ async fn http_status_survives_restart() {
         .unwrap();
     assert_eq!(row.failure_http_status, Some(403));
     drop(first);
-    let restarted = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let restarted = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .with_disable_workers(true)
         .build()
         .await?;
@@ -1312,7 +1199,7 @@ async fn put_status_999_is_recorded() {
     let created = alix.client.attachments().create(bytes()).await?;
     let remote = created.remote_attachment().clone();
     let (url, entered, release) = paused_put(999).await;
-    let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(Arc::new(signed_put_api(url, 1)))
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
@@ -1366,7 +1253,7 @@ async fn put_as_signed() {
     assert!(alix.client.attachments().list_pending().await?.is_empty());
     let emitted = events.drain();
     assert_eq!(emitted.len(), 2);
-    let key = pending.reference().attachment_key;
+    let key = pending.reference_for_test().attachment_key;
     assert!(matches!(
         &emitted[0].client,
         Some(ClientEvent::AttachmentUploadStarted(reference)) if reference.attachment_key == key

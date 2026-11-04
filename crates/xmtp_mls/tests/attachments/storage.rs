@@ -1,23 +1,5 @@
 use super::*;
 
-#[xmtp_common::test(unwrap_try = true)]
-async fn weak_registry_prunes_dropped_entries() {
-    let runtime = AttachmentRuntime::default();
-    let live_pending = runtime.shared("live");
-    let live_lock = runtime.event_lock("live");
-    for number in 0..128 {
-        drop(runtime.shared(&format!("pending-{number}")));
-        drop(runtime.event_lock(&format!("event-{number}")));
-    }
-    let new_pending = runtime.shared("new");
-    let new_lock = runtime.event_lock("new");
-    assert_eq!(runtime.pending.lock().len(), 2);
-    assert_eq!(runtime.event_locks.lock().len(), 2);
-    assert!(Arc::ptr_eq(&live_pending, &runtime.shared("live")));
-    assert!(Arc::ptr_eq(&live_lock, &runtime.event_lock("live")));
-    drop((new_pending, new_lock));
-}
-
 // verifies: ATCH-047, ATCH-062, ATCH-063
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
@@ -46,7 +28,7 @@ async fn deletion_cannot_race_reconciliation_snapshot() {
         tester!(alix, attachments_dir: first_root, disable_workers);
         let pending = alix.client.attachments().create(bytes()).await?;
         let remote = pending.remote_attachment().clone();
-        let second = crate::builder::ClientBuilder::from_client(alix.client.clone())
+        let second = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
             .attachments_dir(second_root)
             .with_disable_workers(true)
             .build()
@@ -58,16 +40,15 @@ async fn deletion_cannot_race_reconciliation_snapshot() {
             .delete_local_attachment(&relative)?;
         let entered = Arc::new(tokio::sync::Notify::new());
         let resume = Arc::new(tokio::sync::Notify::new());
-        *alix
-            .client
-            .context
-            .features
-            .attachments
-            .reconcile_snapshot_pause
-            .lock() = Some((entered.clone(), resume.clone()));
+        alix.client.context.attachment_runtime().set_pause(
+            PausePoint::ReconcileSnapshot,
+            Some((entered.clone(), resume.clone())),
+        );
         let context = alix.client.context.clone();
         let reconcile =
-            tokio::spawn(async move { context.features.attachments.reconcile(&context).await });
+            tokio::spawn(
+                async move { context.attachment_runtime().reconcile_again(&context).await },
+            );
         tokio::time::timeout(Duration::from_secs(5), entered.notified()).await?;
         let deleting_client = if separate_client {
             second.clone()
@@ -115,7 +96,7 @@ async fn deletion_event_hides_rows_after_metadata_delete_error() {
     let pending = alix.client.attachments().create(bytes()).await?;
     let remote = pending.remote_attachment().clone();
     let relative = plaintext_rel_path(&remote)?;
-    let second = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let second = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .with_disable_workers(true)
         .build()
         .await?;
@@ -183,13 +164,17 @@ async fn pending_expire() {
     assert!(alix.client.attachments().list_pending().await?.is_empty());
     alix.client
         .context
-        .features
-        .attachments
+        .attachment_runtime()
         .sweep(&alix.client.context)
         .await?;
     assert!(!dir.path().join(staged_path(digest)?).exists());
-    let registry = &alix.client.context.features.attachments.pending;
-    assert!(!registry.lock().contains_key(digest));
+    assert!(
+        !alix
+            .client
+            .context
+            .attachment_runtime()
+            .holds_pending(digest)
+    );
 }
 
 // verifies: ATCH-068
@@ -208,7 +193,7 @@ async fn disabled_workers_still_sweep_on_next_client_creation() {
         &pending.remote_attachment().encode_to_vec(),
         now_ns() - 172_800_000_000_000,
     )?;
-    let next = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let next = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .with_disable_workers(true)
         .build()
         .await?;
@@ -216,9 +201,8 @@ async fn disabled_workers_still_sweep_on_next_client_creation() {
     assert!(!staged.exists());
     assert!(
         !next
-            .workers
-            .registered_kinds()
-            .contains(&crate::worker::WorkerKind::AttachmentCleanup)
+            .registered_worker_kinds()
+            .contains(&xmtp_mls::worker::WorkerKind::AttachmentCleanup)
     );
 }
 
@@ -238,13 +222,15 @@ async fn sweep_holds_upload_state_until_expired_file_is_removed() {
     )?;
     let entered = Arc::new(tokio::sync::Notify::new());
     let resume = Arc::new(tokio::sync::Notify::new());
-    *alix.client.context.features.attachments.sweep_pause.lock() =
-        Some((entered.clone(), resume.clone()));
+    alix.client
+        .context
+        .attachment_runtime()
+        .set_pause(PausePoint::Sweep, Some((entered.clone(), resume.clone())));
     let context = alix.client.context.clone();
     let sweep =
-        xmtp_common::task::spawn(async move { context.features.attachments.sweep(&context).await });
+        xmtp_common::task::spawn(async move { context.attachment_runtime().sweep(&context).await });
     entered.notified().await;
-    assert!(pending.shared.state.try_lock().is_err());
+    assert!(pending.probe().state_is_held());
     let upload = xmtp_common::task::spawn(async move { pending.upload().await });
     resume.notify_one();
     sweep.await??;
@@ -271,7 +257,7 @@ async fn sweep_error_does_not_block_build() {
     let staged = dir.path().join(staged_path(digest)?);
     tokio::fs::remove_file(&staged).await?;
     tokio::fs::create_dir(&staged).await?;
-    let next = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let next = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
         )))
@@ -363,8 +349,7 @@ async fn sweep_keeps_leased_upload() {
     )?;
     alix.client
         .context
-        .features
-        .attachments
+        .attachment_runtime()
         .sweep(&alix.client.context)
         .await?;
     assert!(db.get_pending_attachment(&leased_digest)?.is_some());
@@ -383,7 +368,7 @@ async fn delete_ends_other_clients_upload() {
     let created = alix.client.attachments().create(bytes()).await?;
     let remote = created.remote_attachment().clone();
     let (url, entered, release) = paused_put(200).await;
-    let uploader = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let uploader = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(Arc::new(signed_put_api(url, 1)))
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
@@ -392,12 +377,12 @@ async fn delete_ends_other_clients_upload() {
         .with_disable_workers(true)
         .build()
         .await?;
-    *uploader.context.features.attachments.lease_timing.lock() = LeaseTiming::for_test(
+    uploader.context.attachment_runtime().set_lease_timing(
         Duration::from_millis(300),
         Duration::from_millis(30),
         Duration::from_millis(10),
     );
-    let deleting_client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let deleting_client = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .with_disable_workers(true)
         .build()
         .await?;
@@ -441,7 +426,7 @@ async fn delete_same_digest_with_another_key_keeps_pending_upload() {
     )?;
     let staged = dir.path().join(staged_path(&original.content_digest)?);
     let (url, entered, release) = paused_put(200).await;
-    let uploader = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let uploader = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(Arc::new(signed_put_api(url, 1)))
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
@@ -483,7 +468,7 @@ async fn delete_with_watcher_ends_other_clients_upload() {
     let created = alix.client.attachments().create(bytes()).await?;
     let remote = created.remote_attachment().clone();
     let (url, entered, release) = paused_put(200).await;
-    let uploader = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let uploader = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(Arc::new(signed_put_api(url, 1)))
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
@@ -492,16 +477,14 @@ async fn delete_with_watcher_ends_other_clients_upload() {
         .with_disable_workers(true)
         .build()
         .await?;
-    let deleting_client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let deleting_client = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .with_disable_workers(true)
         .build()
         .await?;
-    *deleting_client
+    deleting_client
         .context
-        .features
-        .attachments
-        .lease_timing
-        .lock() = LeaseTiming::for_test(LEASE_DURATION, LEASE_RENEW, Duration::from_millis(20));
+        .attachment_runtime()
+        .set_lease_timing(LEASE_DURATION, LEASE_RENEW, Duration::from_millis(20));
     let watcher = deleting_client.attachments().pending(&remote).await?;
     let mut status = watcher.watch_status();
     let pending = uploader.attachments().pending(&remote).await?;
@@ -652,7 +635,7 @@ async fn delete_rejects_symlinked_key_before_removing_pending_row() {
     tokio::fs::remove_dir_all(dir.path().join(&key)).await?;
     std::os::unix::fs::symlink(outside.path(), dir.path().join(&key))?;
 
-    *alix.client.context.features.attachments.lease_timing.lock() = LeaseTiming::for_test(
+    alix.client.context.attachment_runtime().set_lease_timing(
         Duration::from_millis(300),
         Duration::from_millis(50),
         Duration::from_millis(20),
@@ -852,7 +835,7 @@ async fn pending_row_only_delete_emits_no_deleted_event() {
     pending.upload().await?;
     let key = attachment_key(&remote)?;
     tokio::fs::remove_dir_all(dir.path().join(&key)).await?;
-    let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .with_disable_workers(true)
         .build()
         .await?;
@@ -933,7 +916,7 @@ async fn reconcile_after_crash_points() {
     for file in [&temp, &staged, &owned_staged] {
         std::fs::File::open(file)?.set_modified(UNIX_EPOCH + Duration::from_secs(1))?;
     }
-    let next = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let next = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .with_disable_workers(true)
         .build()
         .await?;
@@ -976,7 +959,7 @@ async fn reconcile_keeps_pre_epoch_modification_time() {
         .db()
         .delete_local_attachment(&relative)?;
     std::fs::File::open(path)?.set_modified(std::time::UNIX_EPOCH - Duration::from_secs(5))?;
-    let next = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let next = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .with_disable_workers(true)
         .build()
         .await?;
@@ -1013,7 +996,7 @@ async fn staged_orphan_older_than_pending_age_is_removed() {
     std::fs::File::open(&recent_path)?
         .set_modified(std::time::SystemTime::now() - Duration::from_secs(10))?;
 
-    let next = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let next = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .attachment_options(AttachmentOptions {
             max_pending_age: Some(Duration::from_secs(60)),
             ..Default::default()
@@ -1058,7 +1041,7 @@ async fn staged_orphan_older_than_pending_age_is_removed() {
         .delete_pending_attachment(expired_default_digest)?;
     std::fs::File::open(&expired_default_path)?
         .set_modified(std::time::SystemTime::now() - Duration::from_secs(7_200))?;
-    let _next_default = crate::builder::ClientBuilder::from_client(bo.client.clone())
+    let _next_default = xmtp_mls::builder::ClientBuilder::from_client(bo.client.clone())
         .with_disable_workers(true)
         .build()
         .await?;
@@ -1079,8 +1062,8 @@ async fn list_local_retries_reconcile_after_build_error() {
     tokio::fs::write(&file, b"adopt me").await?;
     let modified = 1_234_567_000_000_000_i64;
     std::fs::File::open(&file)?.set_modified(UNIX_EPOCH + Duration::from_secs(1_234_567))?;
-    FAIL_NEXT_RECONCILES.store(1, AtomicOrdering::SeqCst);
-    let next = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    fail_next_reconciles(1);
+    let next = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .with_disable_workers(true)
         .build()
         .await?;
@@ -1090,7 +1073,7 @@ async fn list_local_retries_reconcile_after_build_error() {
             .iter()
             .any(|row| row.path == relative && row.created_at_ns == modified)
     );
-    FAIL_NEXT_RECONCILES.store(0, AtomicOrdering::SeqCst);
+    fail_next_reconciles(0);
 }
 
 // verifies: ATCH-062, ATCH-076
@@ -1108,8 +1091,8 @@ async fn reconcile_failure_blocks_reads_and_download() {
     let (url, requests) = serve_body(Vec::new()).await;
     let mut remote = remote;
     remote.url = url;
-    FAIL_NEXT_RECONCILES.store(5, AtomicOrdering::SeqCst);
-    let next = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    fail_next_reconciles(5);
+    let next = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .with_disable_workers(true)
         .build()
         .await?;
@@ -1126,7 +1109,7 @@ async fn reconcile_failure_blocks_reads_and_download() {
         matches!(next.attachments().pending(&remote).await, Err(error) if error.cause == Cause::LocalStorage)
     );
     assert_eq!(requests.load(Ordering::SeqCst), 0);
-    FAIL_NEXT_RECONCILES.store(0, AtomicOrdering::SeqCst);
+    fail_next_reconciles(0);
 }
 
 // verifies: ATCH-063, ATCH-076
@@ -1142,7 +1125,7 @@ async fn reconcile_ignores_stray_and_nested_files() {
         tokio::fs::create_dir_all(path.parent().unwrap()).await?;
         tokio::fs::write(path, b"app file").await?;
     }
-    let next = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let next = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .with_disable_workers(true)
         .build()
         .await?;
@@ -1165,10 +1148,8 @@ async fn complete_recorded_before_staged_file() {
     let digest = pending.remote_attachment().content_digest.clone();
     alix.client
         .context
-        .features
-        .attachments
-        .fail_next_staged_removal
-        .store(true, AtomicOrdering::SeqCst);
+        .attachment_runtime()
+        .fail_next(Fault::StagedRemoval);
     pending.upload().await?;
     assert_eq!(pending.status(), PendingAttachmentStatus::Complete);
     assert_eq!(

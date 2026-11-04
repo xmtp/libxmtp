@@ -57,7 +57,7 @@ async fn plaintext_content_exact() {
     let remote = pending.remote_attachment().clone();
     pending.upload().await?;
     tester!(bo, attachments_dir: recipient.path(), configured: |_config: &mut ServerConfiguration| {}, disable_workers);
-    let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(bo.client.clone())
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             |_config: &mut ServerConfiguration| {},
         )))
@@ -98,7 +98,7 @@ async fn existing_file_keeps_decoded_metadata() {
     let remote = pending.remote_attachment().clone();
     pending.upload().await?;
     tester!(bo, attachments_dir: recipient.path(), disable_workers);
-    let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(bo.client.clone())
         .attachment_options(AttachmentOptions {
             allow_private_network: true,
             ..Default::default()
@@ -122,7 +122,7 @@ async fn existing_file_record_cannot_race_another_clients_deletion() {
     tester!(alix, attachments_dir: dir.path(), disable_workers);
     let pending = alix.client.attachments().create(bytes()).await?;
     let remote = pending.remote_attachment().clone();
-    let second = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let second = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .with_disable_workers(true)
         .build()
         .await?;
@@ -134,12 +134,10 @@ async fn existing_file_record_cannot_race_another_clients_deletion() {
 
     let entered = Arc::new(tokio::sync::Notify::new());
     let resume = Arc::new(tokio::sync::Notify::new());
-    *second
-        .context
-        .features
-        .attachments
-        .download_existing_pause
-        .lock() = Some((entered.clone(), resume.clone()));
+    second.context.attachment_runtime().set_pause(
+        PausePoint::DownloadExisting,
+        Some((entered.clone(), resume.clone())),
+    );
     let downloading_client = second.clone();
     let downloading_remote = remote.clone();
     let downloading = tokio::spawn(async move {
@@ -216,7 +214,7 @@ async fn download_completion_keeps_publication_order_for_one_key() {
     );
 
     tester!(bo, attachments_dir: recipient.path(), disable_workers);
-    let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(bo.client.clone())
         .attachment_options(AttachmentOptions {
             allow_private_network: true,
             ..Default::default()
@@ -230,12 +228,10 @@ async fn download_completion_keeps_publication_order_for_one_key() {
     ]))?;
     let entered = Arc::new(tokio::sync::Notify::new());
     let resume = Arc::new(tokio::sync::Notify::new());
-    *client
-        .context
-        .features
-        .attachments
-        .download_completion_pause
-        .lock() = Some((entered.clone(), resume.clone()));
+    client.context.attachment_runtime().set_pause(
+        PausePoint::DownloadCompletion,
+        Some((entered.clone(), resume.clone())),
+    );
     let first_client = client.clone();
     let first = first_remote.clone();
     let first_download =
@@ -306,7 +302,7 @@ async fn failed_download_waits_for_same_key_publication_event() {
     );
 
     tester!(bo, attachments_dir: recipient.path(), disable_workers);
-    let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(bo.client.clone())
         .attachment_options(AttachmentOptions {
             allow_private_network: true,
             ..Default::default()
@@ -321,12 +317,10 @@ async fn failed_download_waits_for_same_key_publication_event() {
     ]))?;
     let failed_entered = Arc::new(tokio::sync::Notify::new());
     let failed_resume = Arc::new(tokio::sync::Notify::new());
-    *client
-        .context
-        .features
-        .attachments
-        .download_failure_pause
-        .lock() = Some((failed_entered.clone(), failed_resume.clone()));
+    client.context.attachment_runtime().set_pause(
+        PausePoint::DownloadFailure,
+        Some((failed_entered.clone(), failed_resume.clone())),
+    );
     let second_client = client.clone();
     let second_remote = failed.clone();
     let mut second_download =
@@ -335,12 +329,10 @@ async fn failed_download_waits_for_same_key_publication_event() {
 
     let entered = Arc::new(tokio::sync::Notify::new());
     let resume = Arc::new(tokio::sync::Notify::new());
-    *client
-        .context
-        .features
-        .attachments
-        .download_completion_pause
-        .lock() = Some((entered.clone(), resume.clone()));
+    client.context.attachment_runtime().set_pause(
+        PausePoint::DownloadCompletion,
+        Some((entered.clone(), resume.clone())),
+    );
     let first_client = client.clone();
     let first_remote = published.clone();
     let first_download =
@@ -401,7 +393,7 @@ async fn failed_metadata_write_removes_downloaded_file() {
     let remote = pending.remote_attachment().clone();
     pending.upload().await?;
     tester!(bo, attachments_dir: recipient.path(), disable_workers);
-    let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(bo.client.clone())
         .attachment_options(AttachmentOptions {
             allow_private_network: true,
             ..Default::default()
@@ -440,7 +432,7 @@ async fn failed_metadata_write_with_kept_file_completes_download() {
     let remote = pending.remote_attachment().clone();
     pending.upload().await?;
     tester!(bo, attachments_dir: recipient.path(), disable_workers);
-    let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(bo.client.clone())
         .attachment_options(AttachmentOptions {
             allow_private_network: true,
             ..Default::default()
@@ -457,10 +449,8 @@ async fn failed_metadata_write_with_kept_file_completes_download() {
     })?;
     client
         .context
-        .features
-        .attachments
-        .fail_next_download_cleanup
-        .store(true, Ordering::SeqCst);
+        .attachment_runtime()
+        .fail_next(Fault::DownloadCleanup);
     let events = client.context.events().subscribe_app(EventFilter::new([
         EventKind::AttachmentDownloadCompleted,
         EventKind::AttachmentDownloadFailed,
@@ -492,7 +482,7 @@ async fn reconcile_waits_for_download_metadata_publication() {
     let (url, _) = serve_body(body).await;
     remote.url = url;
     tester!(bo, attachments_dir: recipient.path(), disable_workers);
-    let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(bo.client.clone())
         .attachment_options(AttachmentOptions {
             allow_private_network: true,
             ..Default::default()
@@ -503,12 +493,10 @@ async fn reconcile_waits_for_download_metadata_publication() {
     let relative = plaintext_rel_path(&remote)?;
     let entered = Arc::new(tokio::sync::Notify::new());
     let resume = Arc::new(tokio::sync::Notify::new());
-    *client
-        .context
-        .features
-        .attachments
-        .download_publish_pause
-        .lock() = Some((entered.clone(), resume.clone()));
+    client.context.attachment_runtime().set_pause(
+        PausePoint::DownloadPublish,
+        Some((entered.clone(), resume.clone())),
+    );
     let downloading_client = client.clone();
     let downloading_remote = remote.clone();
     let download = tokio::spawn(async move {
@@ -528,7 +516,7 @@ async fn reconcile_waits_for_download_metadata_publication() {
     );
     let context = client.context.clone();
     let mut reconcile =
-        tokio::spawn(async move { context.features.attachments.reconcile(&context).await });
+        tokio::spawn(async move { context.attachment_runtime().reconcile_again(&context).await });
     assert!(
         tokio::time::timeout(Duration::from_millis(200), &mut reconcile)
             .await
@@ -561,7 +549,7 @@ async fn failed_download_publication_cannot_leave_reconciled_row() {
     let (url, _) = serve_body(body).await;
     remote.url = url;
     tester!(bo, attachments_dir: recipient.path(), disable_workers);
-    let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(bo.client.clone())
         .attachment_options(AttachmentOptions {
             allow_private_network: true,
             ..Default::default()
@@ -573,12 +561,10 @@ async fn failed_download_publication_cannot_leave_reconciled_row() {
     let path = client.attachments().local_path(&remote)?;
     let entered = Arc::new(tokio::sync::Notify::new());
     let resume = Arc::new(tokio::sync::Notify::new());
-    *client
-        .context
-        .features
-        .attachments
-        .download_publish_pause
-        .lock() = Some((entered.clone(), resume.clone()));
+    client.context.attachment_runtime().set_pause(
+        PausePoint::DownloadPublish,
+        Some((entered.clone(), resume.clone())),
+    );
     let downloading_client = client.clone();
     let downloading_remote = remote.clone();
     let download = tokio::spawn(async move {
@@ -590,7 +576,7 @@ async fn failed_download_publication_cannot_leave_reconciled_row() {
     tokio::time::timeout(Duration::from_secs(5), entered.notified()).await?;
     let context = client.context.clone();
     let reconcile =
-        tokio::spawn(async move { context.features.attachments.reconcile(&context).await });
+        tokio::spawn(async move { context.attachment_runtime().reconcile_again(&context).await });
     tokio::time::sleep(Duration::from_millis(200)).await;
     client.context.db().raw_query(|conn| {
         xmtp_db::diesel::sql_query(
@@ -673,7 +659,7 @@ async fn another_client_publishes_plaintext_during_download() {
     remote.url = url;
 
     tester!(bo, attachments_dir: recipient.path(), disable_workers);
-    let first = crate::builder::ClientBuilder::from_client(bo.client.clone())
+    let first = xmtp_mls::builder::ClientBuilder::from_client(bo.client.clone())
         .attachment_options(AttachmentOptions {
             allow_private_network: true,
             ..Default::default()
@@ -681,18 +667,16 @@ async fn another_client_publishes_plaintext_during_download() {
         .with_disable_workers(true)
         .build()
         .await?;
-    let second = crate::builder::ClientBuilder::from_client(first.clone())
+    let second = xmtp_mls::builder::ClientBuilder::from_client(first.clone())
         .with_disable_workers(true)
         .build()
         .await?;
     let entered = Arc::new(tokio::sync::Notify::new());
     let resume = Arc::new(tokio::sync::Notify::new());
-    *first
-        .context
-        .features
-        .attachments
-        .download_move_pause
-        .lock() = Some((entered.clone(), resume.clone()));
+    first.context.attachment_runtime().set_pause(
+        PausePoint::DownloadMove,
+        Some((entered.clone(), resume.clone())),
+    );
     let first_remote = remote.clone();
     let first_client = first.clone();
     let first_download =
@@ -727,7 +711,7 @@ async fn published_file_without_record_completes_download() {
     remote.url = url;
 
     tester!(bo, attachments_dir: recipient.path(), disable_workers);
-    let first = crate::builder::ClientBuilder::from_client(bo.client.clone())
+    let first = xmtp_mls::builder::ClientBuilder::from_client(bo.client.clone())
         .attachment_options(AttachmentOptions {
             allow_private_network: true,
             ..Default::default()
@@ -735,7 +719,7 @@ async fn published_file_without_record_completes_download() {
         .with_disable_workers(true)
         .build()
         .await?;
-    let second = crate::builder::ClientBuilder::from_client(first.clone())
+    let second = xmtp_mls::builder::ClientBuilder::from_client(first.clone())
         .with_disable_workers(true)
         .build()
         .await?;
@@ -745,12 +729,10 @@ async fn published_file_without_record_completes_download() {
     ]))?;
     let entered = Arc::new(tokio::sync::Notify::new());
     let resume = Arc::new(tokio::sync::Notify::new());
-    *first
-        .context
-        .features
-        .attachments
-        .download_move_pause
-        .lock() = Some((entered.clone(), resume.clone()));
+    first.context.attachment_runtime().set_pause(
+        PausePoint::DownloadMove,
+        Some((entered.clone(), resume.clone())),
+    );
     let first_remote = remote.clone();
     let first_client = first.clone();
     let first_download =
@@ -829,13 +811,10 @@ async fn panicked_download_releases_waiters_and_deletion() {
         ]))?;
     let entered = Arc::new(tokio::sync::Notify::new());
     let resume = Arc::new(tokio::sync::Notify::new());
-    *alix
-        .client
-        .context
-        .features
-        .attachments
-        .download_panic_pause
-        .lock() = Some((entered.clone(), resume.clone()));
+    alix.client.context.attachment_runtime().set_pause(
+        PausePoint::DownloadPanic,
+        Some((entered.clone(), resume.clone())),
+    );
     let client = alix.client.clone();
     let first_remote = remote.clone();
     let first = tokio::spawn(async move { client.attachments().download(&first_remote).await });
@@ -843,18 +822,14 @@ async fn panicked_download_releases_waiters_and_deletion() {
     let shared = alix
         .client
         .context
-        .features
-        .attachments
-        .downloads
-        .lock()
-        .get(&relative)
-        .cloned()
+        .attachment_runtime()
+        .running_download(&relative)
         .expect("download attempt");
     let client = alix.client.clone();
     let second_remote = remote.clone();
     let second = tokio::spawn(async move { client.attachments().download(&second_remote).await });
     tokio::time::timeout(Duration::from_secs(3), async {
-        while shared.outcome.receiver_count() < 2 {
+        while shared.waiters() < 2 {
             tokio::task::yield_now().await;
         }
     })
@@ -863,12 +838,14 @@ async fn panicked_download_releases_waiters_and_deletion() {
     let deleting_remote = remote.clone();
     let delete_entered = Arc::new(tokio::sync::Notify::new());
     let delete_resume = Arc::new(tokio::sync::Notify::new());
-    *alix.client.context.features.attachments.delete_pause.lock() =
-        Some((delete_entered.clone(), delete_resume.clone()));
+    alix.client.context.attachment_runtime().set_pause(
+        PausePoint::Delete,
+        Some((delete_entered.clone(), delete_resume.clone())),
+    );
     let delete =
         tokio::spawn(async move { client.attachments().delete_local(&deleting_remote).await });
     tokio::time::timeout(Duration::from_secs(3), delete_entered.notified()).await?;
-    assert!(shared.cancel.is_cancelled());
+    assert!(shared.is_cancelled());
     resume.notify_one();
     delete_resume.notify_one();
     assert_eq!(
@@ -900,11 +877,9 @@ async fn panicked_download_releases_waiters_and_deletion() {
         !alix
             .client
             .context
-            .features
-            .attachments
-            .downloads
-            .lock()
-            .contains_key(&relative)
+            .attachment_runtime()
+            .running_download(&relative)
+            .is_some()
     );
     let mut retry_remote = remote;
     retry_remote.url = "http://127.0.0.1:9/missing".into();
@@ -933,7 +908,7 @@ async fn forged_body_leaves_nothing() {
     let (url, requests) = serve_body(b"forged".to_vec()).await;
     remote.url = url;
     tester!(bo, attachments_dir: recipient.path(), disable_workers);
-    let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(bo.client.clone())
         .attachment_options(AttachmentOptions {
             allow_private_network: true,
             ..Default::default()
@@ -972,7 +947,7 @@ async fn download_http_status_is_exposed() {
         stream.write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.expect("send 503");
     }));
     tester!(bo, attachments_dir: recipient.path(), disable_workers);
-    let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(bo.client.clone())
         .attachment_options(AttachmentOptions {
             allow_private_network: true,
             ..Default::default()
@@ -997,7 +972,7 @@ async fn one_fetch_per_path() {
     let (url, requests) = serve_body(staged).await;
     remote.url = url;
     tester!(bo, attachments_dir: recipient.path(), disable_workers);
-    let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(bo.client.clone())
         .attachment_options(AttachmentOptions {
             allow_private_network: true,
             ..Default::default()
@@ -1035,7 +1010,7 @@ async fn delete_cancels_running() {
         std::future::pending::<()>().await;
     }));
     tester!(bo, attachments_dir: recipient.path(), disable_workers);
-    let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(bo.client.clone())
         .attachment_options(AttachmentOptions {
             allow_private_network: true,
             ..Default::default()
@@ -1087,7 +1062,7 @@ async fn delete_refuses_download_started_during_deletion() {
     let (url, requests) = serve_body(body).await;
     remote.url = url;
     tester!(bo, attachments_dir: recipient.path(), disable_workers);
-    let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(bo.client.clone())
         .attachment_options(AttachmentOptions {
             allow_private_network: true,
             ..Default::default()
@@ -1097,8 +1072,10 @@ async fn delete_refuses_download_started_during_deletion() {
         .await?;
     let entered = Arc::new(tokio::sync::Notify::new());
     let resume = Arc::new(tokio::sync::Notify::new());
-    *client.context.features.attachments.delete_pause.lock() =
-        Some((entered.clone(), resume.clone()));
+    client
+        .context
+        .attachment_runtime()
+        .set_pause(PausePoint::Delete, Some((entered.clone(), resume.clone())));
     let deleting_client = client.clone();
     let deleting_remote = remote.clone();
     let deletion = xmtp_common::task::spawn(async move {
@@ -1173,7 +1150,7 @@ async fn download_size_limit() {
     let remote = pending.remote_attachment().clone();
     pending.upload().await?;
     tester!(bo, attachments_dir: recipient.path(), disable_workers);
-    let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(bo.client.clone())
         .attachment_options(AttachmentOptions {
             max_download_bytes: Some(1),
             allow_private_network: true,
@@ -1248,7 +1225,7 @@ async fn compressed_content_two_pass() {
         None,
     );
     remote.url = url;
-    let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .attachment_options(AttachmentOptions {
             allow_private_network: true,
             ..Default::default()
@@ -1285,7 +1262,7 @@ async fn repeated_content_download_keeps_last_field() {
         None,
     );
     remote.url = url;
-    let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .attachment_options(AttachmentOptions {
             allow_private_network: true,
             ..Default::default()
@@ -1340,7 +1317,7 @@ async fn s3_end_to_end() {
     repeated.upload().await?;
     assert_eq!(repeated.status(), PendingAttachmentStatus::Complete);
     tester!(bo, attachments_dir: recipient.path(), disable_workers);
-    let recipient_client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+    let recipient_client = xmtp_mls::builder::ClientBuilder::from_client(bo.client.clone())
         .attachment_options(AttachmentOptions {
             allow_private_network: true,
             ..Default::default()
@@ -1373,7 +1350,7 @@ async fn s3_end_to_end() {
     let (url, _) = serve_body(b"forged".to_vec()).await;
     let mut forged = bytes_remote.clone();
     forged.url = url;
-    let forged_client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+    let forged_client = xmtp_mls::builder::ClientBuilder::from_client(bo.client.clone())
         .attachments_dir(recipient.path().join("forged"))
         .attachment_options(AttachmentOptions {
             allow_private_network: true,
@@ -1393,7 +1370,7 @@ async fn s3_end_to_end() {
     );
     let restart_pending = alix.client.attachments().create(bytes()).await?;
     let restart_remote = restart_pending.remote_attachment().clone();
-    let restarted = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let restarted = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .with_disable_workers(true)
         .build()
         .await?;

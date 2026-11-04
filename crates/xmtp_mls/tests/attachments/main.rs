@@ -1,12 +1,38 @@
-use super::*;
-use crate::{server_configuration::BlockedConnection, tester};
+//! Attachment suites that build clients. They reach the attachment runtime
+//! from outside the crate, through its doc-hidden test support and hooks, so
+//! the attachments crate takes them along when it moves out.
+#![cfg(not(target_arch = "wasm32"))]
+
+use parking_lot::Mutex;
+use prost::Message as _;
+use sha2::{Digest as _, Sha256};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{sync::Arc, time::Duration};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
-use xmtp_attachments::GcmDecryptor;
-use xmtp_common::StreamHandle as _;
+use xmtp_attachments::{
+    AttachmentDecoder, AttachmentFailureCause as Cause, AttachmentOptions, GcmDecryptor,
+    GcmEncryptor, KeyMaterial, attachment_key, ciphertext_len, encoded_prefix, plaintext_rel_path,
+    remote_attachment, staged_path,
+};
+use xmtp_common::{StreamHandle as _, time::now_ns};
 use xmtp_configuration::{AttachmentsConfiguration, ServerConfiguration};
-use xmtp_db::{ConnectionExt as _, diesel::RunQueryDsl as _};
-use xmtp_events::{EventFilter, EventKind};
+use xmtp_content_types::remote_attachment::RemoteAttachment;
+use xmtp_db::{
+    ConnectionExt as _, attachments::PendingAttachmentOutcome, diesel::RunQueryDsl as _, prelude::*,
+};
+use xmtp_events::{AttachmentFailed, AttachmentRef, ClientEvent, EventFilter, EventKind};
+use xmtp_mls::attachments::test_hooks::*;
+use xmtp_mls::attachments::test_support::*;
+use xmtp_mls::attachments::*;
+use xmtp_mls::context::CoreContext;
+use xmtp_mls::{server_configuration::BlockedConnection, tester};
+
+#[cfg_attr(not(target_arch = "wasm32"), ctor::ctor(unsafe))]
+#[cfg(not(target_arch = "wasm32"))]
+fn test_setup() {
+    xmtp_common::logger();
+    let _ = fdlimit::raise_fd_limit();
+}
 
 fn bytes() -> AttachmentSource {
     AttachmentSource::Bytes {

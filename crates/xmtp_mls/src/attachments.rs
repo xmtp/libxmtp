@@ -1,8 +1,8 @@
 //! Pending remote attachments owned by a client.
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
 use std::sync::atomic::AtomicBool;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-hooks"))]
 use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use std::{
     collections::{HashMap, HashSet},
@@ -61,7 +61,7 @@ const CHUNK: usize = 64 * 1024;
 const LEASE_DURATION: Duration = Duration::from_secs(120);
 const LEASE_RENEW: Duration = Duration::from_secs(30);
 const LEASE_POLL: Duration = Duration::from_secs(1);
-#[cfg(test)]
+#[cfg(any(test, feature = "test-hooks"))]
 static FAIL_NEXT_RECONCILES: AtomicUsize = AtomicUsize::new(0);
 static PUBLICATION_LOCKS: LazyLock<Mutex<HashMap<PathBuf, Weak<AsyncMutex<()>>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -139,7 +139,7 @@ impl LeaseTiming {
         self.duration.as_nanos().min(i64::MAX as u128) as i64
     }
 
-    #[cfg(all(test, not(target_arch = "wasm32")))]
+    #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
     fn for_test(duration: Duration, renew: Duration, poll: Duration) -> Self {
         Self {
             duration,
@@ -814,57 +814,40 @@ pub struct AttachmentRuntime {
     publication_lock: Arc<AsyncMutex<()>>,
     reconciled: OnceCell<()>,
     lease_timing: Mutex<LeaseTiming>,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-hooks"))]
     sweep_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-hooks"))]
     delete_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
-    #[cfg(all(test, not(target_arch = "wasm32")))]
+    #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
     outcome_lock_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
-    #[cfg(all(test, not(target_arch = "wasm32")))]
+    #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
     fail_next_staged_removal: AtomicBool,
-    #[cfg(all(test, not(target_arch = "wasm32")))]
+    #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
     fail_next_download_cleanup: AtomicBool,
-    #[cfg(all(test, not(target_arch = "wasm32")))]
-    create_move_pause: Mutex<Option<Arc<CreateMovePause>>>,
-    #[cfg(all(test, not(target_arch = "wasm32")))]
-    create_publish_pause: Mutex<Option<Arc<CreatePublishPause>>>,
-    #[cfg(all(test, not(target_arch = "wasm32")))]
+    #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
+    create_move_pause: Mutex<Option<Arc<test_hooks::CreateMovePause>>>,
+    #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
+    create_publish_pause: Mutex<Option<Arc<test_hooks::CreatePublishPause>>>,
+    #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
     attempt_panic_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
-    #[cfg(all(test, not(target_arch = "wasm32")))]
+    #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
     download_panic_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
-    #[cfg(all(test, not(target_arch = "wasm32")))]
+    #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
     download_move_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
-    #[cfg(all(test, not(target_arch = "wasm32")))]
+    #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
     download_publish_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
-    #[cfg(all(test, not(target_arch = "wasm32")))]
+    #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
     download_completion_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
-    #[cfg(all(test, not(target_arch = "wasm32")))]
+    #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
     download_failure_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
-    #[cfg(all(test, not(target_arch = "wasm32")))]
+    #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
     download_existing_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
-    #[cfg(all(test, not(target_arch = "wasm32")))]
+    #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
     reconcile_snapshot_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-hooks"))]
     outcome_write_errors: AtomicUsize,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-hooks"))]
     lease_extension_errors: AtomicUsize,
-}
-
-#[cfg(all(test, not(target_arch = "wasm32")))]
-struct CreateMovePause {
-    path: Mutex<Option<String>>,
-    staged_path: Mutex<Option<String>>,
-    entered: tokio::sync::Notify,
-    resume: tokio::sync::Notify,
-}
-
-#[cfg(all(test, not(target_arch = "wasm32")))]
-struct CreatePublishPause {
-    after_staged: bool,
-    path: Mutex<Option<String>>,
-    staged_path: Mutex<Option<String>>,
-    entered: tokio::sync::Notify,
-    resume: tokio::sync::Notify,
 }
 
 impl Default for AttachmentRuntime {
@@ -880,39 +863,39 @@ impl Default for AttachmentRuntime {
             publication_lock: Arc::new(AsyncMutex::new(())),
             reconciled: OnceCell::new(),
             lease_timing: Mutex::new(LeaseTiming::default()),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-hooks"))]
             sweep_pause: Mutex::new(None),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-hooks"))]
             delete_pause: Mutex::new(None),
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             outcome_lock_pause: Mutex::new(None),
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             fail_next_staged_removal: AtomicBool::new(false),
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             fail_next_download_cleanup: AtomicBool::new(false),
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             create_move_pause: Mutex::new(None),
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             create_publish_pause: Mutex::new(None),
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             attempt_panic_pause: Mutex::new(None),
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             download_panic_pause: Mutex::new(None),
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             download_move_pause: Mutex::new(None),
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             download_publish_pause: Mutex::new(None),
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             download_completion_pause: Mutex::new(None),
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             download_failure_pause: Mutex::new(None),
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             download_existing_pause: Mutex::new(None),
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             reconcile_snapshot_pause: Mutex::new(None),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-hooks"))]
             outcome_write_errors: AtomicUsize::new(0),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-hooks"))]
             lease_extension_errors: AtomicUsize::new(0),
         }
     }
@@ -988,39 +971,39 @@ impl AttachmentRuntime {
             publication_lock,
             reconciled: OnceCell::new(),
             lease_timing: Mutex::new(LeaseTiming::default()),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-hooks"))]
             sweep_pause: Mutex::new(None),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-hooks"))]
             delete_pause: Mutex::new(None),
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             outcome_lock_pause: Mutex::new(None),
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             fail_next_staged_removal: AtomicBool::new(false),
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             fail_next_download_cleanup: AtomicBool::new(false),
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             create_move_pause: Mutex::new(None),
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             create_publish_pause: Mutex::new(None),
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             attempt_panic_pause: Mutex::new(None),
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             download_panic_pause: Mutex::new(None),
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             download_move_pause: Mutex::new(None),
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             download_publish_pause: Mutex::new(None),
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             download_completion_pause: Mutex::new(None),
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             download_failure_pause: Mutex::new(None),
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             download_existing_pause: Mutex::new(None),
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             reconcile_snapshot_pause: Mutex::new(None),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-hooks"))]
             outcome_write_errors: AtomicUsize::new(0),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-hooks"))]
             lease_extension_errors: AtomicUsize::new(0),
         })
     }
@@ -1082,7 +1065,7 @@ impl AttachmentRuntime {
         for digest in rows {
             let shared = self.shared(&digest);
             let _state = shared.state.lock().await;
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-hooks"))]
             {
                 let pause = self.sweep_pause.lock().clone();
                 if let Some((entered, resume)) = pause {
@@ -1111,7 +1094,7 @@ impl AttachmentRuntime {
         context: &Context,
     ) -> Result<(), AttachmentClientError> {
         let _publication = self.publication_lock.lock().await;
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-hooks"))]
         if FAIL_NEXT_RECONCILES
             .fetch_update(AtomicOrdering::SeqCst, AtomicOrdering::SeqCst, |count| {
                 count.checked_sub(1)
@@ -1137,7 +1120,7 @@ impl AttachmentRuntime {
         let recorded: HashSet<_> = records.iter().map(|row| row.path.as_str()).collect();
         let files = store.list_files().await?;
         let present: HashSet<_> = files.iter().map(|file| file.path.as_str()).collect();
-        #[cfg(all(test, not(target_arch = "wasm32")))]
+        #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
         {
             let pause = self.reconcile_snapshot_pause.lock().clone();
             if let Some((entered, resume)) = pause {
@@ -1272,9 +1255,9 @@ impl<Context: AttachmentContext> Attachments<Context> {
                 if !store.is_regular_file(&relative).await? {
                     return Err(AttachmentClientError::new(Cause::LocalStorage));
                 }
-                #[cfg(all(test, not(target_arch = "wasm32")))]
+                #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
                 let pause = { self.runtime().download_existing_pause.lock().take() };
-                #[cfg(all(test, not(target_arch = "wasm32")))]
+                #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
                 if let Some((entered, resume)) = pause {
                     entered.notify_one();
                     resume.notified().await;
@@ -1322,9 +1305,9 @@ impl<Context: AttachmentContext> Attachments<Context> {
                 };
                 drop(xmtp_common::task::spawn(async move {
                     let mut attempt = attempt;
-                    #[cfg(all(test, not(target_arch = "wasm32")))]
+                    #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
                     let panic_pause = { task.runtime().download_panic_pause.lock().take() };
-                    #[cfg(all(test, not(target_arch = "wasm32")))]
+                    #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
                     if let Some((entered, resume)) = panic_pause {
                         entered.notify_one();
                         resume.notified().await;
@@ -1338,22 +1321,22 @@ impl<Context: AttachmentContext> Attachments<Context> {
                             &mut attempt.publication,
                         )
                         .await;
-                    #[cfg(all(test, not(target_arch = "wasm32")))]
+                    #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
                     let completion_pause = result
                         .is_ok()
                         .then(|| task.runtime().download_completion_pause.lock().take())
                         .flatten();
-                    #[cfg(all(test, not(target_arch = "wasm32")))]
+                    #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
                     if let Some((entered, resume)) = completion_pause {
                         entered.notify_one();
                         resume.notified().await;
                     }
-                    #[cfg(all(test, not(target_arch = "wasm32")))]
+                    #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
                     let failure_pause = result
                         .is_err()
                         .then(|| task.runtime().download_failure_pause.lock().take())
                         .flatten();
-                    #[cfg(all(test, not(target_arch = "wasm32")))]
+                    #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
                     if let Some((entered, resume)) = failure_pause {
                         entered.notify_one();
                         resume.notified().await;
@@ -1420,7 +1403,7 @@ impl<Context: AttachmentContext> Attachments<Context> {
             cipher.finish()?;
             let meta = store.finish_decode(decoder, &content_tmp, &decoded_tmp).await?;
             let final_tmp = if meta.compressed { &decoded_tmp } else { &content_tmp };
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             {
                 let pause = self.runtime().download_move_pause.lock().clone();
                 if let Some((entered, resume)) = pause {
@@ -1476,9 +1459,9 @@ impl<Context: AttachmentContext> Attachments<Context> {
                 }
                 Err(error) => return Err(error.into()),
             }
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             let publish_pause = { self.runtime().download_publish_pause.lock().take() };
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             if let Some((entered, resume)) = publish_pause {
                 entered.notify_one();
                 resume.notified().await;
@@ -1487,13 +1470,13 @@ impl<Context: AttachmentContext> Attachments<Context> {
                 relative, now_ns(), Some(meta.mime_type.clone()), meta.filename.clone()
             )
             .is_err() {
-                #[cfg(all(test, not(target_arch = "wasm32")))]
+                #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
                 let removal = if self.runtime().fail_next_download_cleanup.swap(false, AtomicOrdering::SeqCst) {
                     Err(AttachmentError::new(Cause::LocalStorage))
                 } else {
                     store.remove_file(relative).await
                 };
-                #[cfg(not(all(test, not(target_arch = "wasm32"))))]
+                #[cfg(not(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32"))))]
                 let removal = store.remove_file(relative).await;
                 // A file that stays is complete and verified, so the download completes;
                 // crash recovery adds its record at the next client creation.
@@ -1582,7 +1565,7 @@ impl<Context: AttachmentContext> Attachments<Context> {
             }
             (upload, upload_attempt, downloads, deleting)
         };
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-hooks"))]
         {
             let pause = self.runtime().delete_pause.lock().clone();
             if let Some((entered, resume)) = pause {
@@ -1897,9 +1880,9 @@ impl<Context: AttachmentContext> Attachments<Context> {
             );
             let local = plaintext_rel_path(&remote)?;
             let ciphertext = staged_path(&hex_digest)?;
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             let create_pause = { self.runtime().create_move_pause.lock().clone() };
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             if let Some(pause) = create_pause {
                 *pause.path.lock() = Some(local.clone());
                 *pause.staged_path.lock() = Some(ciphertext.clone());
@@ -1924,9 +1907,9 @@ impl<Context: AttachmentContext> Attachments<Context> {
                 }
                 Err(error) => return Err(error.into()),
             }
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             let publish_pause = { self.runtime().create_publish_pause.lock().clone() };
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             if let Some(pause) = publish_pause
                 && !pause.after_staged
             {
@@ -1960,9 +1943,9 @@ impl<Context: AttachmentContext> Attachments<Context> {
                 }
                 Err(error) => return Err(error.into()),
             }
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             let publish_pause = { self.runtime().create_publish_pause.lock().clone() };
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             if let Some(pause) = publish_pause
                 && pause.after_staged
             {
@@ -2323,7 +2306,7 @@ impl<Context: AttachmentContext> PendingAttachment<Context> {
 
     async fn run_attempt(&self, token: [u8; 16], attempt: Arc<PendingAttempt>) {
         let cancel = self.shared.cancel_token();
-        #[cfg(all(test, not(target_arch = "wasm32")))]
+        #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
         {
             let pause = self
                 .context
@@ -2359,7 +2342,7 @@ impl<Context: AttachmentContext> PendingAttachment<Context> {
                             return;
                         }
                         Err(error) => {
-                            #[cfg(test)]
+                            #[cfg(any(test, feature = "test-hooks"))]
                             self.context.attachment_runtime().lease_extension_errors.fetch_add(1, AtomicOrdering::SeqCst);
                             tracing::warn!(%error, "attachment lease extension will be retried");
                         },
@@ -2443,14 +2426,14 @@ impl<Context: AttachmentContext> PendingAttachment<Context> {
                 self.end_cancelled_attempt(attempt);
                 return;
             }
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             let outcome_pause = self
                 .context
                 .attachment_runtime()
                 .outcome_lock_pause
                 .lock()
                 .take();
-            #[cfg(all(test, not(target_arch = "wasm32")))]
+            #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
             if let Some((entered, resume)) = outcome_pause {
                 entered.notify_one();
                 resume.notified().await;
@@ -2481,7 +2464,7 @@ impl<Context: AttachmentContext> PendingAttachment<Context> {
                 now_ns(),
                 recorded,
             );
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-hooks"))]
             if outcome.is_err() {
                 self.context
                     .attachment_runtime()
@@ -2495,7 +2478,7 @@ impl<Context: AttachmentContext> PendingAttachment<Context> {
                         && let Ok(store) = self.context.attachment_runtime().store()
                         && let Ok(path) = staged_path(&self.remote.content_digest)
                     {
-                        #[cfg(all(test, not(target_arch = "wasm32")))]
+                        #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
                         let removal = if self
                             .context
                             .attachment_runtime()
@@ -2506,7 +2489,10 @@ impl<Context: AttachmentContext> PendingAttachment<Context> {
                         } else {
                             store.remove_file(&path).await
                         };
-                        #[cfg(not(all(test, not(target_arch = "wasm32"))))]
+                        #[cfg(not(all(
+                            any(test, feature = "test-hooks"),
+                            not(target_arch = "wasm32")
+                        )))]
                         let removal = store.remove_file(&path).await;
                         if let Err(error) = removal {
                             tracing::warn!(%error, "staged ciphertext cleanup will be retried by reconciliation");
@@ -2562,7 +2548,7 @@ impl<Context: AttachmentContext> PendingAttachment<Context> {
                                 return;
                             }
                             Err(error) => {
-                                #[cfg(test)]
+                                #[cfg(any(test, feature = "test-hooks"))]
                                 self.context
                                     .attachment_runtime()
                                     .lease_extension_errors
@@ -2704,6 +2690,275 @@ pub mod cleanup {
                     tracing::warn!(%error, "attachment reconciliation failed");
                 }
             }
+        }
+    }
+}
+
+/// Reads and operations the attachment tests reach a runtime and its pending
+/// attachments through, from outside the crate.
+#[cfg(all(any(test, feature = "test-utils"), not(target_arch = "wasm32")))]
+#[doc(hidden)]
+pub mod test_support {
+    use super::*;
+
+    /// The size of each piece a download streams.
+    pub const CHUNK: usize = super::CHUNK;
+    /// How long an upload lease lasts.
+    pub const LEASE_DURATION: Duration = super::LEASE_DURATION;
+    /// How often a running upload renews its lease.
+    pub const LEASE_RENEW: Duration = super::LEASE_RENEW;
+
+    impl AttachmentRuntime {
+        /// The local store attachment files are kept in.
+        pub fn local_store(&self) -> Result<&Arc<dyn LocalStore>, AttachmentClientError> {
+            self.store()
+        }
+
+        /// Reconcile stored attachments with their local files again.
+        pub async fn reconcile_again<Context: AttachmentContext>(
+            &self,
+            context: &Context,
+        ) -> Result<(), AttachmentClientError> {
+            self.reconcile(context).await
+        }
+
+        /// Whether the runtime still holds shared state for the pending
+        /// attachment with `digest`.
+        pub fn holds_pending(&self, digest: &str) -> bool {
+            self.pending.lock().contains_key(digest)
+        }
+
+        /// The running download of the plaintext at `relative`, if any.
+        pub fn running_download(&self, relative: &str) -> Option<DownloadProbe> {
+            self.downloads
+                .lock()
+                .get(relative)
+                .cloned()
+                .map(DownloadProbe)
+        }
+    }
+
+    impl AttachmentClientError {
+        /// The error of `cause` alone, as the runtime records it.
+        pub fn of_cause(cause: Cause) -> Self {
+            Self::new(cause)
+        }
+    }
+
+    /// One running download, as the callers that wait for it share it.
+    pub struct DownloadProbe(Arc<DownloadShared>);
+
+    impl DownloadProbe {
+        /// How many callers wait for this download's outcome.
+        pub fn waiters(&self) -> usize {
+            self.0.outcome.receiver_count()
+        }
+
+        /// Whether a deletion cancelled this download.
+        pub fn is_cancelled(&self) -> bool {
+            self.0.cancel.is_cancelled()
+        }
+    }
+
+    /// The state that every handle of one pending attachment shares.
+    #[derive(Clone)]
+    pub struct PendingProbe(pub(super) Arc<PendingShared>);
+
+    impl PendingProbe {
+        /// This client's upload lease: its token and expiry.
+        pub fn lease(&self) -> Option<([u8; 16], i64)> {
+            *self.0.lease.lock()
+        }
+
+        /// The upload attempt this client runs, if any.
+        pub fn attempt(&self) -> Option<AttemptProbe> {
+            self.0.attempt.lock().clone().map(AttemptProbe)
+        }
+
+        /// Whether an operation holds the attachment's state lock.
+        pub fn state_is_held(&self) -> bool {
+            self.0.state.try_lock().is_err()
+        }
+
+        /// The status last published to watchers.
+        pub fn watched_status(&self) -> PendingAttachmentStatus {
+            self.0.watch.borrow().clone()
+        }
+
+        /// Whether `other` is a handle of the same pending attachment.
+        pub fn shares_with(&self, other: &PendingProbe) -> bool {
+            Arc::ptr_eq(&self.0, &other.0)
+        }
+    }
+
+    /// One upload attempt of a pending attachment.
+    pub struct AttemptProbe(Arc<PendingAttempt>);
+
+    impl AttemptProbe {
+        /// Cancelled once the attempt has ended.
+        pub fn done(&self) -> &CancellationToken {
+            &self.0.done
+        }
+    }
+
+    impl<Context: AttachmentContext> PendingAttachment<Context> {
+        /// The state this handle shares with the other handles of the
+        /// attachment.
+        pub fn probe(&self) -> PendingProbe {
+            PendingProbe(self.shared.clone())
+        }
+
+        /// The reference events carry for this attachment.
+        pub fn reference_for_test(&self) -> AttachmentRef {
+            self.reference()
+        }
+
+        /// Run one upload under the lease `token`, as an attempt does.
+        pub async fn upload_once_for_test(
+            &self,
+            token: &[u8; 16],
+        ) -> Result<(), AttachmentClientError> {
+            self.upload_once(token).await
+        }
+    }
+}
+
+/// Controls the attachment tests pause, fail and time a runtime with, from
+/// outside the crate. Each one changes what the next operation does.
+#[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
+#[doc(hidden)]
+pub mod test_hooks {
+    use super::*;
+
+    /// A pause: the paused operation notifies the first and waits for the
+    /// second.
+    pub type Pause = (Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>);
+
+    /// Where an operation pauses.
+    #[derive(Clone, Copy, Debug)]
+    pub enum PausePoint {
+        /// A sweep, after it reads the expired rows.
+        Sweep,
+        /// A deletion, while it holds the deletion mark.
+        Delete,
+        /// An upload, before it writes its outcome under the event lock.
+        OutcomeLock,
+        /// An upload attempt, before its task panics.
+        AttemptPanic,
+        /// A download, before its task panics.
+        DownloadPanic,
+        /// A download, before it moves its file into place.
+        DownloadMove,
+        /// A download, before it publishes its metadata.
+        DownloadPublish,
+        /// A download, before it reports success.
+        DownloadCompletion,
+        /// A download, before it reports failure.
+        DownloadFailure,
+        /// A download, when it finds an existing file.
+        DownloadExisting,
+        /// A reconciliation, after it takes its snapshot.
+        ReconcileSnapshot,
+    }
+
+    /// A local storage step that fails once.
+    #[derive(Clone, Copy, Debug)]
+    pub enum Fault {
+        /// The removal of an uploaded attachment's staged file.
+        StagedRemoval,
+        /// The cleanup after a download's metadata write fails.
+        DownloadCleanup,
+    }
+
+    /// A pause of a creation at its first file move. The creation records the
+    /// paths it moves.
+    pub struct CreateMovePause {
+        pub path: Mutex<Option<String>>,
+        pub staged_path: Mutex<Option<String>>,
+        pub entered: tokio::sync::Notify,
+        pub resume: tokio::sync::Notify,
+    }
+
+    /// A pause of a creation at one of its publication points, before or
+    /// after the staged file. The creation records the paths it publishes.
+    pub struct CreatePublishPause {
+        pub after_staged: bool,
+        pub path: Mutex<Option<String>>,
+        pub staged_path: Mutex<Option<String>>,
+        pub entered: tokio::sync::Notify,
+        pub resume: tokio::sync::Notify,
+    }
+
+    /// Fail the next `count` reconciliations of every runtime.
+    pub fn fail_next_reconciles(count: usize) {
+        FAIL_NEXT_RECONCILES.store(count, AtomicOrdering::SeqCst);
+    }
+
+    impl AttachmentRuntime {
+        /// Pause the next operations at `point` with `pause`, or stop pausing
+        /// there when it is `None`.
+        pub fn set_pause(&self, point: PausePoint, pause: Option<Pause>) {
+            let slot = match point {
+                PausePoint::Sweep => &self.sweep_pause,
+                PausePoint::Delete => &self.delete_pause,
+                PausePoint::OutcomeLock => &self.outcome_lock_pause,
+                PausePoint::AttemptPanic => &self.attempt_panic_pause,
+                PausePoint::DownloadPanic => &self.download_panic_pause,
+                PausePoint::DownloadMove => &self.download_move_pause,
+                PausePoint::DownloadPublish => &self.download_publish_pause,
+                PausePoint::DownloadCompletion => &self.download_completion_pause,
+                PausePoint::DownloadFailure => &self.download_failure_pause,
+                PausePoint::DownloadExisting => &self.download_existing_pause,
+                PausePoint::ReconcileSnapshot => &self.reconcile_snapshot_pause,
+            };
+            *slot.lock() = pause;
+        }
+
+        /// Fail the next `fault` step.
+        pub fn fail_next(&self, fault: Fault) {
+            match fault {
+                Fault::StagedRemoval => &self.fail_next_staged_removal,
+                Fault::DownloadCleanup => &self.fail_next_download_cleanup,
+            }
+            .store(true, AtomicOrdering::SeqCst);
+        }
+
+        /// Pause creations at their first file move.
+        pub fn set_create_move_pause(&self, pause: Option<Arc<CreateMovePause>>) {
+            *self.create_move_pause.lock() = pause;
+        }
+
+        /// Pause creations at a publication point.
+        pub fn set_create_publish_pause(&self, pause: Option<Arc<CreatePublishPause>>) {
+            *self.create_publish_pause.lock() = pause;
+        }
+
+        /// Run upload leases with these timings.
+        pub fn set_lease_timing(&self, duration: Duration, renew: Duration, poll: Duration) {
+            *self.lease_timing.lock() = LeaseTiming::for_test(duration, renew, poll);
+        }
+
+        /// How many upload outcome writes have failed.
+        pub fn outcome_write_errors(&self) -> usize {
+            self.outcome_write_errors.load(AtomicOrdering::SeqCst)
+        }
+
+        /// How many upload lease extensions have failed.
+        pub fn lease_extension_errors(&self) -> usize {
+            self.lease_extension_errors.load(AtomicOrdering::SeqCst)
+        }
+
+        /// The lock that orders the outcome and deletion events of `key`.
+        pub fn event_lock_for_test(&self, key: &str) -> Arc<AsyncMutex<()>> {
+            self.event_lock(key)
+        }
+    }
+
+    #[cfg(any(test, feature = "test-utils"))]
+    impl test_support::PendingProbe {
+        /// Replace this client's upload lease.
+        pub fn set_lease(&self, lease: Option<([u8; 16], i64)>) {
+            *self.0.lease.lock() = lease;
         }
     }
 }

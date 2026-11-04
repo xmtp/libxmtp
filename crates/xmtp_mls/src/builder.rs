@@ -1448,4 +1448,14 @@ mod worker_registration_tests {
         );
         assert!(alix.client.workers.is_running());
     }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    #[cfg_attr(target_arch = "wasm32", ignore)]
+    async fn registered_worker_kinds_reads_the_registry() {
+        tester!(alix, disable_workers);
+        assert_eq!(
+            alix.client.registered_worker_kinds(),
+            vec![WorkerKind::HmacEpoch]
+        );
+    }
 }

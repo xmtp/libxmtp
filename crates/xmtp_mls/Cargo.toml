@@ -234,6 +234,11 @@ name = "attachment_opfs"
 required-features = ["test-utils", "test-hooks"]
 
 [[test]]
+name = "attachments"
+path = "tests/attachments/main.rs"
+required-features = ["test-utils", "test-hooks"]
+
+[[test]]
 name = "zeroize"
 required-features = ["test-utils"]
 

@@ -20,10 +20,8 @@ async fn locked_outcome_write_is_retried() {
         while alix
             .client
             .context
-            .features
-            .attachments
-            .outcome_write_errors
-            .load(AtomicOrdering::SeqCst)
+            .attachment_runtime()
+            .outcome_write_errors()
             == 0
         {
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -73,10 +71,8 @@ async fn delete_stops_retrying_unrecorded_upload_outcome() {
         while alix
             .client
             .context
-            .features
-            .attachments
-            .outcome_write_errors
-            .load(AtomicOrdering::SeqCst)
+            .attachment_runtime()
+            .outcome_write_errors()
             == 0
         {
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -143,22 +139,25 @@ async fn deletion_wins_before_outcome_write_under_event_lock() {
         ]))?;
     let entered_outcome = Arc::new(tokio::sync::Notify::new());
     let resume_outcome = Arc::new(tokio::sync::Notify::new());
-    *alix
-        .client
-        .context
-        .features
-        .attachments
-        .outcome_lock_pause
-        .lock() = Some((entered_outcome.clone(), resume_outcome.clone()));
+    alix.client.context.attachment_runtime().set_pause(
+        PausePoint::OutcomeLock,
+        Some((entered_outcome.clone(), resume_outcome.clone())),
+    );
     let upload = xmtp_common::task::spawn(async move { pending.upload().await });
     tokio::time::timeout(Duration::from_secs(5), entered_outcome.notified()).await?;
 
-    let event_lock = alix.client.context.features.attachments.event_lock(&key);
+    let event_lock = alix
+        .client
+        .context
+        .attachment_runtime()
+        .event_lock_for_test(&key);
     let guard = event_lock.lock().await;
     let entered_delete = Arc::new(tokio::sync::Notify::new());
     let resume_delete = Arc::new(tokio::sync::Notify::new());
-    *alix.client.context.features.attachments.delete_pause.lock() =
-        Some((entered_delete.clone(), resume_delete.clone()));
+    alix.client.context.attachment_runtime().set_pause(
+        PausePoint::Delete,
+        Some((entered_delete.clone(), resume_delete.clone())),
+    );
     let client = alix.client.clone();
     let deleting_remote = remote.clone();
     let deletion = xmtp_common::task::spawn(async move {
@@ -208,7 +207,7 @@ async fn outcome_retry_renews_lease_without_another_upload() {
     let created = alix.client.attachments().create(bytes()).await?;
     let remote = created.remote_attachment().clone();
     let (url, entered, release) = paused_put(200).await;
-    let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(Arc::new(signed_put_api(url, 1)))
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
@@ -217,7 +216,7 @@ async fn outcome_retry_renews_lease_without_another_upload() {
         .with_disable_workers(true)
         .build()
         .await?;
-    *client.context.features.attachments.lease_timing.lock() = LeaseTiming::for_test(
+    client.context.attachment_runtime().set_lease_timing(
         Duration::from_millis(300),
         Duration::from_millis(100),
         Duration::from_millis(10),
@@ -239,14 +238,7 @@ async fn outcome_retry_renews_lease_without_another_upload() {
     tokio::time::timeout(Duration::from_secs(5), entered).await??;
     release.send(())?;
     tokio::time::timeout(Duration::from_secs(5), async {
-        while client
-            .context
-            .features
-            .attachments
-            .outcome_write_errors
-            .load(AtomicOrdering::SeqCst)
-            == 0
-        {
+        while client.context.attachment_runtime().outcome_write_errors() == 0 {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
@@ -277,7 +269,7 @@ async fn deterministic_outcome_error_fails_with_local_storage() {
     tester!(alix, attachments_dir: dir.path(), disable_workers);
     let pending = alix.client.attachments().create(bytes()).await?;
     let remote = pending.remote_attachment().clone();
-    *alix.client.context.features.attachments.lease_timing.lock() = LeaseTiming::for_test(
+    alix.client.context.attachment_runtime().set_lease_timing(
         Duration::from_secs(2),
         Duration::from_millis(100),
         Duration::from_millis(10),
@@ -320,10 +312,8 @@ async fn deterministic_outcome_error_fails_with_local_storage() {
     assert_eq!(
         alix.client
             .context
-            .features
-            .attachments
-            .outcome_write_errors
-            .load(AtomicOrdering::SeqCst),
+            .attachment_runtime()
+            .outcome_write_errors(),
         1
     );
     assert_eq!(
@@ -353,7 +343,7 @@ async fn deterministic_outcome_error_fails_with_local_storage() {
     })
     .await?;
     let (url, entered, release) = paused_put(200).await;
-    let other_client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let other_client = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(Arc::new(signed_put_api(url, 1)))
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
@@ -402,10 +392,8 @@ async fn permanent_non_constraint_outcome_error_stops_retrying() {
     assert_eq!(
         alix.client
             .context
-            .features
-            .attachments
-            .outcome_write_errors
-            .load(AtomicOrdering::SeqCst),
+            .attachment_runtime()
+            .outcome_write_errors(),
         1
     );
 }
@@ -418,7 +406,7 @@ async fn delete_finishes_after_unrecorded_upload_outcome() {
     let created = alix.client.attachments().create(bytes()).await?;
     let remote = created.remote_attachment().clone();
     let (url, entered_put, release_put) = paused_put(200).await;
-    let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(Arc::new(signed_put_api(url, 1)))
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
@@ -455,8 +443,10 @@ async fn delete_finishes_after_unrecorded_upload_outcome() {
     tokio::time::timeout(Duration::from_secs(5), entered_put).await??;
     let entered_delete = Arc::new(tokio::sync::Notify::new());
     let resume_delete = Arc::new(tokio::sync::Notify::new());
-    *client.context.features.attachments.delete_pause.lock() =
-        Some((entered_delete.clone(), resume_delete.clone()));
+    client.context.attachment_runtime().set_pause(
+        PausePoint::Delete,
+        Some((entered_delete.clone(), resume_delete.clone())),
+    );
     let deleting_client = client.clone();
     let deleting_remote = remote.clone();
     let delete = xmtp_common::task::spawn(async move {
@@ -476,12 +466,7 @@ async fn delete_finishes_after_unrecorded_upload_outcome() {
     );
     tokio::time::timeout(Duration::from_secs(2), delete).await???;
     assert_eq!(
-        client
-            .context
-            .features
-            .attachments
-            .outcome_write_errors
-            .load(AtomicOrdering::SeqCst),
+        client.context.attachment_runtime().outcome_write_errors(),
         0
     );
     let _ = release_put.send(());
@@ -522,7 +507,7 @@ async fn delete_from_other_client_fails_upload_once() {
     let remote = created.remote_attachment().clone();
     let (url, entered_put, release_put) = paused_put(200).await;
     // The uploader shares the database but has its own runtime and event bus.
-    let uploader = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let uploader = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(Arc::new(signed_put_api(url, 1)))
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
@@ -558,14 +543,14 @@ async fn delete_from_other_client_fails_upload_once() {
         Cause::Deleted
     );
     tokio::time::timeout(Duration::from_secs(5), async {
-        while pending.shared.attempt.lock().is_some() {
+        while pending.probe().attempt().is_some() {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
     .await?;
     assert_eq!(
-        *pending.shared.watch.borrow(),
-        PendingAttachmentStatus::Failed(AttachmentClientError::new(Cause::Deleted))
+        pending.probe().watched_status(),
+        PendingAttachmentStatus::Failed(AttachmentClientError::of_cause(Cause::Deleted))
     );
     let emitted = events.drain();
     assert_eq!(emitted.len(), 2);
@@ -589,7 +574,7 @@ async fn cancelled_delete_caller_does_not_leave_a_cancelled_pending_row() {
     let created = alix.client.attachments().create(bytes()).await?;
     let remote = created.remote_attachment().clone();
     let (url, entered_put, release_put) = paused_put(200).await;
-    let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(Arc::new(signed_put_api(url, 1)))
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
@@ -608,8 +593,10 @@ async fn cancelled_delete_caller_does_not_leave_a_cancelled_pending_row() {
 
     let entered_delete = Arc::new(tokio::sync::Notify::new());
     let resume_delete = Arc::new(tokio::sync::Notify::new());
-    *client.context.features.attachments.delete_pause.lock() =
-        Some((entered_delete.clone(), resume_delete.clone()));
+    client.context.attachment_runtime().set_pause(
+        PausePoint::Delete,
+        Some((entered_delete.clone(), resume_delete.clone())),
+    );
     let deleting_client = client.clone();
     let deleting_remote = remote.clone();
     let deletion = tokio::spawn(async move {
@@ -659,20 +646,19 @@ async fn delete_finishes_after_upload_task_panics() {
     let remote = pending.remote_attachment().clone();
     let entered_attempt = Arc::new(tokio::sync::Notify::new());
     let resume_attempt = Arc::new(tokio::sync::Notify::new());
-    *alix
-        .client
-        .context
-        .features
-        .attachments
-        .attempt_panic_pause
-        .lock() = Some((entered_attempt.clone(), resume_attempt.clone()));
+    alix.client.context.attachment_runtime().set_pause(
+        PausePoint::AttemptPanic,
+        Some((entered_attempt.clone(), resume_attempt.clone())),
+    );
     let upload = tokio::spawn(async move { pending.upload().await });
     tokio::time::timeout(Duration::from_secs(5), entered_attempt.notified()).await?;
 
     let entered_delete = Arc::new(tokio::sync::Notify::new());
     let resume_delete = Arc::new(tokio::sync::Notify::new());
-    *alix.client.context.features.attachments.delete_pause.lock() =
-        Some((entered_delete.clone(), resume_delete.clone()));
+    alix.client.context.attachment_runtime().set_pause(
+        PausePoint::Delete,
+        Some((entered_delete.clone(), resume_delete.clone())),
+    );
     let client = alix.client.clone();
     let deleting_remote = remote.clone();
     let deletion =
@@ -704,7 +690,7 @@ async fn delete_finishes_after_upload_task_panics() {
 async fn panicked_attempt_can_be_claimed_after_lease_expiry() {
     let dir = tempfile::tempdir()?;
     tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
-    *alix.client.context.features.attachments.lease_timing.lock() = LeaseTiming::for_test(
+    alix.client.context.attachment_runtime().set_lease_timing(
         Duration::from_millis(300),
         Duration::from_millis(100),
         Duration::from_millis(10),
@@ -719,32 +705,21 @@ async fn panicked_attempt_can_be_claimed_after_lease_expiry() {
         .subscribe_app(EventFilter::new([EventKind::AttachmentUploadStarted]))?;
     let entered = Arc::new(tokio::sync::Notify::new());
     let release = Arc::new(tokio::sync::Notify::new());
-    *alix
-        .client
-        .context
-        .features
-        .attachments
-        .attempt_panic_pause
-        .lock() = Some((entered.clone(), release.clone()));
+    alix.client.context.attachment_runtime().set_pause(
+        PausePoint::AttemptPanic,
+        Some((entered.clone(), release.clone())),
+    );
     let first = tokio::spawn(async move { pending.upload().await });
     tokio::time::timeout(Duration::from_secs(5), entered.notified()).await?;
-    let attempt = resumed
-        .shared
-        .attempt
-        .lock()
-        .clone()
-        .expect("running attempt");
+    let attempt = resumed.probe().attempt().expect("running attempt");
     first.abort();
     let _ = first.await;
-    *alix
-        .client
+    alix.client
         .context
-        .features
-        .attachments
-        .attempt_panic_pause
-        .lock() = None;
+        .attachment_runtime()
+        .set_pause(PausePoint::AttemptPanic, None);
     release.notify_one();
-    tokio::time::timeout(Duration::from_secs(2), attempt.done.cancelled()).await?;
+    tokio::time::timeout(Duration::from_secs(2), attempt.done().cancelled()).await?;
     tokio::time::timeout(Duration::from_secs(2), async {
         while resumed.status() != PendingAttachmentStatus::Waiting {
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -769,7 +744,7 @@ async fn failed_status_survives_restart() {
             xmtp_api_grpc::error::GrpcError::Status(tonic::Status::invalid_argument("permanent")),
         ))
     });
-    let first = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let first = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(Arc::new(rejected))
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
@@ -793,7 +768,7 @@ async fn failed_status_survives_restart() {
     drop(created);
     let mut no_request = xmtp_api_backend::MockBackendClient::new();
     no_request.expect_create_upload().times(0);
-    let restarted = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let restarted = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(Arc::new(no_request))
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
@@ -824,7 +799,7 @@ async fn complete_survives_restart() {
     assert!(!staged.exists());
     let mut no_request = xmtp_api_backend::MockBackendClient::new();
     no_request.expect_create_upload().times(0);
-    let restarted = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let restarted = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(Arc::new(no_request))
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
@@ -872,7 +847,7 @@ async fn rejected_record_is_not_touched() {
     let before = db.get_pending_attachment(&remote.content_digest)?.unwrap();
     let mut no_request = xmtp_api_backend::MockBackendClient::new();
     no_request.expect_create_upload().times(0);
-    let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(Arc::new(no_request))
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
@@ -925,7 +900,7 @@ async fn credential_failure_kind_persists() {
         now_ns(),
         PendingAttachmentOutcome::failed("credential", Some("callback_failed"), Some(true)),
     )?;
-    let restarted = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let restarted = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .with_disable_workers(true)
         .build()
         .await?;
@@ -965,7 +940,7 @@ async fn real_credential_failure_kind_survives_restart() {
         .host(xmtp_configuration::backend_test_url())
         .maybe_auth_callback(Some(Arc::new(FailingCredential(calls.clone()))))
         .build()?;
-    let first = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let first = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(api)
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
@@ -989,7 +964,7 @@ async fn real_credential_failure_kind_survives_restart() {
     );
     assert!(first_error.retryable);
     drop(first);
-    let restarted = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let restarted = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .with_disable_workers(true)
         .build()
         .await?;
@@ -1008,7 +983,7 @@ async fn expired_lease_stops_before_create_upload() {
     let remote = created.remote_attachment().clone();
     let mut api = xmtp_api_backend::MockBackendClient::new();
     api.expect_create_upload().times(0);
-    let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(Arc::new(api))
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
@@ -1019,9 +994,13 @@ async fn expired_lease_stops_before_create_upload() {
         .await?;
     let pending = client.attachments().pending(&remote).await?;
     let token = [11u8; 16];
-    *pending.shared.lease.lock() = Some((token, now_ns() - 1));
+    pending.probe().set_lease(Some((token, now_ns() - 1)));
     assert_eq!(
-        pending.upload_once(&token).await.unwrap_err().cause,
+        pending
+            .upload_once_for_test(&token)
+            .await
+            .unwrap_err()
+            .cause,
         Cause::Network
     );
 }
@@ -1035,14 +1014,14 @@ async fn expired_lease_stops_before_put() {
     let created = alix.client.attachments().create(bytes()).await?;
     let remote = created.remote_attachment().clone();
     let (url, puts) = serve_body(Vec::new()).await;
-    let shared = Arc::new(Mutex::new(None::<Arc<PendingShared>>));
+    let shared = Arc::new(Mutex::new(None::<PendingProbe>));
     let expire = shared.clone();
     let mut api = xmtp_api_backend::MockBackendClient::new();
     api.expect_create_upload().times(1).returning(move |_| {
         let current = expire.lock();
         let pending = current.as_ref().expect("pending attachment shared state");
-        let (token, _) = (*pending.lease.lock()).expect("local lease");
-        *pending.lease.lock() = Some((token, now_ns() - 1));
+        let (token, _) = pending.lease().expect("local lease");
+        pending.set_lease(Some((token, now_ns() - 1)));
         Ok(CreateUploadResponse {
             method: "PUT".into(),
             url: url.clone(),
@@ -1050,7 +1029,7 @@ async fn expired_lease_stops_before_put() {
             expires_in_seconds: 3600,
         })
     });
-    let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(Arc::new(api))
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
@@ -1064,11 +1043,17 @@ async fn expired_lease_stops_before_put() {
         .build()
         .await?;
     let pending = client.attachments().pending(&remote).await?;
-    *shared.lock() = Some(pending.shared.clone());
+    *shared.lock() = Some(pending.probe());
     let token = [12u8; 16];
-    *pending.shared.lease.lock() = Some((token, now_ns() + 10_000_000_000));
+    pending
+        .probe()
+        .set_lease(Some((token, now_ns() + 10_000_000_000)));
     assert_eq!(
-        pending.upload_once(&token).await.unwrap_err().cause,
+        pending
+            .upload_once_for_test(&token)
+            .await
+            .unwrap_err()
+            .cause,
         Cause::Network
     );
     assert_eq!(puts.load(Ordering::SeqCst), 0);
@@ -1093,35 +1078,6 @@ async fn expired_lease_reads_waiting() {
     assert_eq!(pending.status(), PendingAttachmentStatus::Complete);
 }
 
-// verifies: ATCH-061
-#[xmtp_common::test(unwrap_try = true)]
-fn credential_kind_kept() {
-    use xmtp_proto::api::AuthError;
-    let cases = [
-        (
-            AuthError::CallbackFailed { retryable: true },
-            CredentialFailureKind::CallbackFailed,
-            true,
-        ),
-        (
-            AuthError::Exhausted,
-            CredentialFailureKind::Exhausted,
-            false,
-        ),
-        (
-            AuthError::ExhaustedAfterAttempt,
-            CredentialFailureKind::Exhausted,
-            false,
-        ),
-    ];
-    for (auth, kind, retryable) in cases {
-        let error = api_error(xmtp_api::ApiError::Auth(auth));
-        assert_eq!(error.cause, Cause::Credential);
-        assert_eq!(error.credential_kind, Some(kind));
-        assert_eq!(error.retryable, retryable);
-    }
-}
-
 // verifies: ATCH-035, ATCH-066
 #[xmtp_common::test(unwrap_try = true)]
 async fn pending_persist_restart() {
@@ -1129,7 +1085,7 @@ async fn pending_persist_restart() {
     tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
     let pending = alix.client.attachments().create(bytes()).await?;
     let remote = pending.remote_attachment().clone();
-    let next = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let next = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
         )))
@@ -1163,7 +1119,7 @@ async fn dropped_upload_waiter_does_not_cancel_attempt() {
     assert_eq!(pending.status(), PendingAttachmentStatus::Complete);
     let emitted = events.drain();
     assert_eq!(emitted.len(), 2);
-    let key = pending.reference().attachment_key;
+    let key = pending.reference_for_test().attachment_key;
     assert!(matches!(
         &emitted[0].client,
         Some(ClientEvent::AttachmentUploadStarted(reference)) if reference.attachment_key == key
@@ -1183,7 +1139,7 @@ async fn outcome_written_after_reconnect() {
     let remote = original.remote_attachment().clone();
     let staged = dir.path().join(staged_path(&remote.content_digest)?);
     let (url, entered, release) = paused_put(200).await;
-    let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(Arc::new(signed_put_api(url, 1)))
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
@@ -1198,14 +1154,7 @@ async fn outcome_written_after_reconnect() {
     client.release_db_connection()?;
     release.send(()).unwrap();
     tokio::time::timeout(Duration::from_secs(2), async {
-        while client
-            .context
-            .features
-            .attachments
-            .outcome_write_errors
-            .load(AtomicOrdering::SeqCst)
-            == 0
-        {
+        while client.context.attachment_runtime().outcome_write_errors() == 0 {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
@@ -1232,7 +1181,7 @@ async fn second_client_joins_running_upload() {
     let created = alix.client.attachments().create(bytes()).await?;
     let remote = created.remote_attachment().clone();
     let (url, entered, release) = paused_put(200).await;
-    let first = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let first = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(Arc::new(signed_put_api(url, 1)))
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
@@ -1241,7 +1190,7 @@ async fn second_client_joins_running_upload() {
         .with_disable_workers(true)
         .build()
         .await?;
-    let second = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let second = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(Arc::new(signed_put_api(
             "http://127.0.0.1:1/unused".into(),
             0,
@@ -1253,8 +1202,11 @@ async fn second_client_joins_running_upload() {
         .with_disable_workers(true)
         .build()
         .await?;
-    *second.context.features.attachments.lease_timing.lock() =
-        LeaseTiming::for_test(LEASE_DURATION, LEASE_RENEW, Duration::from_millis(20));
+    second.context.attachment_runtime().set_lease_timing(
+        LEASE_DURATION,
+        LEASE_RENEW,
+        Duration::from_millis(20),
+    );
     let a = first.attachments().pending(&remote).await?;
     let b = second.attachments().pending(&remote).await?;
     let mut observed = b.watch_status();
@@ -1294,7 +1246,7 @@ async fn stale_holder_yields_to_new_claim() {
     let staged = dir.path().join(staged_path(&remote.content_digest)?);
     let (a_url, a_entered, a_release) = paused_put(500).await;
     let (b_url, b_entered, b_release) = paused_put(200).await;
-    let a_client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let a_client = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(Arc::new(signed_put_api(a_url, 1)))
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
@@ -1303,7 +1255,7 @@ async fn stale_holder_yields_to_new_claim() {
         .with_disable_workers(true)
         .build()
         .await?;
-    let b_client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let b_client = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(Arc::new(signed_put_api(b_url, 1)))
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
@@ -1312,7 +1264,7 @@ async fn stale_holder_yields_to_new_claim() {
         .with_disable_workers(true)
         .build()
         .await?;
-    *a_client.context.features.attachments.lease_timing.lock() = LeaseTiming::for_test(
+    a_client.context.attachment_runtime().set_lease_timing(
         Duration::from_millis(100),
         Duration::from_secs(1),
         Duration::from_millis(10),
@@ -1380,7 +1332,7 @@ async fn lease_extended_while_running() {
     let created = alix.client.attachments().create(bytes()).await?;
     let remote = created.remote_attachment().clone();
     let (url, entered, release) = paused_put(200).await;
-    let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(Arc::new(signed_put_api(url, 1)))
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
@@ -1389,7 +1341,7 @@ async fn lease_extended_while_running() {
         .with_disable_workers(true)
         .build()
         .await?;
-    *client.context.features.attachments.lease_timing.lock() = LeaseTiming::for_test(
+    client.context.attachment_runtime().set_lease_timing(
         Duration::from_millis(300),
         Duration::from_millis(30),
         Duration::from_millis(10),
@@ -1425,7 +1377,7 @@ async fn extension_storage_error_is_retried() {
     let created = alix.client.attachments().create(bytes()).await?;
     let remote = created.remote_attachment().clone();
     let (url, entered, release) = paused_put(200).await;
-    let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(Arc::new(signed_put_api(url, 1)))
         .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
             offer,
@@ -1434,7 +1386,7 @@ async fn extension_storage_error_is_retried() {
         .with_disable_workers(true)
         .build()
         .await?;
-    *client.context.features.attachments.lease_timing.lock() = LeaseTiming::for_test(
+    client.context.attachment_runtime().set_lease_timing(
         Duration::from_millis(500),
         Duration::from_millis(30),
         Duration::from_millis(10),
@@ -1458,14 +1410,7 @@ async fn extension_storage_error_is_retried() {
         .lease_expires_at_ns
         .unwrap();
     tokio::time::timeout(Duration::from_secs(2), async {
-        while client
-            .context
-            .features
-            .attachments
-            .lease_extension_errors
-            .load(AtomicOrdering::SeqCst)
-            == 0
-        {
+        while client.context.attachment_runtime().lease_extension_errors() == 0 {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
@@ -1506,7 +1451,7 @@ async fn extension_storage_error_is_retried() {
 async fn attachment_event_order() {
     let dir = tempfile::tempdir()?;
     tester!(alix, attachments_dir: dir.path(), disable_workers);
-    let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .attachment_options(AttachmentOptions {
             allow_private_network: true,
             ..Default::default()
@@ -1581,7 +1526,7 @@ async fn attachment_event_kinds() {
 
     let dir = tempfile::tempdir()?;
     tester!(alix, attachments_dir: dir.path(), disable_workers);
-    let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+    let client = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
         .attachment_options(AttachmentOptions {
             allow_private_network: true,
             ..Default::default()
