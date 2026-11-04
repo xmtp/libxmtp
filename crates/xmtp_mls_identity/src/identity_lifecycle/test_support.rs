@@ -12,6 +12,7 @@ use std::sync::Arc;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_common::{MaybeSend, MaybeSync, Retry, retry_async};
 use xmtp_configuration::{CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS};
+use xmtp_configuration::{ConfigProvider, ServerConfiguration, StaticConfigProvider};
 use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_db::{
     DefaultStore, StorageError, Store, TransactionOutcome, XmtpTestDb, identity::StoredIdentity,
@@ -21,6 +22,8 @@ use xmtp_id::{
     InboxOwner, associations::test_utils::MockSmartContractSignatureVerifier,
     scw_verifier::SmartContractSignatureVerifier,
 };
+use xmtp_mls_core::change_callbacks::UnstableChangeCallbacks;
+use xmtp_mls_core::config::ForkRecoveryOpts;
 use xmtp_mls_core::context::{CoreContext, LocalContext, test_support::TestContextParts};
 use xmtp_mls_core::identity::{Identity, IdentityError};
 use xmtp_mls_core::policy::StreamPolicy;
@@ -72,6 +75,30 @@ impl<A> PeerFeatures<A> for IdentityTestFeatures {
     }
 }
 
+/// The options a client build applies to a peer's context. Each starts as
+/// a test client's build leaves it.
+#[derive(Default)]
+pub struct PeerOptions {
+    /// The deployment's configuration in place of the published one, as a
+    /// build's configuration provider supplies it.
+    pub config_provider: Option<Arc<dyn ConfigProvider>>,
+    /// The client's version.
+    pub version_info: VersionInfo,
+    /// Fork recovery settings.
+    pub fork_recovery_opts: ForkRecoveryOpts,
+    /// SDK-registered notifications for group-state changes.
+    pub change_callbacks: UnstableChangeCallbacks,
+}
+
+impl PeerOptions {
+    /// Use a deployment configuration that differs from the compiled defaults
+    /// only in the fields `edit` touches, as a test client's `configured`
+    /// option does.
+    pub fn configure(&mut self, edit: impl FnOnce(&mut ServerConfiguration)) {
+        self.config_provider = Some(Arc::new(StaticConfigProvider::edited(edit)));
+    }
+}
+
 /// One installation of an inbox whose owner is `owner`.
 pub struct TestPeer<F, A = PeerApi> {
     /// The inbox owner's signer.
@@ -86,9 +113,18 @@ pub type IdentityTestPeer = TestPeer<IdentityTestFeatures>;
 impl<F: IdentityFeatures + PeerFeatures<PeerApi>> TestPeer<F> {
     /// A registered installation of a new inbox, on an ephemeral database.
     pub async fn new() -> Self {
+        Self::new_with(|_| {}).await
+    }
+
+    /// As [`Self::new`], with the build options that `edit` sets before the
+    /// context opens.
+    pub async fn new_with(edit: impl FnOnce(&mut PeerOptions)) -> Self {
+        let mut options = PeerOptions::default();
+        edit(&mut options);
         Self::register(
             generate_local_wallet(),
             xmtp_db::TestDb::create_ephemeral_store().await,
+            options,
         )
         .await
     }
@@ -99,6 +135,7 @@ impl<F: IdentityFeatures + PeerFeatures<PeerApi>> TestPeer<F> {
         Self::register(
             generate_local_wallet(),
             xmtp_db::TestDb::create_persistent_store(None).await,
+            PeerOptions::default(),
         )
         .await
     }
@@ -108,27 +145,109 @@ impl<F: IdentityFeatures + PeerFeatures<PeerApi>> TestPeer<F> {
         Self::register(
             self.owner.clone(),
             xmtp_db::TestDb::create_ephemeral_store().await,
+            PeerOptions::default(),
         )
         .await
     }
 
-    async fn register(owner: PrivateKeySigner, store: DefaultStore) -> Self {
-        let api = Arc::new(
+    /// This installation opened from `snapshot`, a copy of its database, with
+    /// the build options that `edit` sets. As a test client built from a
+    /// snapshot does, it opens offline, publishes the stored identity
+    /// updates, drops its identity and network state except the delivery
+    /// allocator, rotates its key package and loads its inbox's updates.
+    pub async fn from_snapshot(
+        &self,
+        snapshot: &[u8],
+        edit: impl FnOnce(&mut PeerOptions),
+    ) -> Self {
+        let mut options = PeerOptions::default();
+        edit(&mut options);
+        let peer = Self::open(
+            self.owner.clone(),
+            xmtp_db::TestDb::create_ephemeral_store_from_snapshot(snapshot, None::<&str>).await,
+            ApiClientWrapper::new(Self::backend(), Retry::default()),
+            StreamPolicy::default(),
+            Box::new(MockSmartContractSignatureVerifier::new(true)),
+            Some(self.context.identity().clone()),
+            options,
+        )
+        .await;
+        peer.refresh_restored_state().await;
+        peer
+    }
+
+    fn backend() -> PeerApi {
+        Arc::new(
             xmtp_api_backend::TestClient::create()
                 .build()
                 .expect("a local backend client"),
-        );
+        )
+    }
+
+    async fn register(owner: PrivateKeySigner, store: DefaultStore, options: PeerOptions) -> Self {
         let peer = Self::open(
             owner,
             store,
-            ApiClientWrapper::new(api, Retry::default()),
+            ApiClientWrapper::new(Self::backend(), Retry::default()),
             StreamPolicy::default(),
             Box::new(MockSmartContractSignatureVerifier::new(true)),
             None,
+            options,
         )
         .await;
         peer.register_with_owner().await;
         peer
+    }
+
+    async fn refresh_restored_state(&self) {
+        use xmtp_db::ConnectionExt;
+        let context = &self.context;
+        let db = context.db();
+        let updates = db
+            .get_identity_updates(context.inbox_id(), None, None)
+            .expect("the stored identity updates");
+        for update in updates {
+            let update = update.payload.try_into().expect("a stored identity update");
+            if let Err(error) =
+                publish_with_conflict_retry(context.api(), &db, update, &context.scw_verifier())
+                    .await
+            {
+                tracing::warn!("{error:?}");
+            }
+        }
+        db.raw_query(|c| {
+            use xmtp_db::diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
+            use xmtp_db::schema::{
+                association_state, identity_cache, identity_updates, incoming_envelopes,
+                refresh_state,
+            };
+            xmtp_db::diesel::delete(association_state::table).execute(c)?;
+            xmtp_db::diesel::delete(identity_cache::table).execute(c)?;
+            xmtp_db::diesel::delete(identity_updates::table).execute(c)?;
+            xmtp_db::diesel::delete(incoming_envelopes::table).execute(c)?;
+            xmtp_db::diesel::delete(
+                refresh_state::table.filter(
+                    refresh_state::entity_kind
+                        .ne(xmtp_db::refresh_state::EntityKind::DeliveryAllocator),
+                ),
+            )
+            .execute(c)?;
+            Ok(())
+        })
+        .expect("the dropped identity and network state");
+        super::rotate_and_upload_key_package(
+            context.identity(),
+            context.api(),
+            context.mls_storage(),
+            CREATE_PQ_KEY_PACKAGE_EXTENSION,
+        )
+        .await
+        .expect("a rotated key package");
+        crate::key_package_maintenance::nudge_deletion(context)
+            .expect("the key package deletion task");
+        load_identity_updates(context.api(), &db, &[context.inbox_id()])
+            .await
+            .expect("the inbox's identity updates");
     }
 
     /// The backend calls this installation's connection made.
@@ -175,6 +294,7 @@ where
             policy,
             verifier.unwrap_or_else(|| Box::new(MockSmartContractSignatureVerifier::new(true))),
             Some(self.context.identity().clone()),
+            PeerOptions::default(),
         )
         .await
     }
@@ -195,9 +315,9 @@ where
     A: XmtpApi + 'static,
     F: PeerFeatures<A>,
 {
-    /// Open a context as a client build with its workers disabled does: the
-    /// deployment's configuration, then the identity, then this inbox's
-    /// updates, unless `identity` is the stored one.
+    /// Open a context as a client build with its workers disabled and
+    /// `options` does: the deployment's configuration, then the identity,
+    /// then this inbox's updates, unless `identity` is the stored one.
     async fn open(
         owner: PrivateKeySigner,
         store: DefaultStore,
@@ -205,18 +325,25 @@ where
         policy: StreamPolicy,
         verifier: Box<dyn SmartContractSignatureVerifier>,
         identity: Option<Identity>,
+        options: PeerOptions,
     ) -> Self {
         let conn = store.db();
         let mls_storage = SqlKeyStore::new(store.db());
         let offline = identity.is_some();
-        let server_configuration =
-            xmtp_mls_server_config::server_configuration::resolve(&api, &conn, offline)
+        let server_configuration = match options.config_provider {
+            Some(provider) => {
+                xmtp_mls_server_config::server_configuration::ServerConfigurationHandle::new(
+                    provider,
+                )
+            }
+            None => xmtp_mls_server_config::server_configuration::resolve(&api, &conn, offline)
                 .await
-                .expect("the deployment's configuration");
+                .expect("the deployment's configuration"),
+        };
         let configuration = server_configuration.configuration();
         xmtp_mls_server_config::server_configuration::check_minimum_version(
             configuration,
-            VersionInfo::default().pkg_semver().semver(),
+            options.version_info.pkg_semver().semver(),
         )
         .expect("a deployment that admits this client");
         assert!(
@@ -245,18 +372,20 @@ where
             .get(identity.inbox_id.as_str())
             .copied();
         let features = F::new(&api, &policy, own_inbox_stored_through);
-        let context = Arc::new(
-            TestContextParts {
-                identity,
-                api_client: api,
-                store,
-                mls_storage,
-                scw_verifier: verifier,
-                server_configuration,
-                stream_policy: policy,
-            }
-            .into_context(features),
-        );
+        let mut context = TestContextParts {
+            identity,
+            api_client: api,
+            store,
+            mls_storage,
+            scw_verifier: verifier,
+            server_configuration,
+            stream_policy: policy,
+        }
+        .into_context(features);
+        context.version_info = options.version_info;
+        context.fork_recovery_opts = options.fork_recovery_opts;
+        context.change_callbacks = options.change_callbacks;
+        let context = Arc::new(context);
         xmtp_mls_core::preflight::bind_preflight(&context);
         Self { owner, context }
     }

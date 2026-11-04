@@ -9,7 +9,18 @@ use crate::core::events::InternalEvent;
 use crate::core::policy::StreamPolicy;
 use crate::groups::context::{EngineFeatures, XmtpSharedContext};
 use crate::groups::mls_sync::GroupMessageProcessingError;
-use crate::groups::welcome_sync::WelcomeService;
+use crate::groups::welcome_sync::{GroupSyncSummary, WelcomeService};
+use crate::identity::Identity;
+use crate::identity_updates::IdentityUpdates;
+use crate::mls_store::MlsStore;
+use std::collections::HashMap;
+use xmtp_configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION;
+use xmtp_db::consent_record::ConsentState;
+use xmtp_db::incoming_envelope::{NetworkEntityKind, StreamTopic};
+use xmtp_id::InboxOwner;
+use xmtp_id::associations::Identifier;
+use xmtp_id::key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2};
+use xmtp_mls_core::version::VersionInfo;
 pub mod crafted_welcome;
 use crate::groups::{
     GroupError, MlsGroup, group_permissions::PolicySet, send_message_opts::SendMessageOpts,
@@ -32,8 +43,7 @@ use xmtp_mls_group_state::{
     group::{DMMetadataOptions, GroupMetadataOptions},
     group_metadata::DmMembers,
 };
-use xmtp_proto::types::GroupId;
-use xmtp_proto::types::GroupMessage;
+use xmtp_proto::types::{Cursor, GroupId, GroupMessage};
 
 /// The engine's features: the incoming runtime and identity resolution.
 #[derive(Default, Clone)]
@@ -104,6 +114,96 @@ pub trait EnginePeer {
 
     /// Processes the caller's new Welcomes and returns the joined groups.
     async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Self::Context>>, GroupError>;
+
+    /// Sync Welcomes until at least one new group arrives, and return the
+    /// new groups. One `sync_welcomes` call can miss a Welcome sent just
+    /// before it, because the backend reads the newest Welcome position from
+    /// a replica that can lag the primary.
+    ///
+    /// A `sync_welcomes` error returns at once. Panics if no Welcome arrives
+    /// in 20 s.
+    async fn wait_for_welcomes(&self) -> Result<Vec<MlsGroup<Self::Context>>, GroupError> {
+        let poll = async {
+            loop {
+                let groups = self.sync_welcomes().await?;
+                if !groups.is_empty() {
+                    return Ok(groups);
+                }
+                xmtp_common::task::yield_now().await;
+            }
+        };
+        xmtp_common::time::timeout(std::time::Duration::from_secs(20), poll)
+            .await
+            .expect("no welcome arrived within 20 s")
+    }
+
+    /// The local store's key for this installation's Welcome topic.
+    fn welcome_topic(&self) -> StreamTopic {
+        StreamTopic {
+            entity_id: self.context().installation_id().to_vec(),
+            kind: NetworkEntityKind::Welcome,
+        }
+    }
+
+    /// Assert that this installation rejected its newest published Welcome
+    /// for good: the last terminal rejection names it with `invalid_welcome`
+    /// and its pending row is gone.
+    #[allow(clippy::unwrap_used)]
+    async fn assert_newest_welcome_rejected(&self) {
+        let topic = self.welcome_topic();
+        let newest = newest_welcome_cursor(self.context())
+            .await
+            .expect("a published Welcome");
+        let db = self.context().db();
+        let rejected = db
+            .read_last_rejection(&topic)
+            .unwrap()
+            .expect("a terminal rejection");
+        assert_eq!(rejected.sequence_id, newest);
+        assert_eq!(rejected.code, "invalid_welcome");
+        assert!(db.pending_envelope(&topic, newest).unwrap().is_none());
+    }
+
+    /// Sync Welcomes until the newest published Welcome, which must be past
+    /// `after`, is rejected for good; then assert as
+    /// [`Self::assert_newest_welcome_rejected`] does and return its cursor.
+    /// A Welcome a test just sent can reach the backend's read replica after
+    /// the first query. Panics if it is not rejected within 20 s.
+    #[allow(clippy::unwrap_used)]
+    async fn wait_for_newest_welcome_rejected(&self, after: Cursor) -> Cursor {
+        let topic = self.welcome_topic();
+        let poll = async {
+            loop {
+                let _ = self.sync_welcomes().await;
+                let newest = newest_welcome_cursor(self.context()).await;
+                let rejected = self.context().db().read_last_rejection(&topic).unwrap();
+                if let (Some(newest), Some(rejected)) = (newest, rejected)
+                    && newest > after
+                    && rejected.sequence_id == newest
+                {
+                    return newest;
+                }
+                xmtp_common::task::yield_now().await;
+            }
+        };
+        let newest = xmtp_common::time::timeout(std::time::Duration::from_secs(20), poll)
+            .await
+            .expect("the newest Welcome was not rejected within 20 s");
+        self.assert_newest_welcome_rejected().await;
+        newest
+    }
+}
+
+#[allow(clippy::unwrap_used)]
+async fn newest_welcome_cursor(context: &impl XmtpSharedContext) -> Option<Cursor> {
+    context
+        .api()
+        .query_welcome_messages(context.installation_id())
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|welcome| welcome.cursor)
+        .max()
 }
 
 impl EnginePeer for EngineTestPeer {
@@ -165,6 +265,63 @@ pub trait EngineTestPeerOps {
         &self,
         args: GroupQueryArgs,
     ) -> Result<Vec<MlsGroup<EngineTestContext>>, GroupError>;
+
+    /// The database queries of this installation.
+    fn db(&self) -> <<EngineTestContext as CoreContext>::Db as xmtp_db::XmtpDb>::DbQuery;
+
+    /// The inbox owner's identifier.
+    fn identifier(&self) -> Identifier;
+
+    /// This installation's identity.
+    fn identity(&self) -> &Identity;
+
+    /// The identity updates of this installation's context.
+    fn identity_updates(&self) -> IdentityUpdates<&EngineTestContext>;
+
+    /// The client's version.
+    fn version_info(&self) -> &VersionInfo;
+
+    /// The MLS store of this installation's context.
+    fn mls_store(&self) -> MlsStore<EngineTestContext>;
+
+    /// This installation's database, serialized.
+    fn db_snapshot(&self) -> Vec<u8>;
+
+    /// Sync every new Welcome, then every active group, as
+    /// `Client::sync_all_welcomes_and_groups` does.
+    async fn sync_all_welcomes_and_groups(
+        &self,
+        consent_states: Option<Vec<ConsentState>>,
+    ) -> Result<GroupSyncSummary, GroupError>;
+
+    /// Upload a new key package replacing the current one, as
+    /// `Client::rotate_and_upload_key_package` does.
+    async fn rotate_and_upload_key_package(&self) -> Result<(), GroupError>;
+
+    /// The current key package of each of `installation_ids` on the network.
+    async fn get_key_packages_for_installation_ids(
+        &self,
+        installation_ids: Vec<Vec<u8>>,
+    ) -> Result<
+        HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>,
+        GroupError,
+    >;
+
+    /// Creates a DM with `other`, sends a message and checks its delivery,
+    /// returning the DM and the message, as `Client::test_talk_in_dm_with`
+    /// does.
+    async fn test_talk_in_dm_with(
+        &self,
+        other: &Self,
+    ) -> Result<(MlsGroup<EngineTestContext>, String), TestError>;
+
+    /// Creates a group with `other`, sends a message and checks its
+    /// delivery, returning the group and the message, as
+    /// `Client::test_talk_in_new_group_with` does.
+    async fn test_talk_in_new_group_with(
+        &self,
+        other: &Self,
+    ) -> Result<(MlsGroup<EngineTestContext>, String), TestError>;
 }
 
 impl EngineTestPeerOps for EngineTestPeer {
@@ -264,6 +421,109 @@ impl EngineTestPeerOps for EngineTestPeer {
         args: GroupQueryArgs,
     ) -> Result<Vec<MlsGroup<EngineTestContext>>, GroupError> {
         Ok(MlsGroup::find(&self.context, args)?)
+    }
+
+    fn db(&self) -> <<EngineTestContext as CoreContext>::Db as xmtp_db::XmtpDb>::DbQuery {
+        self.context.db()
+    }
+
+    fn identifier(&self) -> Identifier {
+        self.owner.get_identifier().expect("the owner's identifier")
+    }
+
+    fn identity(&self) -> &Identity {
+        self.context.identity()
+    }
+
+    fn identity_updates(&self) -> IdentityUpdates<&EngineTestContext> {
+        IdentityUpdates::new(&self.context)
+    }
+
+    fn version_info(&self) -> &VersionInfo {
+        self.context.version_info()
+    }
+
+    fn mls_store(&self) -> MlsStore<EngineTestContext> {
+        MlsStore::new(self.context.clone())
+    }
+
+    fn db_snapshot(&self) -> Vec<u8> {
+        use xmtp_db::ConnectionExt;
+        self.context
+            .db()
+            .raw_query(|conn| Ok(conn.serialize_database_to_buffer().to_vec()))
+            .expect("a serialized database")
+    }
+
+    async fn sync_all_welcomes_and_groups(
+        &self,
+        consent_states: Option<Vec<ConsentState>>,
+    ) -> Result<GroupSyncSummary, GroupError> {
+        WelcomeService::new(self.context.clone())
+            .sync_all_welcomes_and_groups(consent_states)
+            .await
+    }
+
+    async fn rotate_and_upload_key_package(&self) -> Result<(), GroupError> {
+        crate::identity_lifecycle::rotate_and_upload_key_package(
+            self.context.identity(),
+            self.context.api(),
+            self.context.mls_storage(),
+            CREATE_PQ_KEY_PACKAGE_EXTENSION,
+        )
+        .await?;
+        crate::worker::key_package_maintenance::nudge_deletion(&self.context)?;
+        Ok(())
+    }
+
+    async fn get_key_packages_for_installation_ids(
+        &self,
+        installation_ids: Vec<Vec<u8>>,
+    ) -> Result<
+        HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>,
+        GroupError,
+    > {
+        Ok(self
+            .mls_store()
+            .get_key_packages_for_installation_ids(installation_ids)
+            .await?)
+    }
+
+    async fn test_talk_in_dm_with(
+        &self,
+        other: &Self,
+    ) -> Result<(MlsGroup<EngineTestContext>, String), TestError> {
+        self.sync_welcomes().await?;
+        let dm = self.find_or_create_dm(other.inbox_id(), None).await?;
+
+        other.sync_welcomes().await?;
+        let other_dm = other.find_or_create_dm(self.inbox_id(), None).await?;
+        other_dm.update_consent_state(ConsentState::Allowed)?;
+
+        assert_eq!(dm.group_id, other_dm.group_id);
+
+        let msg = dm.test_can_talk_with(&other_dm).await?;
+
+        Ok((dm, msg))
+    }
+
+    async fn test_talk_in_new_group_with(
+        &self,
+        other: &Self,
+    ) -> Result<(MlsGroup<EngineTestContext>, String), TestError> {
+        self.sync_welcomes().await?;
+        let group = self
+            .create_group_with_members(&[other.inbox_id()], None, None)
+            .await?;
+
+        other.sync_welcomes().await?;
+        let other_group = other.group(&group.group_id)?;
+
+        assert_eq!(group.group_id, other_group.group_id);
+
+        let msg = group.test_can_talk_with(&other_group).await?;
+
+        Ok((group, msg))
     }
 }
 
