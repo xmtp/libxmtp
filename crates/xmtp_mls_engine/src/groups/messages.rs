@@ -23,7 +23,7 @@ impl<Context> MlsGroup<Context>
 where
     Context: XmtpSharedContext,
 {
-    /// Send a message on this users XMTP [`Client`](crate::client::Client).
+    /// Send a message on this users XMTP client, `xmtp_mls::Client`.
     #[xmtp_common::mls_span]
     pub async fn send_message(
         &self,

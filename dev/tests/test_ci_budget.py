@@ -52,7 +52,7 @@ class BudgetSelectionTests(unittest.TestCase):
             "crates/xmtp_sdk/src/client/wasm_storage_tests.rs",
             "crates/xmtp_attachments/src/store/opfs.rs",
             "crates/xmtp_db/tests/opfs.rs",
-            "crates/xmtp_mls/tests/attachment_opfs.rs",
+            "crates/xmtp_mls_attachments/tests/attachment_opfs.rs",
             "crates/xmtp_logging/src/layers/web.rs",
             "crates/xmtp_common/Cargo.toml",
             "crates/xmtp_db/Cargo.toml",

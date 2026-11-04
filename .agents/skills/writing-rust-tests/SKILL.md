@@ -46,7 +46,7 @@ macro and every helper here sit behind `xmtp_common`'s `test-utils` feature or
 
 - Beside the module they exercise. A short file keeps `#[cfg(test)] mod tests`
   inline. A small suite gets a module-local `tests.rs`. A large suite gets a
-  `tests/` directory split by behaviour (`crates/xmtp_mls/src/groups/tests/`).
+  `tests/` directory split by behaviour (`crates/xmtp_mls_engine/src/groups/tests/`).
   No crate-wide `tests/` directory of unrelated modules.
 - One test-support module per crate: `crates/xmtp_mls/src/utils/test/`,
   `apps/backend/src/test_support.rs`.

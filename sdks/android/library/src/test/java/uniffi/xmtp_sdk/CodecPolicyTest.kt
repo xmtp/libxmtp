@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicLong
 // routing of each typed form; this test checks the policy. Rust owns the
 // catalogue push defaults and the reserved transcript types:
 // xmtp_sdk/src/tests/content_decode.rs::encoded_sends_use_catalogue_push_defaults_and_explicit_override,
-// xmtp_mls/src/groups/mls_sync/publish/tests/transcript.rs.
+// xmtp_mls_engine/src/groups/mls_sync/publish/tests/transcript.rs.
 class CodecPolicyTest {
     private val noteType = ContentTypeId("example.org", "note", 1u, 0u)
     private val emptyType = ContentTypeId("", "note", 1u, 0u)
