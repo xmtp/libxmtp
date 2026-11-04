@@ -138,7 +138,7 @@ pub mod test_mocks;
 pub(in crate::groups) use membership_helpers::*;
 mod processing_policy;
 pub mod update_group_membership;
-pub(crate) use processing::GroupHeadOutcome;
+pub use processing::GroupHeadOutcome;
 pub(crate) mod publish;
 
 impl<Context: XmtpSharedContext> MlsGroup<Context> {
@@ -663,7 +663,7 @@ impl PublishIntentData {
 
 /// Post-commit work from one processed durable group head.
 #[derive(Debug)]
-pub(crate) struct ProcessedMessageOutcome {
+pub struct ProcessedMessageOutcome {
     /// Active state from the same transaction that processed the message.
     /// The controller retires the group after that transaction commits.
     pub(crate) group_active: bool,

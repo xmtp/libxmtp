@@ -17,7 +17,7 @@ use xmtp_mls_validation::commit::CommitRuleError;
 use xmtp_proto::backend_v1::ServerEnvelope;
 
 /// Local attempt result and diagnostics for the ordered group processor.
-pub(crate) enum GroupHeadOutcome {
+pub enum GroupHeadOutcome {
     Idle,
     Inactive,
     Waiting {
@@ -38,8 +38,9 @@ pub(crate) enum GroupHeadOutcome {
 
 impl<Context: XmtpSharedContext> MlsGroup<Context> {
     /// Attempt one head. Network dependencies are returned to the scheduler.
-    #[cfg(test)]
-    pub(crate) fn process_pending_group_head(
+    #[cfg(any(test, feature = "test-utils"))]
+    #[doc(hidden)]
+    pub fn process_pending_group_head(
         &self,
         missing_reference: Option<&IdentityRequirement>,
     ) -> Result<GroupHeadOutcome, GroupMessageProcessingError> {

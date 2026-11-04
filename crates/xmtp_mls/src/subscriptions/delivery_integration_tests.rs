@@ -325,7 +325,12 @@ async fn streamed_message_recovers_pending_rejoin_welcome(#[case] open_while_ina
         assert!(!bo_group.is_active().unwrap());
         // Start without the previous sync controller's in-memory retirement state.
         wait_for_eq(
-            || async { bo.context.incoming_runtime().coordinator.lock().is_none() },
+            || async {
+                bo.context
+                    .incoming_runtime()
+                    .coordinator_for_test()
+                    .is_none()
+            },
             true,
         )
         .await

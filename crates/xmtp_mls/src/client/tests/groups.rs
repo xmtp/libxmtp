@@ -540,7 +540,7 @@ async fn duplicate_dm_sync_reaches_siblings_past_failing_named_group() {
         matches!(
             &error,
             GroupError::Sync(summary)
-                if matches!(summary.other.as_deref(), Some(GroupError::GroupPausedUntilUpdate(_)))
+                if matches!(summary.other_error(), Some(GroupError::GroupPausedUntilUpdate(_)))
         ),
         "{error:?}"
     );

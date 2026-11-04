@@ -17,7 +17,7 @@ use openmls::{
 /// after this function returns.
 // implements: GMOD-042
 #[allow(clippy::disallowed_methods)]
-pub(crate) fn commit_without_group_info<'a, Storage: StorageProvider>(
+pub fn commit_without_group_info<'a, Storage: StorageProvider>(
     group: &'a mut MlsGroup,
     storage: &'a Storage,
     configure: impl FnOnce(CommitBuilder<'a, Initial>) -> CommitBuilder<'a, Initial>,

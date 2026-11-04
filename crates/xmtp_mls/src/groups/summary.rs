@@ -99,6 +99,27 @@ impl SyncSummary {
             || !self.post_commit_errors.is_empty()
     }
 
+    /// The errors publishing this sync's intents returned.
+    #[cfg(any(test, feature = "test-utils"))]
+    #[doc(hidden)]
+    pub fn publish_errors(&self) -> &[GroupError] {
+        &self.publish_errors
+    }
+
+    /// The errors of this sync's post-commit actions.
+    #[cfg(any(test, feature = "test-utils"))]
+    #[doc(hidden)]
+    pub fn post_commit_errors(&self) -> &[GroupError] {
+        &self.post_commit_errors
+    }
+
+    /// The error outside the sync itself, if one occurred.
+    #[cfg(any(test, feature = "test-utils"))]
+    #[doc(hidden)]
+    pub fn other_error(&self) -> Option<&GroupError> {
+        self.other.as_deref()
+    }
+
     pub fn add_publish_err(&mut self, e: GroupError) {
         self.publish_errors.push(e);
     }

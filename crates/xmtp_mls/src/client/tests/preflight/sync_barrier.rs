@@ -245,9 +245,9 @@ async fn a_close_during_a_sync_reports_a_cancelled_barrier() {
         )
     };
     assert!(
-        summary.other.as_deref().is_some_and(cancelled)
-            || summary.post_commit_errors.iter().any(cancelled)
-            || summary.publish_errors.iter().any(cancelled),
+        summary.other_error().is_some_and(cancelled)
+            || summary.post_commit_errors().iter().any(cancelled)
+            || summary.publish_errors().iter().any(cancelled),
         "the close did not report a cancelled barrier: {error:?}"
     );
 }

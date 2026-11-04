@@ -1,5 +1,6 @@
 use super::*;
 use crate::client::ClientError;
+use crate::groups::summary::ProcessSummary;
 use std::sync::Arc;
 use xmtp_proto::types::{Cursor, Topic};
 
@@ -98,13 +99,15 @@ fn traverses_all_sync_summary_branches_and_transparent_wrappers() {
         cause: Some(Box::new(barrier(Some(2), BarrierFailure::Cancelled))),
         rate_limit_delay: None,
     });
-    summary.process.errored.push((
-        Cursor(3),
-        GroupMessageProcessingError::PreparedAttempt(Box::new(GroupError::StreamBarrier(barrier(
-            Some(3),
-            BarrierFailure::Blocked,
-        )))),
-    ));
+    summary.add_process(ProcessSummary {
+        errored: vec![(
+            Cursor(3),
+            GroupMessageProcessingError::PreparedAttempt(Box::new(GroupError::StreamBarrier(
+                barrier(Some(3), BarrierFailure::Blocked),
+            ))),
+        )],
+        ..Default::default()
+    });
     let error = ClientError::Group(Box::new(GroupError::Sync(Box::new(summary))));
     let details = crate::client::stream_failure_details(&error)?;
     let targets: Vec<_> = details

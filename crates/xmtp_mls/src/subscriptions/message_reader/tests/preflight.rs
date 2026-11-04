@@ -58,8 +58,7 @@ async fn deferred_preflight_public_reader_reports_first_failure_and_replacement_
                 client
                     .context
                     .incoming_runtime()
-                    .rejected_requests
-                    .lock()
+                    .rejected_requests_for_test()
                     .is_empty()
             );
             script.responses.lock().clear();

@@ -172,7 +172,9 @@ fn receive<C: XmtpSharedContext>(group: &MlsGroup<C>, message: &StoredGroupMessa
         group.context.events(),
         |tx, buffer| {
             let storage = tx.storage();
-            group.store_external_application_message(&storage, message, admin, buffer)?;
+            crate::groups::test_support::store_external_application_message(
+                group, &storage, message, admin, buffer,
+            )?;
             Ok::<_, GroupMessageProcessingError>(Continue(()))
         },
     )

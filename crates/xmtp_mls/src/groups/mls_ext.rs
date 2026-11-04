@@ -3,7 +3,7 @@ mod commit_log_storer;
 mod decrypted_welcome;
 mod reload;
 
-pub(crate) use commit_builder::*;
+pub use commit_builder::*;
 pub(crate) use commit_log_storer::*;
 pub(crate) use decrypted_welcome::*;
 pub use reload::*;

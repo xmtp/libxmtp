@@ -281,6 +281,7 @@ mod disconnect_propagation_tests {
     fn every_wrapper_forwards_db_disconnect() {
         use crate::client::ClientError;
         use crate::client::notifications::NotificationError;
+        use crate::groups::ProcessIntentError;
         use crate::groups::{
             GroupMessageProcessingError, summary::SyncSummary,
             validated_commit::CommitValidationError,
@@ -289,7 +290,6 @@ mod disconnect_propagation_tests {
         use crate::identity_updates::{
             IdentityDependencyError, IdentityUpdateError, InstallationDiffError,
         };
-        use crate::intents::ProcessIntentError;
         use crate::messages::enrichment::EnrichMessageError;
         use crate::server_configuration::ConfigurationFetchError;
         use crate::subscriptions::{incoming::IncomingError, local_delivery::LocalDeliveryError};

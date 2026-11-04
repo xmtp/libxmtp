@@ -64,8 +64,9 @@ pub fn shared_transport_count() -> usize {
 /// agents. A process that tears its runtime down and starts another (some
 /// non-`nextest` test harnesses) would find the cached transport dead;
 /// `nextest`'s process-per-test model keeps tests clear of that.
-#[cfg(test)]
-pub(crate) fn shared_transport<C>(api: C) -> Arc<BidiTransport<BackendBinding>>
+#[cfg(any(test, feature = "test-utils"))]
+#[doc(hidden)]
+pub fn shared_transport<C>(api: C) -> Arc<BidiTransport<BackendBinding>>
 where
     C: XmtpMlsBidiStreams + ApiClientIdentity + Clone + Send + Sync + 'static,
     C::SubscribeStream: 'static,

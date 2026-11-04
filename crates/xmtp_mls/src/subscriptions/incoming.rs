@@ -23,7 +23,8 @@ use xmtp_proto::{
     types::{Cursor, GroupId, IncomingBatchLimits, IncomingSubscription, Topic, TopicCursor},
 };
 
-pub(crate) type SubscriptionFuture =
+/// The pending open of one subscription a [`SubscriptionFactory`] makes.
+pub type SubscriptionFuture =
     BoxDynFuture<'static, Result<IncomingSubscription<NetworkError>, NetworkError>>;
 
 /// Exact method and wire inputs for a permanent server rejection.
@@ -150,6 +151,31 @@ impl IncomingRuntime {
             .as_ref()
             .map_or(0, |coordinator| coordinator.state.statuses.lock().len())
     }
+
+    /// The subscription factory this runtime's controllers open through.
+    #[cfg(any(test, feature = "test-utils"))]
+    #[doc(hidden)]
+    pub fn factory_for_test(&self) -> Option<&Arc<dyn SubscriptionFactory>> {
+        self.factory.as_ref()
+    }
+
+    /// The coordinator of this runtime's controllers, while one is held.
+    #[cfg(any(test, feature = "test-utils"))]
+    #[doc(hidden)]
+    pub fn coordinator_for_test(&self) -> Option<Arc<IncomingCoordinator>> {
+        self.coordinator.lock().clone()
+    }
+
+    /// The errors of the wire requests a new controller may not resend.
+    #[cfg(any(test, feature = "test-utils"))]
+    #[doc(hidden)]
+    pub fn rejected_requests_for_test(&self) -> Vec<Arc<IncomingError>> {
+        self.rejected_requests
+            .lock()
+            .iter()
+            .map(|(_, error)| error.clone())
+            .collect()
+    }
 }
 
 struct GuardedFactory<A> {
@@ -210,7 +236,8 @@ pub struct BidiSubscriptionFactory<A> {
 }
 
 impl<A> BidiSubscriptionFactory<A> {
-    pub(crate) fn new(api: A) -> Self {
+    /// A factory over `api` whose transport starts with its first open.
+    pub fn new(api: A) -> Self {
         Self { api, mutate: None, transport: std::sync::OnceLock::new() }
     }
 }

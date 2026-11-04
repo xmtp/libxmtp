@@ -211,8 +211,7 @@ mod native {
                 .context
                 .features()
                 .attachments
-                .dir
-                .as_ref()
+                .dir()
                 .unwrap()
                 .to_string_lossy()
                 .contains(&deployment_component(&identifier))
@@ -272,7 +271,7 @@ mod native {
         assert_eq!(paths.attachments_dir, root.join("attachments"));
         assert!(paths.db_path.exists());
         assert_eq!(
-            client.context.features().attachments.dir,
+            client.context.features().attachments.dir().cloned(),
             Some(paths.attachments_dir)
         );
     }
@@ -1037,7 +1036,12 @@ mod native {
         assert!(root.join("xmtp.db3.sqlcipher_salt").is_file());
         assert!(root.join("attachments").is_dir());
         assert_eq!(
-            client.context.features().attachments.dir.as_deref(),
+            client
+                .context
+                .features()
+                .attachments
+                .dir()
+                .map(|dir| dir.as_path()),
             Some(root.join("attachments").as_path())
         );
         assert!(dir.path().join("deployments.json").is_file());

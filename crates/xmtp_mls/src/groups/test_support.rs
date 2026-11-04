@@ -1,10 +1,13 @@
 //! Engine test support: a real-backend peer whose context has the incoming
 //! runtime, the group operations that engine tests share between that peer and
-//! a client, and a mock context with the engine's features.
+//! a client, a mock context with the engine's features, and the engine
+//! internals that tests outside the engine call.
 
 use crate::context::{CoreContext, test_support::MockContext};
+use crate::core::events::InternalEvent;
 use crate::core::policy::StreamPolicy;
 use crate::groups::context::{EngineFeatures, XmtpSharedContext};
+use crate::groups::mls_sync::GroupMessageProcessingError;
 use crate::groups::welcome_sync::WelcomeService;
 use crate::groups::{GroupError, MlsGroup, group_permissions::PolicySet};
 use crate::identity_lifecycle::test_support::{PeerApi, PeerContext, PeerFeatures, TestPeer};
@@ -14,6 +17,7 @@ use std::sync::Arc;
 use xmtp_api::ApiClientWrapper;
 use xmtp_db::{
     group::{ConversationType, GroupMembershipState, GroupQueryArgs},
+    group_message::StoredGroupMessage,
     prelude::*,
 };
 use xmtp_id::AsIdRef;
@@ -253,4 +257,28 @@ impl EngineTestPeerOps for EngineTestPeer {
     ) -> Result<Vec<MlsGroup<EngineTestContext>>, GroupError> {
         Ok(MlsGroup::find(&self.context, args)?)
     }
+}
+
+pub use crate::groups::mls_ext::commit_without_group_info;
+pub use crate::groups::mls_sync::GroupHeadOutcome;
+
+/// Maximum commit records sent in one group snapshot.
+#[cfg(any(test, feature = "diagnostics"))]
+pub const SNAPSHOT_COMMIT_LIMIT: i64 = crate::groups::diagnostics::SNAPSHOT_COMMIT_LIMIT;
+
+/// The two member inboxes a canonical DM id names.
+pub fn parse_canonical_dm_id(dm_id: Option<&str>) -> Result<DmMembers<String>, GroupError> {
+    crate::groups::parse_canonical_dm_id(dm_id)
+}
+
+/// Store `message` on `group` as processing an external application
+/// message does, with the sender's `super_admin` status.
+pub fn store_external_application_message<C: XmtpSharedContext>(
+    group: &MlsGroup<C>,
+    storage: &impl XmtpMlsStorageProvider,
+    message: &StoredGroupMessage,
+    super_admin: bool,
+    event_writer: &impl xmtp_events::EventWriter<InternalEvent>,
+) -> Result<(), GroupMessageProcessingError> {
+    group.store_external_application_message(storage, message, super_admin, event_writer)
 }

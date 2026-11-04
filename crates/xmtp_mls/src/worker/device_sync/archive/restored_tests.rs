@@ -663,7 +663,7 @@ async fn restored_history_forged_claim_yields_to_live_permissions_after_activati
         };
         assert!(
             matches!(
-                summary.other.as_deref(),
+                summary.other_error(),
                 Some(GroupError::ReceiveError(
                     GroupMessageProcessingError::CommitValidation(CommitValidationError::Rule(
                         CommitRuleError::InsufficientPermissions
