@@ -90,14 +90,3 @@ existing = [
   "xmtp_rate_limit",
   "xmtp_sdk",
 ]
-
-# The call tier (dev/check-boundaries --full) counts every reference to an
-# item, method calls and inferred types included, so its counts are larger.
-# Each edge has the same cause and owner as its path waiver.
-
-[[waivers]]
-from = "engine"
-to = "facade"
-tier = "call"
-count = 18
-reason = "PR 5b (Tasks 12 and 15): engine test helpers outside test suites still build a facade client or name the facade's test utilities."
