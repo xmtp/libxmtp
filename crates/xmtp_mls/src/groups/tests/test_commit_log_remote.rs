@@ -5,7 +5,7 @@ use crate::groups::commit_log::{
     CommitLogTestFunction, CommitLogWorker, Factory, should_skip_remote_commit_log_entry,
 };
 use crate::groups::send_message_opts::SendMessageOpts;
-use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer, EngineTestPeerOps};
 use crate::prelude::*;
 use openmls::prelude::{OpenMlsCrypto, SignatureScheme};
 use openmls_rust_crypto::RustCrypto;

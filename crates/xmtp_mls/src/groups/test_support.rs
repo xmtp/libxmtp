@@ -9,25 +9,19 @@ use crate::core::events::InternalEvent;
 use crate::core::policy::StreamPolicy;
 use crate::groups::context::{EngineFeatures, XmtpSharedContext};
 use crate::groups::mls_sync::GroupMessageProcessingError;
-use crate::groups::welcome_sync::{GroupSyncSummary, WelcomeService};
-use crate::identity::Identity;
+use crate::groups::welcome_sync::WelcomeService;
+#[cfg(all(test, not(target_arch = "wasm32")))]
 use crate::identity_updates::IdentityUpdates;
-use crate::identity_updates::load_identity_updates_for_client;
-use crate::inbox_handles::account_targets;
-use crate::mls_store::MlsStore;
-use std::collections::HashMap;
-use xmtp_configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION;
-use xmtp_db::consent_record::ConsentState;
+#[cfg(test)]
 use xmtp_db::incoming_envelope::{NetworkEntityKind, StreamTopic};
-use xmtp_id::InboxOwner;
+#[cfg(all(test, not(target_arch = "wasm32")))]
 use xmtp_id::associations::AssociationState;
-use xmtp_id::associations::Identifier;
-use xmtp_id::key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2};
-use xmtp_mls_core::version::VersionInfo;
 pub mod crafted_welcome;
 pub mod group_updates;
 pub mod message_rows;
 pub mod stalled_api;
+#[cfg(test)]
+mod suite_ops;
 pub mod welcome_pointers;
 use crate::groups::{
     GroupError, MlsGroup, group_permissions::PolicySet, send_message_opts::SendMessageOpts,
@@ -36,6 +30,8 @@ use crate::identity_lifecycle::test_support::{PeerApi, PeerContext, PeerFeatures
 use crate::identity_updates::{IdentityFeatures, IdentityResolutionRegistry};
 use crate::subscriptions::incoming::{IncomingRuntime, streaming_factory};
 use std::sync::Arc;
+#[cfg(test)]
+pub(crate) use suite_ops::EngineSuiteOps;
 use thiserror::Error;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_api_backend::envelope::EnvelopeError;
@@ -165,6 +161,7 @@ pub trait EnginePeer {
     ///
     /// A `sync_welcomes` error returns at once. Panics if no Welcome arrives
     /// in 20 s.
+    #[cfg(test)]
     async fn wait_for_welcomes(&self) -> Result<Vec<MlsGroup<Self::Context>>, GroupError> {
         let poll = async {
             loop {
@@ -181,6 +178,7 @@ pub trait EnginePeer {
     }
 
     /// The local store's key for this installation's Welcome topic.
+    #[cfg(test)]
     fn welcome_topic(&self) -> StreamTopic {
         StreamTopic {
             entity_id: self.context().installation_id().to_vec(),
@@ -191,6 +189,7 @@ pub trait EnginePeer {
     /// Assert that this installation rejected its newest published Welcome
     /// for good: the last terminal rejection names it with `invalid_welcome`
     /// and its pending row is gone.
+    #[cfg(test)]
     #[allow(clippy::unwrap_used)]
     async fn assert_newest_welcome_rejected(&self) {
         let topic = self.welcome_topic();
@@ -212,6 +211,7 @@ pub trait EnginePeer {
     /// [`Self::assert_newest_welcome_rejected`] does and return its cursor.
     /// A Welcome a test just sent can reach the backend's read replica after
     /// the first query. Panics if it is not rejected within 20 s.
+    #[cfg(test)]
     #[allow(clippy::unwrap_used)]
     async fn wait_for_newest_welcome_rejected(&self, after: Cursor) -> Cursor {
         let topic = self.welcome_topic();
@@ -264,6 +264,7 @@ impl<C: XmtpSharedContext> MlsGroupExt for MlsGroup<C> {
     }
 }
 
+#[cfg(test)]
 #[allow(clippy::unwrap_used)]
 async fn newest_welcome_cursor(context: &impl XmtpSharedContext) -> Option<Cursor> {
     context
@@ -333,81 +334,6 @@ pub trait EngineTestPeerOps: EnginePeer {
     /// The stored groups that match `args`.
     fn find_groups(&self, args: GroupQueryArgs)
     -> Result<Vec<MlsGroup<Self::Context>>, GroupError>;
-
-    /// The database queries of this installation.
-    fn db(&self) -> <<Self::Context as CoreContext>::Db as xmtp_db::XmtpDb>::DbQuery;
-
-    /// The inbox owner's identifier.
-    fn identifier(&self) -> Identifier;
-
-    /// This installation's identity.
-    fn identity(&self) -> &Identity;
-
-    /// The identity updates of this installation's context.
-    fn identity_updates(&self) -> IdentityUpdates<&Self::Context>;
-
-    /// The client's version.
-    fn version_info(&self) -> &VersionInfo;
-
-    /// The MLS store of this installation's context.
-    fn mls_store(&self) -> MlsStore<Self::Context>;
-
-    /// This installation's database, serialized.
-    fn db_snapshot(&self) -> Vec<u8>;
-
-    /// Sync every new Welcome, then every active group, as
-    /// `Client::sync_all_welcomes_and_groups` does.
-    async fn sync_all_welcomes_and_groups(
-        &self,
-        consent_states: Option<Vec<ConsentState>>,
-    ) -> Result<GroupSyncSummary, GroupError>;
-
-    /// Upload a new key package replacing the current one, as
-    /// `Client::rotate_and_upload_key_package` does.
-    async fn rotate_and_upload_key_package(&self) -> Result<(), GroupError>;
-
-    /// The current key package of each of `installation_ids` on the network.
-    async fn get_key_packages_for_installation_ids(
-        &self,
-        installation_ids: Vec<Vec<u8>>,
-    ) -> Result<
-        HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>,
-        GroupError,
-    >;
-
-    /// A group stored with its first add of the inboxes that hold
-    /// `identifiers`, as `Client::create_group_with_identifiers` makes it.
-    async fn create_group_with_identifiers(
-        &self,
-        identifiers: &[Identifier],
-        policies: Option<PolicySet>,
-        opts: Option<GroupMetadataOptions>,
-    ) -> Result<MlsGroup<Self::Context>, GroupError>;
-
-    /// This inbox's association state, loaded from the network first when
-    /// `refresh_from_network` is set, as `Client::inbox_state` reads it.
-    async fn inbox_state(&self, refresh_from_network: bool)
-    -> Result<AssociationState, GroupError>;
-
-    /// Clear the pause of every group whose version floor this client now
-    /// meets, as `Client::unstick_paused_groups` does.
-    async fn unstick_paused_groups(&self) -> Result<usize, GroupError>;
-
-    /// Creates a DM with `other`, sends a message and checks its delivery,
-    /// returning the DM and the message, as `Client::test_talk_in_dm_with`
-    /// does.
-    async fn test_talk_in_dm_with(
-        &self,
-        other: &Self,
-    ) -> Result<(MlsGroup<Self::Context>, String), TestError>;
-
-    /// Creates a group with `other`, sends a message and checks its
-    /// delivery, returning the group and the message, as
-    /// `Client::test_talk_in_new_group_with` does.
-    async fn test_talk_in_new_group_with(
-        &self,
-        other: &Self,
-    ) -> Result<(MlsGroup<Self::Context>, String), TestError>;
 }
 
 impl<A: XmtpApi + 'static> EngineTestPeerOps for TestPeer<EngineTestFeatures, A> {
@@ -453,144 +379,6 @@ impl<A: XmtpApi + 'static> EngineTestPeerOps for TestPeer<EngineTestFeatures, A>
         args: GroupQueryArgs,
     ) -> Result<Vec<MlsGroup<Self::Context>>, GroupError> {
         Ok(MlsGroup::find(&self.context, args)?)
-    }
-
-    fn db(&self) -> <<Self::Context as CoreContext>::Db as xmtp_db::XmtpDb>::DbQuery {
-        self.context.db()
-    }
-
-    fn identifier(&self) -> Identifier {
-        self.owner.get_identifier().expect("the owner's identifier")
-    }
-
-    fn identity(&self) -> &Identity {
-        self.context.identity()
-    }
-
-    fn identity_updates(&self) -> IdentityUpdates<&Self::Context> {
-        IdentityUpdates::new(&self.context)
-    }
-
-    fn version_info(&self) -> &VersionInfo {
-        self.context.version_info()
-    }
-
-    fn mls_store(&self) -> MlsStore<Self::Context> {
-        MlsStore::new(self.context.clone())
-    }
-
-    fn db_snapshot(&self) -> Vec<u8> {
-        use xmtp_db::ConnectionExt;
-        self.context
-            .db()
-            .raw_query(|conn| Ok(conn.serialize_database_to_buffer().to_vec()))
-            .expect("a serialized database")
-    }
-
-    async fn sync_all_welcomes_and_groups(
-        &self,
-        consent_states: Option<Vec<ConsentState>>,
-    ) -> Result<GroupSyncSummary, GroupError> {
-        WelcomeService::new(self.context.clone())
-            .sync_all_welcomes_and_groups(consent_states)
-            .await
-    }
-
-    async fn rotate_and_upload_key_package(&self) -> Result<(), GroupError> {
-        crate::identity_lifecycle::rotate_and_upload_key_package(
-            self.context.identity(),
-            self.context.api(),
-            self.context.mls_storage(),
-            CREATE_PQ_KEY_PACKAGE_EXTENSION,
-        )
-        .await?;
-        crate::worker::key_package_maintenance::nudge_deletion(&self.context)?;
-        Ok(())
-    }
-
-    async fn get_key_packages_for_installation_ids(
-        &self,
-        installation_ids: Vec<Vec<u8>>,
-    ) -> Result<
-        HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>,
-        GroupError,
-    > {
-        Ok(self
-            .mls_store()
-            .get_key_packages_for_installation_ids(installation_ids)
-            .await?)
-    }
-
-    async fn create_group_with_identifiers(
-        &self,
-        identifiers: &[Identifier],
-        policies: Option<PolicySet>,
-        opts: Option<GroupMetadataOptions>,
-    ) -> Result<MlsGroup<Self::Context>, GroupError> {
-        let inbox_ids = crate::groups::targets::target_inboxes::<_, GroupError>(
-            &self.context,
-            &account_targets(identifiers),
-        )
-        .await?;
-        self.create_group_with_members(&inbox_ids, policies, opts)
-            .await
-    }
-
-    async fn inbox_state(
-        &self,
-        refresh_from_network: bool,
-    ) -> Result<AssociationState, GroupError> {
-        let conn = self.context.db();
-        let inbox_id = self.inbox_id();
-        if refresh_from_network {
-            load_identity_updates_for_client(&self.context, &conn, &[inbox_id]).await?;
-        }
-        Ok(IdentityUpdates::new(&self.context)
-            .get_association_state(&conn, inbox_id, None)
-            .await?)
-    }
-
-    async fn unstick_paused_groups(&self) -> Result<usize, GroupError> {
-        WelcomeService::new(self.context.clone())
-            .unstick_paused_groups()
-            .await
-    }
-
-    async fn test_talk_in_dm_with(
-        &self,
-        other: &Self,
-    ) -> Result<(MlsGroup<Self::Context>, String), TestError> {
-        self.sync_welcomes().await?;
-        let dm = self.find_or_create_dm(other.inbox_id(), None).await?;
-
-        other.sync_welcomes().await?;
-        let other_dm = other.find_or_create_dm(self.inbox_id(), None).await?;
-        other_dm.update_consent_state(ConsentState::Allowed)?;
-
-        assert_eq!(dm.group_id, other_dm.group_id);
-
-        let msg = dm.test_can_talk_with(&other_dm).await?;
-
-        Ok((dm, msg))
-    }
-
-    async fn test_talk_in_new_group_with(
-        &self,
-        other: &Self,
-    ) -> Result<(MlsGroup<Self::Context>, String), TestError> {
-        self.sync_welcomes().await?;
-        let group = self
-            .create_group_with_members(&[other.inbox_id()], None, None)
-            .await?;
-
-        other.sync_welcomes().await?;
-        let other_group = other.group(&group.group_id)?;
-
-        assert_eq!(group.group_id, other_group.group_id);
-
-        let msg = group.test_can_talk_with(&other_group).await?;
-
-        Ok((group, msg))
     }
 }
 

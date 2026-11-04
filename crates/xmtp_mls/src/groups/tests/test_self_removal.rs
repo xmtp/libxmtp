@@ -1,7 +1,7 @@
 //! Self-removal and pending-remove bookkeeping.
 
 use super::*;
-use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer, EngineTestPeerOps};
 
 // verifies: GMOD-031
 #[xmtp_common::test]

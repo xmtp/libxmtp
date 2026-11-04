@@ -1,4 +1,4 @@
-use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer, EngineTestPeerOps};
 use crate::{
     context::CoreContext,
     groups::{UpdateAdminListType, commit_log::CommitLogWorker, oneshot::Oneshot},

@@ -1,4 +1,6 @@
-use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{
+    EnginePeer, EngineSuiteOps, EngineTestGroup, EngineTestPeer, EngineTestPeerOps,
+};
 use crate::prelude::*;
 use xmtp_db::group_message::{ContentType, MsgQueryArgs};
 use xmtp_db::prelude::*;

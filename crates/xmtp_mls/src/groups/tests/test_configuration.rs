@@ -2,7 +2,7 @@
 //! configuration, applied through the static provider.
 
 use crate::context::CoreContext;
-use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer};
 use std::sync::Arc;
 use xmtp_configuration::{ConfigProvider, ServerConfiguration, StaticConfigProvider};
 use xmtp_db::prelude::*;

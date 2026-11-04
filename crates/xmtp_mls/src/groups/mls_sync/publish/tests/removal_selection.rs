@@ -5,7 +5,9 @@ use super::membership_recovery::{
 };
 use super::*;
 use crate::groups::send_message_opts::SendMessageOpts;
-use crate::groups::test_support::{EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{
+    EngineSuiteOps, EngineTestGroup, EngineTestPeer, EngineTestPeerOps,
+};
 use crate::groups::tests::revoke;
 use openmls::messages::proposals::AppDataUpdateOperation;
 use tls_codec::{Serialize, VLBytes};

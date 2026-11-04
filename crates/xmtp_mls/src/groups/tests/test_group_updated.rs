@@ -1,5 +1,7 @@
 use crate::context::XmtpSharedContext;
-use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{
+    EnginePeer, EngineSuiteOps, EngineTestGroup, EngineTestPeer, EngineTestPeerOps,
+};
 use crate::groups::{MlsGroup, UpdateAdminListType};
 use prost::Message as ProstMessage;
 use xmtp_content_types::{ContentCodec, group_updated::GroupUpdatedCodec};

@@ -198,7 +198,7 @@ pub mod test {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::groups::test_support::{EngineTestPeer, EngineTestPeerOps};
+    use crate::groups::test_support::{EngineSuiteOps, EngineTestPeer};
 
     use std::collections::BTreeMap;
     use xmtp_db::identity_update::QueryIdentityUpdates;

@@ -1,7 +1,7 @@
 //! Minimum protocol version gating and pause behaviour.
 
 use super::*;
-use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer, EngineTestPeerOps};
 
 #[xmtp_common::test(unwrap_try = true)]
 fn test_increment_patch_version() {

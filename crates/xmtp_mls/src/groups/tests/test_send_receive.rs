@@ -1,7 +1,7 @@
 //! Sending, receiving, and commit basics.
 
 use super::*;
-use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer, EngineTestPeerOps};
 use xmtp_events::{ClientEvent, EventFilter, EventKind, MessageStatus};
 
 #[derive(Clone, Copy, Debug)]

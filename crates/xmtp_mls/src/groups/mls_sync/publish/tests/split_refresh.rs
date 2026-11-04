@@ -4,7 +4,7 @@ use super::faults::{Fault, FaultyApi, faulty_group, group_message, welcome};
 use super::send_state_transitions::{UNRESOLVED, intents_in, status};
 use super::*;
 use crate::groups::group_permissions::PreconfiguredPolicies;
-use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer, EngineTestPeerOps};
 use std::sync::Arc;
 use xmtp_db::group_message::DeliveryStatus;
 

@@ -3,7 +3,7 @@
 #[cfg(not(target_arch = "wasm32"))]
 use super::*;
 #[cfg(not(target_arch = "wasm32"))]
-use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer, EngineTestPeerOps};
 
 /// A member applies a commit that adds a key package which fails the
 /// addressing checks. Only senders run those checks: members that disagreed

@@ -2,7 +2,9 @@
 
 use crate::groups::UpdateAdminListType;
 use crate::groups::send_message_opts::SendMessageOpts;
-use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{
+    EnginePeer, EngineSuiteOps, EngineTestGroup, EngineTestPeer, EngineTestPeerOps,
+};
 use crate::messages::decoded_message::{DeletedBy, MessageBody};
 use EngineTestGroup as Group;
 use xmtp_content_types::delete_message::DeleteMessageCodec;

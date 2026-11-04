@@ -443,7 +443,7 @@ async fn a_snapshot_tester_can_still_allocate_delivery_sequences() {
     use std::sync::Arc;
     use xmtp_db::delivery::QueryDelivery;
 
-    use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
+    use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer};
     let alix = EngineTestPeer::new().await;
     let snapshot = Arc::new(alix.db_snapshot());
     let alix2 = alix.from_snapshot(&snapshot, |_| {}).await;

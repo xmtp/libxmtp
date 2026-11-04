@@ -1,7 +1,9 @@
 //! Mutable metadata and permission policy updates.
 
 use super::*;
-use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{
+    EnginePeer, EngineSuiteOps, EngineTestGroup, EngineTestPeer, EngineTestPeerOps,
+};
 
 #[xmtp_common::test]
 async fn test_group_permissions() {

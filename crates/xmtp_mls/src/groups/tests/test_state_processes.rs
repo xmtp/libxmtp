@@ -1,6 +1,8 @@
 //! Native processes share the production encrypted database, not test tables.
 
-use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{
+    EnginePeer, EngineSuiteOps, EngineTestGroup, EngineTestPeer, EngineTestPeerOps,
+};
 use crate::prelude::*;
 use std::{
     fs,

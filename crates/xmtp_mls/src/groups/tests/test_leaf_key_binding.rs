@@ -3,7 +3,9 @@
 //! place a leaf under another member's inbox and then send messages and
 //! proposals as that member.
 
-use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{
+    EnginePeer, EngineSuiteOps, EngineTestGroup, EngineTestPeer, EngineTestPeerOps,
+};
 use crate::{
     context::CoreContext,
     groups::{

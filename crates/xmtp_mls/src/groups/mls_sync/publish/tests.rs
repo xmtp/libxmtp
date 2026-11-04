@@ -1,5 +1,5 @@
 use super::*;
-use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer, EngineTestPeerOps};
 use crate::prelude::*;
 use prost::Message;
 use xmtp_mls_validation::commit::CommitRuleError;

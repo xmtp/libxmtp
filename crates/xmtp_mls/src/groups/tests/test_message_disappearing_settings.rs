@@ -1,4 +1,4 @@
-use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer, EngineTestPeerOps};
 use std::time::Duration;
 
 use xmtp_common::{NS_IN_HOUR, time::now_ns};

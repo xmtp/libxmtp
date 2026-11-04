@@ -1,7 +1,7 @@
 //! Concurrent sync, cursors, and fork detection.
 
 use super::*;
-use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer, EngineTestPeerOps};
 
 // verifies: PROC-055
 #[xmtp_common::test(unwrap_try = true)]

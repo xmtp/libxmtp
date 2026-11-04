@@ -9,7 +9,7 @@
 use super::faults::{Fault, FaultyApi, FaultyContext, faulty_group, group_message, welcome};
 use super::welcomes::{PreparedWelcomes, WelcomeEnvelopeKind};
 use super::*;
-use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer, EngineTestPeerOps};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;

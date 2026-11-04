@@ -1,7 +1,9 @@
 //! Adding and removing members.
 
 use super::*;
-use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{
+    EnginePeer, EngineSuiteOps, EngineTestGroup, EngineTestPeer, EngineTestPeerOps,
+};
 
 #[xmtp_common::test]
 async fn test_members_func_from_non_creator() {

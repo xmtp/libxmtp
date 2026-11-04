@@ -2,7 +2,9 @@
 
 use super::*;
 use crate::groups::send_message_opts::SendMessageOpts;
-use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{
+    EnginePeer, EngineSuiteOps, EngineTestGroup, EngineTestPeer, EngineTestPeerOps,
+};
 use xmtp_db::{
     ConnectionExt, group_message::MsgQueryArgs, key_package_history::QueryKeyPackageHistory,
 };

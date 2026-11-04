@@ -3,7 +3,9 @@ use crate::groups::mls_ext::WelcomePointersExtension;
 use crate::groups::test_support::welcome_pointers::{
     publish_commit_without_welcome, publish_pointer, random_pointer, sealed_pointee,
 };
-use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{
+    EnginePeer, EngineSuiteOps, EngineTestGroup, EngineTestPeer, EngineTestPeerOps,
+};
 use crate::groups::welcome_pointer::resolve_welcome_pointer;
 use crate::identity::{ENABLE_WELCOME_POINTERS, WelcomePointersHook};
 use prost::Message;

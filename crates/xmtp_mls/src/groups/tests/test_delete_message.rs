@@ -2,7 +2,7 @@ use crate::groups::GroupError;
 use crate::groups::error::DeleteMessageError;
 use crate::groups::send_message_opts::SendMessageOpts;
 use crate::groups::test_support::message_rows::cached_text_row;
-use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer, EngineTestPeerOps};
 use crate::messages::decoded_message::{DeletedBy, MessageBody};
 use xmtp_content_types::{ContentCodec, compression::compress, text::TextCodec};
 use xmtp_db::Store;

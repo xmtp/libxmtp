@@ -259,7 +259,7 @@ where
 mod tests {
     use super::*;
     use crate::groups::test_support::group_updates::{add_update, encode, seed_tied_updates};
-    use crate::groups::test_support::{EngineTestPeer, EngineTestPeerOps};
+    use crate::groups::test_support::{EngineSuiteOps, EngineTestPeer};
     use crate::prelude::*;
 
     /// Rows written in one millisecond share `inserted_at_ns`, and the cursor

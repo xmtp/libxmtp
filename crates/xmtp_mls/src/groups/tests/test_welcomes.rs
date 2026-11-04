@@ -1,5 +1,5 @@
 use crate::groups::send_message_opts::SendMessageOpts;
-use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer};
 use std::sync::Arc;
 
 use crate::context::CoreContext;

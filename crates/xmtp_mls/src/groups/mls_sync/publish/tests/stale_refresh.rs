@@ -5,7 +5,7 @@ use super::membership_recovery::{
     receive_completed_prefix,
 };
 use super::*;
-use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer, EngineTestPeerOps};
 use crate::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage;
 
 /// A refresh records an installation whose key package it could not fetch.

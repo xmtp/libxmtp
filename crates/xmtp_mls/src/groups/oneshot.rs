@@ -230,7 +230,9 @@ mod tests {
     };
     use super::*;
     use crate::groups::commit_log::CommitLogWorker;
-    use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
+    use crate::groups::test_support::{
+        EnginePeer, EngineSuiteOps, EngineTestPeer, EngineTestPeerOps,
+    };
 
     use xmtp_common::{
         RetryableError,

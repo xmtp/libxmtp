@@ -3,7 +3,9 @@
 //! absent from the backend, or becomes unfetchable between intent-build and
 //! publish.
 
-use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{
+    EnginePeer, EngineSuiteOps, EngineTestGroup, EngineTestPeer, EngineTestPeerOps,
+};
 use std::collections::HashSet;
 
 use crate::groups::GroupError;

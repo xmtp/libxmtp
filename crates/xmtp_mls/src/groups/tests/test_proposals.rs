@@ -4,7 +4,7 @@
 //! 1. That proposal-based add/remove member flows work correctly
 //! 2. That proposal-based group operations work on dictionary-native groups
 
-use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer, EngineTestPeerOps};
 use crate::prelude::*;
 use crate::{
     context::XmtpSharedContext,

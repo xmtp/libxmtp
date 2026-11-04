@@ -2,7 +2,7 @@
 //! installation of the same inbox.
 
 #[cfg(not(target_arch = "wasm32"))]
-use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer};
 #[cfg(not(target_arch = "wasm32"))]
 use {
     crate::groups::test_support::get_association_state,

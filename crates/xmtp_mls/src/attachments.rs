@@ -2873,19 +2873,29 @@ pub mod test_hooks {
     /// A pause of a creation at its first file move. The creation records the
     /// paths it moves.
     pub struct CreateMovePause {
+        /// The relative path of the plaintext file the creation moves.
         pub path: Mutex<Option<String>>,
+        /// The relative path of the staged ciphertext the creation moves.
         pub staged_path: Mutex<Option<String>>,
+        /// Notified when the creation reaches the pause.
         pub entered: tokio::sync::Notify,
+        /// Notify it to let the paused creation continue.
         pub resume: tokio::sync::Notify,
     }
 
     /// A pause of a creation at one of its publication points, before or
     /// after the staged file. The creation records the paths it publishes.
     pub struct CreatePublishPause {
+        /// Pause after the staged file is published. Otherwise the pause
+        /// comes after the plaintext file and before the staged file.
         pub after_staged: bool,
+        /// The relative path of the plaintext file the creation publishes.
         pub path: Mutex<Option<String>>,
+        /// The relative path of the staged ciphertext the creation publishes.
         pub staged_path: Mutex<Option<String>>,
+        /// Notified when the creation reaches the pause.
         pub entered: tokio::sync::Notify,
+        /// Notify it to let the paused creation continue.
         pub resume: tokio::sync::Notify,
     }
 

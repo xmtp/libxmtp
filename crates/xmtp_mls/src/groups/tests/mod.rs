@@ -1,4 +1,6 @@
-use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{
+    EnginePeer, EngineSuiteOps, EngineTestGroup, EngineTestPeer, EngineTestPeerOps,
+};
 use crate::prelude::*;
 #[cfg(not(target_arch = "wasm32"))]
 mod disconnect_propagation;

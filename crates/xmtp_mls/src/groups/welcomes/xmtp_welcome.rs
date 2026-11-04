@@ -794,7 +794,7 @@ mod tests {
     use crate::groups::InitialMembershipValidator;
     use crate::groups::test_support::MlsGroupExt;
     use crate::groups::test_support::{
-        EnginePeer, EngineTestContext, EngineTestPeer, EngineTestPeerOps,
+        EnginePeer, EngineSuiteOps, EngineTestContext, EngineTestPeer, EngineTestPeerOps,
     };
     use crate::prelude::*;
 
