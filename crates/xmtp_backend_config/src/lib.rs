@@ -825,6 +825,10 @@ impl Default for PublishingConfig {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct StreamsConfig {
+    /// Interval between push dispatcher polls of the read database, and the
+    /// longest wait between stream tailer polls. After a poll that finds
+    /// envelopes, the tailer polls again after 50 ms, or after this interval
+    /// when it is shorter.
     #[schemars(schema_with = "schema::positive_integer::<{ MAX_U32_KEY }>")]
     pub poll_interval_ms: u64,
     #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]

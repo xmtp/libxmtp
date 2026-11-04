@@ -154,7 +154,7 @@ The standard checks table defines each standard check. A rule that relates keys,
 | `publishing.max_publish_duration_ms` | integer | optional | `10000` | `range 1..2147483647`; CONF-089 | Bound on one publish, from its first lock to its commit. |
 | `publishing.max_barrier_wait_ms` | integer | optional | `1000` | `range 1..2147483647` | Wait for the allocation barrier of API-203 before a retry. |
 | `streams` | table | optional | `{}` | | |
-| `streams.poll_interval_ms` | integer | optional | `100` | `range 1..4294967295` | Interval between polls of the read database by the stream tailer and the push dispatcher. |
+| `streams.poll_interval_ms` | integer | optional | `100` | `range 1..4294967295` | Interval between push dispatcher polls of the read database, and the longest wait between stream tailer polls. After a poll that finds envelopes, the tailer polls again after 50 ms, or after this interval when it is shorter. |
 | `streams.max_gap_ranges` | integer | optional | `10000` | `range 1..` | The gap-range bound of OPS-006. |
 | `streams.keepalive_interval_ms` | integer | optional | `30000` | `range 1..4294967295` | The interval of API-250 and API-255. |
 | `streams.max_pong_wait_ms` | integer | optional | API-257 | `range 1..4294967295` | The Pong wait of API-257. |
@@ -362,9 +362,9 @@ max_publish_duration_ms = 10000
 max_barrier_wait_ms = 1000
 
 [streams]
-# Milliseconds between polls of the read database by the stream tailer and
-# the push dispatcher. A lower value cuts delivery latency and raises database
-# load.
+# Milliseconds between push dispatcher polls of the read database, and the
+# longest wait between stream tailer polls. While envelopes arrive, the tailer
+# polls every 50 ms, or at this interval when it is shorter.
 poll_interval_ms = 100
 # Unresolved sequence gaps the tailer tracks before it ends open streams and
 # restarts recovery.
