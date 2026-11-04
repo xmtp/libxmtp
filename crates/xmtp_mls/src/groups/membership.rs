@@ -320,7 +320,7 @@ where
     /// pending-remove rows. Idempotent and a no-op when this client is not a
     /// super-admin, so it is safe to call from both the inline message-processing
     /// fast-path and the durable `TaskRunner` retry path.
-    pub(crate) async fn process_pending_self_removals(&self) -> Result<(), GroupError> {
+    pub async fn process_pending_self_removals(&self) -> Result<(), GroupError> {
         // Both helpers early-return on an empty pending list; cleanup owns the
         // flag-clear. Keeping the empty-check inside cleanup (rather than a
         // separate clear here) avoids racing a concurrent LeaveRequest insert and

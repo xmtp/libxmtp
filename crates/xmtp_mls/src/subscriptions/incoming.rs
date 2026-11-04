@@ -38,7 +38,9 @@ pub(crate) enum RequestKey {
 
 pub(crate) type RejectedRequests = Arc<Mutex<Vec<(RequestKey, Arc<IncomingError>)>>>;
 
-pub(crate) trait SubscriptionFactory: MaybeSend + MaybeSync {
+/// Opens one client's incoming subscriptions over its API client.
+pub trait SubscriptionFactory: MaybeSend + MaybeSync {
+    /// Subscribe to `cursors`, delivering batches within `limits`.
     fn open(&self, cursors: TopicCursor, limits: IncomingBatchLimits) -> SubscriptionFuture;
 
     /// Bind a fresh factory to one client's admitted snapshot when it needs it.
@@ -99,7 +101,9 @@ pub struct IncomingRuntime {
 }
 
 impl IncomingRuntime {
-    pub(crate) fn new(
+    /// A runtime with `policy` whose controllers open subscriptions through
+    /// `factory`; `None` gives a client that never receives.
+    pub fn new(
         policy: crate::core::policy::StreamPolicy,
         factory: Option<Arc<dyn SubscriptionFactory>>,
     ) -> Self {
@@ -114,7 +118,9 @@ impl IncomingRuntime {
         }
     }
 
-    pub(crate) fn with_preflight<A: xmtp_proto::api_client::XmtpBackendClient + 'static>(
+    /// This runtime with every subscription open first passing `api`'s
+    /// preflight check.
+    pub fn with_preflight<A: xmtp_proto::api_client::XmtpBackendClient + 'static>(
         mut self,
         api: xmtp_api::preflight::GuardedApi<A>,
     ) -> Self {
@@ -124,7 +130,16 @@ impl IncomingRuntime {
         self
     }
 
-    pub(crate) fn policy(&self) -> &crate::core::policy::StreamPolicy {
+    /// The subscription factory this runtime was built with, before
+    /// [`Self::with_preflight`] wrapped it.
+    #[cfg(any(test, feature = "test-utils"))]
+    #[doc(hidden)]
+    pub fn original_factory(&self) -> Option<Arc<dyn SubscriptionFactory>> {
+        self.original_factory.clone()
+    }
+
+    /// The stream policy the runtime was built with.
+    pub fn policy(&self) -> &crate::core::policy::StreamPolicy {
         &self.policy
     }
 
@@ -160,7 +175,7 @@ impl<A: xmtp_proto::api_client::XmtpBackendClient + 'static> SubscriptionFactory
 xmtp_common::if_wasm! {
 /// The receiver of a browser API client: a lazy static stream. The factory
 /// owns the API client, not the client context.
-pub(crate) fn streaming_factory<A>(api: A) -> Arc<dyn SubscriptionFactory>
+pub fn streaming_factory<A>(api: A) -> Arc<dyn SubscriptionFactory>
 where
     A: xmtp_proto::api_client::XmtpMlsStreams + Clone + 'static,
 {
@@ -186,7 +201,9 @@ where
 }
 
 xmtp_common::if_native! {
-pub(crate) struct BidiSubscriptionFactory<A> {
+/// The receiver of a native API client: subscriptions over one lazily
+/// started shared Bidi transport.
+pub struct BidiSubscriptionFactory<A> {
     api: A,
     mutate: Option<xmtp_api_backend::MutateLimits>,
     transport: std::sync::OnceLock<Arc<xmtp_api_backend::BidiTransport<xmtp_api_backend::BackendBinding>>>,
@@ -200,7 +217,7 @@ impl<A> BidiSubscriptionFactory<A> {
 
 /// The receiver of a native API client: a lazy shared Bidi transport. No
 /// connection starts until the first receiving interest.
-pub(crate) fn streaming_factory<A>(api: A) -> Arc<dyn SubscriptionFactory>
+pub fn streaming_factory<A>(api: A) -> Arc<dyn SubscriptionFactory>
 where
     BidiSubscriptionFactory<A>: SubscriptionFactory + 'static,
 {

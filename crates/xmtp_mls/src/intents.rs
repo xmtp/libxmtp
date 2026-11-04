@@ -14,6 +14,7 @@ use xmtp_proto::types::Cursor;
 
 use crate::groups::summary::MessageIdentifier;
 
+/// Why an intent could not be turned into a publishable commit or message.
 #[derive(Debug, Error)]
 pub enum ProcessIntentError {
     #[error("message with cursor [{}] for group [{}] already processed", _0.cursor, xmtp_common::fmt::debug_hex(_0.group_id))]

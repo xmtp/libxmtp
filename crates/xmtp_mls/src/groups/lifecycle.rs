@@ -154,7 +154,9 @@ where
             .map_err(Into::into)
     }
 
-    pub(crate) fn new_from_arc(
+    /// The group `group_id` on `context`, with the given stored fields. It
+    /// reads nothing from the database.
+    pub fn new_from_arc(
         context: Context,
         group_id: GroupId,
         dm_id: Option<String>,
@@ -175,7 +177,7 @@ where
     }
 
     /// Read a consistent MLS snapshot. Only immutable results leave the transaction.
-    pub(crate) fn with_group_snapshot<R>(
+    pub fn with_group_snapshot<R>(
         &self,
         operation: impl FnOnce(&OpenMlsGroup) -> Result<R, GroupError>,
     ) -> Result<R, GroupError> {
@@ -392,8 +394,9 @@ where
         Ok(())
     }
 
-    // Create a new group and save it to the DB
-    pub(crate) fn create_and_insert(
+    /// Create a group with only this installation's inbox and store it.
+    /// `conversation_type` must not be a DM.
+    pub fn create_and_insert(
         context: Context,
         conversation_type: ConversationType,
         permissions_policy_set: PolicySet,
@@ -670,8 +673,9 @@ where
         Ok((stored_group, true))
     }
 
-    // Create a new DM and save it to the DB
-    pub(crate) fn create_dm_and_insert(
+    /// Create a DM between this installation's inbox and
+    /// `dm_target_inbox_id` and store it, without adding the peer.
+    pub fn create_dm_and_insert(
         context: &Context,
         membership_state: GroupMembershipState,
         dm_target_inbox_id: InboxId,

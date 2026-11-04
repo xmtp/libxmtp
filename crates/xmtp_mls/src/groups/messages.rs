@@ -460,14 +460,14 @@ where
             .unwrap_or_default()
     }
 
-    /// Prepare a [`IntentKind::SendMessage`] intent, and [`StoredGroupMessage`] on this users XMTP [`Client`].
+    /// Prepare a `IntentKind::SendMessage` intent, and [`StoredGroupMessage`] on this users XMTP `Client`.
     ///
     /// # Arguments
     /// * message: UTF-8 or encoded message bytes
     /// * opts: Options for sending the message
     // implements: SEND-021
     #[tracing::instrument(skip_all, level = "trace")]
-    pub(crate) fn prepare_message(
+    pub fn prepare_message(
         &self,
         message: &[u8],
         opts: send_message_opts::SendMessageOpts,

@@ -229,7 +229,10 @@ where
 
     #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(inbox_id = %self.context.inbox_id()), skip_all))]
     #[cfg_attr(not(any(test, feature = "test-utils")), xmtp_common::mls_span)]
-    pub(crate) async fn sync_until_last_intent_resolved(&self) -> Result<SyncSummary, GroupError> {
+    /// Sync until this group's newest unresolved intent resolves, as
+    /// [`Self::sync_until_intent_resolved`] does. Returns an empty summary
+    /// when no intent is unresolved.
+    pub async fn sync_until_last_intent_resolved(&self) -> Result<SyncSummary, GroupError> {
         // Filter to kinds this build understands: after a downgrade,
         // rows written by a newer build would otherwise fail `FromSql`
         // and poison the whole query (see `IntentKind::all`).
@@ -267,7 +270,7 @@ where
         not(any(test, feature = "test-utils")),
         tracing::instrument(level = "trace", skip(self))
     )]
-    pub(crate) async fn sync_until_intent_resolved(
+    pub async fn sync_until_intent_resolved(
         &self,
         intent_id: ID,
     ) -> Result<SyncSummary, GroupError> {

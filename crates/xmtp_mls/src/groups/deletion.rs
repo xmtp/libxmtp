@@ -43,7 +43,7 @@ pub(crate) fn may_delete(
 }
 
 /// Where a deletion message came from.
-pub(crate) enum Source {
+pub enum Source {
     /// Processed from the group's topic or this installation's own echo.
     Topic {
         super_admin: bool,
@@ -60,14 +60,14 @@ pub(crate) enum Source {
 /// these restore its self-deletions, and only for a message the same import
 /// creates.
 #[derive(Default)]
-pub(crate) struct ArchivedSelfDeletions(HashMap<DeletionKey, (i64, Vec<u8>)>);
+pub struct ArchivedSelfDeletions(HashMap<DeletionKey, (i64, Vec<u8>)>);
 
 /// A deletion's target id, group and deleter inbox.
 type DeletionKey = (Vec<u8>, GroupId, String);
 
 impl ArchivedSelfDeletions {
     /// Keep `message` when it is an archived `Published` deletion message.
-    pub(crate) fn note(&mut self, message: &StoredGroupMessage) {
+    pub fn note(&mut self, message: &StoredGroupMessage) {
         if message.kind != GroupMessageKind::Application
             || message.content_type != ContentType::DeleteMessage
             || message.delivery_status != DeliveryStatus::Published
@@ -90,7 +90,7 @@ impl ArchivedSelfDeletions {
     /// or of a message the client already held, is never applied. Returns
     /// true when it marked the row.
     // implements: ARCH-028
-    pub(crate) fn apply_to_inserted(
+    pub fn apply_to_inserted(
         &self,
         db: &impl DbQuery,
         row: &StoredGroupMessage,
@@ -115,7 +115,7 @@ impl ArchivedSelfDeletions {
 /// Discards every event. An archive import emits no per-row event;
 /// `archive.restored` reports it once.
 // implements: EVENT-004
-pub(crate) struct DiscardEvents;
+pub struct DiscardEvents;
 
 impl EventWriter<InternalEvent> for DiscardEvents {
     fn emit_with_context(
@@ -130,7 +130,7 @@ impl EventWriter<InternalEvent> for DiscardEvents {
 /// Record a deletion message and mark its stored target. Idempotent.
 /// Returns true when it stored a record or marked a row.
 // implements: PROC-037
-pub(crate) fn apply_deletion(
+pub fn apply_deletion(
     db: &impl DbQuery,
     events: &impl EventWriter<InternalEvent>,
     deletion: &StoredGroupMessage,
@@ -181,7 +181,7 @@ pub(crate) fn apply_deletion(
 /// never needs this: the topic orders a target before its deletion. Returns
 /// true when it marked the row.
 // implements: ARCH-028, PROC-037
-pub(crate) fn apply_stored_records(
+pub fn apply_stored_records(
     db: &impl DbQuery,
     events: &impl EventWriter<InternalEvent>,
     row: &StoredGroupMessage,
@@ -198,7 +198,7 @@ pub(crate) fn apply_stored_records(
 /// Store an archive's record, then apply the topic's records to a stored
 /// target. Returns true when it stored a record or marked a row.
 // implements: ARCH-028
-pub(crate) fn import_record(
+pub fn import_record(
     db: &impl DbQuery,
     events: &impl EventWriter<InternalEvent>,
     record: &StoredMessageDeletion,

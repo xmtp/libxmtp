@@ -165,7 +165,7 @@ where
 
     /**
      * Checks each member of the group for `IdentityUpdates` after their current sequence_id. If updates
-     * are found the method will construct an [`UpdateGroupMembershipIntentData`] and create a change
+     * are found the method will construct an `UpdateGroupMembershipIntentData` and create a change
      * to the [`GroupMembership`] that will add any missing installations.
      *
      * This is designed to handle cases where existing members have added a new installation to their inbox or revoked an installation
@@ -176,7 +176,7 @@ where
         not(any(test, feature = "test-utils")),
         tracing::instrument(level = "trace", skip_all)
     )]
-    pub(crate) async fn add_missing_installations(&self) -> Result<(), GroupError> {
+    pub async fn add_missing_installations(&self) -> Result<(), GroupError> {
         let intent_data = self.get_membership_update_intent(&[], &[]).await?;
 
         // If there is nothing to do, stop here
@@ -200,7 +200,7 @@ where
 
     /// Refresh membership, removing revoked installations but adding none.
     // implements: SYNC-034
-    pub(crate) async fn remove_revoked_installations(&self) -> Result<(), GroupError> {
+    pub async fn remove_revoked_installations(&self) -> Result<(), GroupError> {
         let mut intent_data = self.get_membership_update_intent(&[], &[]).await?;
         if intent_data.is_empty() {
             return Ok(());
@@ -342,7 +342,7 @@ where
     ///
     /// The vector is wiped on drop, including slots that `pop()` vacated.
     // implements: PUSH-258
-    pub(crate) fn hmac_keys_in(
+    pub fn hmac_keys_in(
         &self,
         conn: impl xmtp_db::DbQuery,
         events: &impl xmtp_events::EventWriter<crate::core::events::InternalEvent>,

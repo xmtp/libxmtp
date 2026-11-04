@@ -1663,9 +1663,7 @@ where
 
 impl<Context: XmtpSharedContext> Client<Context> {
     pub fn attachments(&self) -> Attachments<Context> {
-        Attachments {
-            context: self.context.clone(),
-        }
+        Attachments::new(self.context.clone())
     }
 }
 

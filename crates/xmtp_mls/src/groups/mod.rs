@@ -14,9 +14,9 @@ pub use builders::*;
 pub use state::{ConversationStateSnapshot, GroupMetadataSnapshot};
 pub mod commit_log;
 pub mod context;
-pub(crate) mod deletion;
+pub mod deletion;
 #[cfg(any(test, feature = "diagnostics"))]
-pub(crate) mod diagnostics;
+pub mod diagnostics;
 mod error;
 pub mod intents;
 pub mod members;
@@ -65,6 +65,7 @@ use crate::groups::{
     mls_ext::CommitLogStorer,
 };
 use crate::identity::parse_credential;
+pub use crate::intents::ProcessIntentError;
 use crate::state_tx::state_write;
 pub use error::*;
 use intents::SendMessageIntentData;

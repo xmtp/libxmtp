@@ -919,7 +919,28 @@ impl Default for AttachmentRuntime {
 }
 
 impl AttachmentRuntime {
-    pub(crate) async fn ensure_reconciled<Context: AttachmentContext>(
+    /// Whether this runtime keeps attachment files in a local store.
+    pub fn has_store(&self) -> bool {
+        self.store.is_some()
+    }
+
+    /// The directory attachment files are stored under, if any.
+    #[cfg(any(test, feature = "test-utils"))]
+    #[doc(hidden)]
+    pub fn dir(&self) -> Option<&PathBuf> {
+        self.dir.as_ref()
+    }
+
+    /// The options uploads and downloads run with.
+    #[cfg(any(test, feature = "test-utils"))]
+    #[doc(hidden)]
+    pub fn options(&self) -> &AttachmentOptions {
+        &self.options
+    }
+
+    /// Reconcile stored attachments with their local files once per runtime.
+    /// Later calls return the first run's outcome.
+    pub async fn ensure_reconciled<Context: AttachmentContext>(
         &self,
         context: &Context,
     ) -> Result<(), AttachmentClientError> {
@@ -929,7 +950,9 @@ impl AttachmentRuntime {
             .map(|_| ())
     }
 
-    pub(crate) async fn new(
+    /// A runtime that stores attachment files under `dir`, or keeps no
+    /// local files when it is `None`.
+    pub async fn new(
         dir: Option<PathBuf>,
         options: AttachmentOptions,
     ) -> Result<Self, AttachmentClientError> {
@@ -1045,7 +1068,7 @@ impl AttachmentRuntime {
     }
 
     /// Delete expired rows before their staged files. An active upload stays valid.
-    pub(crate) async fn sweep<Context: AttachmentContext>(
+    pub async fn sweep<Context: AttachmentContext>(
         &self,
         context: &Context,
     ) -> Result<(), AttachmentClientError> {
@@ -1172,6 +1195,13 @@ impl AttachmentRuntime {
 
 pub struct Attachments<Context> {
     pub(crate) context: Context,
+}
+
+impl<Context> Attachments<Context> {
+    /// The attachment operations of the client on `context`.
+    pub fn new(context: Context) -> Self {
+        Self { context }
+    }
 }
 
 impl<Context: AttachmentContext> Attachments<Context> {
@@ -2625,10 +2655,12 @@ impl<Context: AttachmentContext> PendingAttachment<Context> {
     }
 }
 
-pub(crate) mod cleanup {
+/// The worker that sweeps expired pending attachments.
+pub mod cleanup {
     use super::*;
     use crate::worker::{BoxedWorker, NewWorker, Worker, WorkerFactory, WorkerKind, WorkerResult};
 
+    /// Periodically deletes expired pending attachments and their files.
     pub struct AttachmentCleanup<Context> {
         context: Context,
     }

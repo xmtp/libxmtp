@@ -365,7 +365,7 @@ pub async fn receive_with_welcomes_until<C: XmtpSharedContext>(
 }
 
 /// Keep complete and unfinished obligations for diagnostics at the same fixed targets.
-pub(crate) async fn receive_with_welcomes_snapshot_until<C: XmtpSharedContext>(
+pub async fn receive_with_welcomes_snapshot_until<C: XmtpSharedContext>(
     context: &C,
     starting_groups: Vec<GroupId>,
     consent_states: Option<Vec<ConsentState>>,
