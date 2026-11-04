@@ -389,7 +389,7 @@ Stable failure categories. Inner causes remain available to Rust callers.
 
 ### ClientBuilderError <sub>enum</sub>
 
-<small>`crates/xmtp_mls/src/builder.rs`</small>
+<small>`crates/xmtp_mls/src/builder/error.rs`</small>
 
 | Error Code | Description |
 |:-----------|:------------|
@@ -406,7 +406,7 @@ Stable failure categories. Inner causes remain available to Rust callers.
 
 ### ClientError <sub>enum</sub>
 
-<small>`crates/xmtp_mls/src/client.rs`</small>
+<small>`crates/xmtp_mls/src/client/error.rs`</small>
 
 | Error Code | Description |
 |:-----------|:------------|
@@ -609,7 +609,7 @@ A handle operation that the client refuses.
 
 ### IdentityUpdateError <sub>enum</sub>
 
-<small>`crates/xmtp_mls_identity/src/identity_updates.rs`</small>
+<small>`crates/xmtp_mls_identity/src/identity_updates/error.rs`</small>
 
 A failure to read, verify, build, or publish identity updates.
 
