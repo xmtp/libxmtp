@@ -8,7 +8,6 @@ coverage:
         informational: true
 ignore:
   - "crates/xmtp_proto/src/gen"
-  - "crates/xmtp_mls_streams/src/stream_messages/test_case_builder.rs"
   - "test/**"
   - "test_utils/**"
   - "**/mock.rs"

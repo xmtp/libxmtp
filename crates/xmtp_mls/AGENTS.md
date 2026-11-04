@@ -22,10 +22,5 @@ dev/nix-shell 'just test workspace -p xmtp_mls <filter>'
 - Proxy tests need a separate nextest invocation with `--test-threads 1` and no
   concurrent proxy test process.
 - After fixture dependency/environment changes, run `dev/check-ephemeral-backend`.
-- `boundaries.toml` maps each module to its planned crate. Run
-  `dev/nix-shell 'dev/check-boundaries'` after changing imports across modules.
-  Remove a new reference across a forbidden edge; never raise or add a waiver.
-  Lower a waiver's count when references go away, in both tiers: `--full`
-  measures the `call` waivers.
 - Before pushing stream terminality, fencing, or replacement changes, run the
   [Node recovery budget tests](../../sdks/node/TESTING.md).
