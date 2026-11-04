@@ -1,0 +1,717 @@
+//! Message and conversation streams over the engine receiver: local
+//! delivery and message readers, catch-up, stream failures and the native
+//! callback adapters. Built on the core, engine, messages and server
+//! configuration crates; names no facade, device-sync or notifications type.
+#![warn(clippy::unwrap_used)]
+
+use futures::{Stream, StreamExt};
+use prost::Message;
+use tokio::sync::oneshot;
+use xmtp_common::snippet::Snippet;
+use xmtp_proto::backend_v1::ServerEnvelope;
+
+use tracing::instrument;
+use xmtp_db::prelude::*;
+use xmtp_proto::api_client::XmtpMlsStreams;
+
+use stream_all::StreamAllMessages;
+use stream_conversations::StreamConversations;
+
+const DEFAULT_STREAM_CONSENT_STATES: [ConsentState; 2] =
+    [ConsentState::Allowed, ConsentState::Unknown];
+
+// One-shot bounded catch-up through the shared receiver.
+use xmtp_mls_engine::subscriptions::barrier;
+pub mod catch_up;
+pub mod local_delivery;
+pub mod message_reader;
+mod stream_all;
+pub mod stream_conversations;
+pub mod stream_failure;
+pub mod stream_messages;
+// Native callback adapters over the shared backend transport.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod router_callbacks;
+pub(crate) mod watchdog;
+
+#[cfg(any(test, feature = "test-utils"))]
+use crate::stream_messages::stream_stats::{StreamStatsWrapper, StreamWithStats};
+use xmtp_mls_messages::enrichment::EnrichMessageError;
+
+use thiserror::Error;
+use xmtp_common::{ErrorCode, MaybeSend, RetryableError, StreamHandle, retryable};
+use xmtp_db::{
+    NotFound, StorageError,
+    consent_record::{ConsentState, StoredConsentRecord},
+    group::ConversationType,
+    group_message::StoredGroupMessage,
+};
+use xmtp_events::{EventFilter, Subscription};
+use xmtp_mls_core::events::InternalEvent;
+use xmtp_mls_core::events::PreferenceUpdate;
+use xmtp_mls_engine::groups::{
+    GroupError, GroupMessageProcessingError, MlsGroup, context::XmtpSharedContext,
+};
+use xmtp_mls_messages::decoded_message::{DecodedMessage, DeletedBy};
+
+pub(crate) type Result<T> = std::result::Result<T, SubscribeError>;
+
+#[derive(Debug, Error)]
+pub enum LocalEventError {
+    #[error("Unable to send event: {0}")]
+    Send(String),
+}
+
+impl RetryableError for LocalEventError {
+    fn is_retryable(&self) -> bool {
+        true
+    }
+}
+
+/// The legacy local streams read from a subscription to the client's
+/// internal events.
+pub trait StreamMessages {
+    /// The consent records of each preference change.
+    fn stream_consent_updates(self) -> impl Stream<Item = Result<Vec<StoredConsentRecord>>>;
+    /// The updates of each preference change.
+    fn stream_preference_updates(self) -> impl Stream<Item = Result<Vec<PreferenceUpdate>>>;
+    /// Each deleted message, decoded as a deleted message.
+    fn stream_message_deletions(self) -> impl Stream<Item = Result<DecodedMessage>>;
+}
+
+impl StreamMessages for Subscription<InternalEvent> {
+    #[instrument(level = "trace", skip_all)]
+    fn stream_consent_updates(self) -> impl Stream<Item = Result<Vec<StoredConsentRecord>>> {
+        futures::stream::unfold(self, |subscription| async move {
+            loop {
+                let item = subscription.next().await?;
+                if let Some(xmtp_events::ClientEvent::Lagged(lagged)) = &item.client {
+                    tracing::warn!(discarded = lagged.discarded, "legacy consent stream lagged");
+                }
+                if let Some(InternalEvent::PreferencesChanged { updates, .. }) = item.internal {
+                    let records = updates
+                        .into_iter()
+                        .filter_map(|update| match update {
+                            PreferenceUpdate::Consent(record) => Some(record),
+                            _ => None,
+                        })
+                        .collect();
+                    return Some((Ok(records), subscription));
+                }
+            }
+        })
+    }
+
+    #[instrument(level = "trace", skip_all)]
+    fn stream_preference_updates(self) -> impl Stream<Item = Result<Vec<PreferenceUpdate>>> {
+        futures::stream::unfold(self, |subscription| async move {
+            loop {
+                let item = subscription.next().await?;
+                if let Some(xmtp_events::ClientEvent::Lagged(lagged)) = &item.client {
+                    tracing::warn!(
+                        discarded = lagged.discarded,
+                        "legacy preference stream lagged"
+                    );
+                }
+                if let Some(InternalEvent::PreferencesChanged { updates, .. }) = item.internal {
+                    return Some((Ok(updates), subscription));
+                }
+            }
+        })
+    }
+
+    #[instrument(level = "trace", skip_all)]
+    fn stream_message_deletions(self) -> impl Stream<Item = Result<DecodedMessage>> {
+        futures::stream::unfold(self, |subscription| async move {
+            loop {
+                let item = subscription.next().await?;
+                if let Some(xmtp_events::ClientEvent::Lagged(lagged)) = &item.client {
+                    tracing::warn!(
+                        discarded = lagged.discarded,
+                        "legacy deletion stream lagged"
+                    );
+                }
+                let decoded = match item.internal {
+                    // An item can wait in the broadcast buffer, for example
+                    // behind a slow callback, until after its message expired.
+                    // Check the expiry again at delivery.
+                    Some(InternalEvent::MessagesDeleted(deleted)) => {
+                        let now = xmtp_common::time::now_ns();
+                        deletion_items(deleted, |m| m.expire_at_ns.is_some_and(|at| at <= now))
+                    }
+                    Some(InternalEvent::MessagesExpired(deleted)) => {
+                        deletion_items(deleted, |_| true)
+                    }
+                    _ => continue,
+                };
+                return Some((futures::stream::iter(decoded), subscription));
+            }
+        })
+        .flatten()
+    }
+}
+
+/// Deletion stream items for `deleted`. A row for which `is_expired` holds
+/// is the deleted-message placeholder, with no body and no fallback. Other
+/// rows keep their body; content that does not decode stays in the body as
+/// undecodable content, so every row produces an item.
+// implements: META-051
+fn deletion_items(
+    deleted: xmtp_mls_core::events::DeletedMessages,
+    is_expired: impl Fn(&StoredGroupMessage) -> bool,
+) -> Vec<Result<DecodedMessage>> {
+    let xmtp_mls_core::events::DeletedMessages {
+        messages,
+        deleted_by_inbox_id,
+    } = deleted;
+    messages
+        .into_iter()
+        .map(|message| {
+            if !is_expired(&message) {
+                return Ok(DecodedMessage::from(message));
+            }
+            // With no actor, `Sender`; see `DecodedMessage::placeholder`.
+            let deleted_by = deleted_by_inbox_id
+                .as_deref()
+                .map_or(DeletedBy::Sender, |deleter| {
+                    DeletedBy::new(deleter, &message.sender_inbox_id)
+                });
+            Ok(DecodedMessage::placeholder(message, deleted_by))
+        })
+        .collect()
+}
+
+#[derive(thiserror::Error, Debug, ErrorCode)]
+pub enum SubscribeError {
+    /// Local message delivery failed. May be retryable for a storage failure.
+    #[error(transparent)]
+    #[error_code(inherit)]
+    LocalDelivery(#[from] local_delivery::LocalDeliveryError),
+    /// The shared native transport failed. May be retryable.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[error(transparent)]
+    Transport(#[from] xmtp_api_backend::TransportError),
+    /// Group error.
+    ///
+    /// Group operation failed during subscription. May be retryable.
+    #[error(transparent)]
+    Group(#[from] Box<GroupError>),
+    /// Not found.
+    ///
+    /// Subscribed resource not found. Retryable.
+    #[error(transparent)]
+    NotFound(#[from] NotFound),
+    /// Group message not found.
+    ///
+    /// Expected message missing from database. Retryable.
+    // TODO: Add this to `NotFound`
+    #[error("group message expected in database but is missing")]
+    GroupMessageNotFound,
+    /// Receive group error.
+    ///
+    /// Processing streamed group message failed. May be retryable.
+    #[error("processing group message in stream: {0}")]
+    ReceiveGroup(#[from] Box<GroupMessageProcessingError>),
+    /// Storage error.
+    ///
+    /// Database operation failed. May be retryable.
+    #[error(transparent)]
+    Storage(#[from] StorageError),
+    /// Decode error.
+    ///
+    /// Protobuf decoding failed. Not retryable.
+    #[error(transparent)]
+    Decode(#[from] prost::DecodeError),
+    /// API client error.
+    ///
+    /// Network request failed. Retryable.
+    #[error(transparent)]
+    ApiClient(#[from] xmtp_api::ApiError),
+    /// Boxed error.
+    ///
+    /// Wrapped dynamic error. May be retryable.
+    #[error("{0}")]
+    BoxError(Box<dyn RetryableError>),
+    /// Database connection error.
+    ///
+    /// Database connection failed. Retryable.
+    #[error(transparent)]
+    Db(#[from] xmtp_db::ConnectionError),
+    /// Conversion error.
+    ///
+    /// Proto conversion failed. Not retryable.
+    #[error(transparent)]
+    Conversion(#[from] xmtp_proto::ConversionError),
+    /// Envelope error.
+    ///
+    /// Invalid backend envelope. Not retryable.
+    #[error(transparent)]
+    Envelope(#[from] xmtp_api_backend::envelope::EnvelopeError),
+    /// Enriched Message Error.
+    #[error("error occured during subscription {0}")]
+    Enriched(#[from] EnrichMessageError),
+    /// The connection is blocked by a fatal configuration failure.
+    ///
+    /// Either this database is bound to a different deployment or the
+    /// deployment now requires a newer client. Every open stream is
+    /// closed with it and every later call fails with it. Not retryable.
+    #[error(transparent)]
+    #[error_code(inherit)]
+    Blocked(#[from] xmtp_mls_server_config::server_configuration::BlockedConnection),
+    /// Stream liveness watchdog tripped.
+    ///
+    /// No activity arrived within the idle timeout, so the stream was terminated to force
+    /// a reconnect (resuming from the persisted cursor). Retryable.
+    #[error("stream went stale: no activity within the idle timeout")]
+    StreamStale,
+}
+
+impl SubscribeError {
+    pub fn dyn_err(other: impl RetryableError + 'static) -> Self {
+        SubscribeError::BoxError(Box::new(other) as _)
+    }
+}
+
+impl From<GroupError> for SubscribeError {
+    fn from(value: GroupError) -> Self {
+        SubscribeError::Group(Box::new(value))
+    }
+}
+
+impl From<GroupMessageProcessingError> for SubscribeError {
+    fn from(value: GroupMessageProcessingError) -> Self {
+        SubscribeError::ReceiveGroup(Box::new(value))
+    }
+}
+
+impl RetryableError for SubscribeError {
+    fn is_retryable(&self) -> bool {
+        use SubscribeError::*;
+        match self {
+            #[cfg(not(target_arch = "wasm32"))]
+            Transport(error) => error.is_retryable(),
+            LocalDelivery(e) => retryable!(e),
+            Group(e) => retryable!(e),
+            GroupMessageNotFound => true,
+            ReceiveGroup(e) => retryable!(e),
+            Storage(e) => retryable!(e),
+            Decode(_) => false,
+            NotFound(e) => retryable!(e),
+            ApiClient(e) => retryable!(e),
+            BoxError(e) => retryable!(e),
+            Db(c) => retryable!(c),
+            Conversion(c) => retryable!(c),
+            Envelope(c) => retryable!(c),
+            Enriched(c) => retryable!(c),
+            Blocked(_) => false,
+            StreamStale => true,
+        }
+    }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        use SubscribeError::*;
+        match self {
+            #[cfg(not(target_arch = "wasm32"))]
+            Transport(error) => error.rate_limit_delay(),
+            Group(e) => e.rate_limit_delay(),
+            ReceiveGroup(e) => e.rate_limit_delay(),
+            ApiClient(e) => e.rate_limit_delay(),
+            LocalDelivery(e) => e.rate_limit_delay(),
+            BoxError(e) => e.rate_limit_delay(),
+            _ => None,
+        }
+    }
+}
+
+impl xmtp_mls_core::worker::NeedsDbReconnect for SubscribeError {
+    /// Forwards a dropped-pool signal so the device-sync worker stops on
+    /// disconnect. `BoxError` wraps an opaque error we can't introspect → `false`.
+    #[deny(clippy::wildcard_enum_match_arm)]
+    fn needs_db_reconnect(&self) -> bool {
+        use SubscribeError::*;
+        match self {
+            Group(e) => e.needs_db_reconnect(),
+            Storage(e) => e.db_needs_connection(),
+            LocalDelivery(e) => e.needs_db_reconnect(),
+            Db(c) => c.db_needs_connection(),
+            ReceiveGroup(e) => e.needs_db_reconnect(),
+            Enriched(EnrichMessageError::Storage(e)) => e.db_needs_connection(),
+            Enriched(EnrichMessageError::DbConnection(c)) => c.db_needs_connection(),
+            #[cfg(not(target_arch = "wasm32"))]
+            Transport(..) => false,
+            NotFound(..) | GroupMessageNotFound | Decode(..) | ApiClient(..) | BoxError(..)
+            | Conversion(..) | Envelope(..) | Blocked(..) | StreamStale => false,
+        }
+    }
+}
+
+/// Use push metadata as a target. Fetch its complete prefix before processing.
+pub async fn process_streamed_welcome_message<Context>(
+    context: &Context,
+    envelope_bytes: Vec<u8>,
+) -> Result<Vec<MlsGroup<Context>>>
+where
+    Context: XmtpSharedContext + 'static,
+{
+    let wire = ServerEnvelope::decode(envelope_bytes.as_slice())?;
+    let meta = wire
+        .meta
+        .as_ref()
+        .ok_or(xmtp_api::ApiError::InvalidResponse("welcome metadata"))?;
+    let (topic, cursor, _) = xmtp_api_backend::envelope::metadata(
+        meta,
+        xmtp_proto::types::TopicKind::WelcomeMessagesV1,
+    )?;
+    if topic != xmtp_proto::types::Topic::new_welcome_message(context.installation_id()) {
+        return Err(xmtp_api::ApiError::InvalidResponse("welcome installation").into());
+    }
+    barrier::wait_through(context, [(topic, cursor)].into(), None)
+        .await
+        .map_err(|error| {
+            context
+                .server_configuration()
+                .blocked_or(GroupError::from(error))
+        })?;
+    let Some(group) = context.db().find_group_by_sequence_id(cursor)? else {
+        return Ok(Vec::new());
+    };
+    Ok(vec![MlsGroup::new(
+        context.clone(),
+        group.id,
+        group.dm_id,
+        group.conversation_type,
+        group.created_at_ns,
+    )])
+}
+
+/// Use a push envelope for `group` only as a target for ordered receipt and processing.
+pub async fn process_streamed_group_message<Context>(
+    group: &MlsGroup<Context>,
+    envelope_bytes: Vec<u8>,
+) -> Result<Vec<StoredGroupMessage>>
+where
+    Context: XmtpSharedContext + 'static,
+{
+    let wire = ServerEnvelope::decode(envelope_bytes.as_slice())?;
+    let meta = wire
+        .meta
+        .as_ref()
+        .ok_or(xmtp_api::ApiError::InvalidResponse("group metadata"))?;
+    let (topic, cursor, _) =
+        xmtp_api_backend::envelope::metadata(meta, xmtp_proto::types::TopicKind::GroupMessagesV1)?;
+    if topic != xmtp_proto::types::Topic::new_group_message(group.group_id) {
+        return Err(xmtp_api::ApiError::InvalidResponse("group topic").into());
+    }
+    barrier::wait_through(&group.context, [(topic, cursor)].into(), None)
+        .await
+        .map_err(|error| {
+            group
+                .context
+                .server_configuration()
+                .blocked_or(GroupError::from(error))
+        })?;
+    let message = group
+        .context
+        .db()
+        .get_group_message_by_cursor(group.group_id, cursor)?;
+    // implements: META-051
+    let current_time_ns = xmtp_common::time::now_ns();
+    Ok(message
+        .filter(|row| {
+            row.expire_at_ns
+                .is_none_or(|deadline| deadline > current_time_ns)
+        })
+        .into_iter()
+        .collect())
+}
+
+/// Stream the conversations of `context` that match `conversation_type`, as
+/// they are created or joined, borrowing the context for the stream's lifetime.
+#[xmtp_common::span(prefix = "stream")]
+pub async fn stream_conversations<'a, Context>(
+    context: &'a Context,
+    conversation_type: Option<ConversationType>,
+    include_duplicate_dms: bool,
+) -> Result<impl Stream<Item = Result<MlsGroup<Context>>> + use<'a, Context>>
+where
+    Context: XmtpSharedContext + 'static,
+    Context::ApiClient: XmtpMlsStreams,
+{
+    StreamConversations::new(context, conversation_type, include_duplicate_dms, None).await
+}
+
+/// Stream conversations but decouple the lifetime of the caller from the stream.
+#[xmtp_common::span(prefix = "stream")]
+pub async fn stream_conversations_owned<Context>(
+    context: Context,
+    conversation_type: Option<ConversationType>,
+    include_duplicate_dms: bool,
+) -> Result<impl Stream<Item = Result<MlsGroup<Context>>> + 'static + use<Context>>
+where
+    Context: XmtpSharedContext + 'static,
+    Context::ApiClient: XmtpMlsStreams,
+{
+    StreamConversations::new_owned(context, conversation_type, include_duplicate_dms, None).await
+}
+
+/// `keep_alive` lives as long as the subscribe closure.
+pub fn stream_conversations_with_callback<Context>(
+    context: Context,
+    keep_alive: impl MaybeSend + 'static,
+    conversation_type: Option<ConversationType>,
+    convo_callback: impl FnMut(Result<MlsGroup<Context>>) + MaybeSend + 'static,
+    on_close: impl FnOnce() + MaybeSend + 'static,
+    include_duplicate_dms: bool,
+) -> impl StreamHandle<StreamOutput = Result<()>>
+where
+    Context: XmtpSharedContext + 'static,
+    Context::ApiClient: XmtpMlsStreams + 'static,
+    Context::MlsStorage: 'static,
+{
+    let cancel = watchdog::StreamCancel::new(&context);
+    // Re-subscribing recreates the underlying local event subscription, which
+    // has no replay; the watchdog runner establishes the new subscription *before* its
+    // reconnect wait, so the new receiver is attached while we pause. Network welcomes
+    // are caught up from the persisted cursor, so the only residual gap is a *locally*
+    // created group event in the brief window while the new
+    // subscription is being built — bounded, since the caller already holds that group.
+    watchdog::spawn_watchdog_stream(
+        cancel,
+        "stream_conversations",
+        move || {
+            let _keep_alive = &keep_alive;
+            stream_conversations_owned(context.clone(), conversation_type, include_duplicate_dms)
+        },
+        convo_callback,
+        on_close,
+    )
+}
+
+/// Stream the messages of every conversation of `context` that matches
+/// `conversation_type` and `consent_state`, borrowing the context for the
+/// stream's lifetime.
+#[xmtp_common::span(prefix = "stream")]
+pub async fn stream_all_messages<'a, Context>(
+    context: &'a Context,
+    conversation_type: Option<ConversationType>,
+    consent_state: Option<Vec<ConsentState>>,
+) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + use<'a, Context>>
+where
+    Context: XmtpSharedContext + 'static,
+    Context::ApiClient: XmtpMlsStreams + 'static,
+    Context::MlsStorage: 'static,
+{
+    tracing::debug!(
+        inbox_id = context.inbox_id(),
+        installation_id = context.installation_id().as_slice().snippet(),
+        conversation_type = ?conversation_type,
+        "stream all messages"
+    );
+
+    StreamAllMessages::new(context, conversation_type, consent_state).await
+}
+
+/// As [`stream_all_messages`], with the stream owning `context`.
+#[xmtp_common::span(prefix = "stream")]
+pub async fn stream_all_messages_owned<Context>(
+    context: Context,
+    conversation_type: Option<ConversationType>,
+    consent_state: Option<Vec<ConsentState>>,
+) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + 'static + use<Context>>
+where
+    Context: XmtpSharedContext + 'static,
+    Context::ApiClient: XmtpMlsStreams + 'static,
+    Context::MlsStorage: 'static,
+{
+    tracing::debug!(
+        inbox_id = context.inbox_id(),
+        installation_id = context.installation_id().as_slice().snippet(),
+        conversation_type = ?conversation_type,
+        "stream all messages"
+    );
+
+    StreamAllMessages::new_owned(context, conversation_type, consent_state).await
+}
+
+/// `keep_alive` lives as long as the stream task.
+pub fn stream_consent_with_callback<Context>(
+    context: Context,
+    keep_alive: impl MaybeSend + 'static,
+    mut callback: impl FnMut(Result<Vec<StoredConsentRecord>>) + MaybeSend + 'static,
+    on_close: impl FnOnce() + MaybeSend + 'static,
+) -> impl StreamHandle<StreamOutput = Result<()>>
+where
+    Context: XmtpSharedContext + 'static,
+{
+    let (tx, rx) = oneshot::channel();
+
+    xmtp_common::spawn(
+        Some(rx),
+        xmtp_common::bind_task_hub(async move {
+            let _keep_alive = keep_alive;
+            // Cancellation can carry a blocked connection cause,
+            // and this stream closes with it rather than silently.
+            let cancel = watchdog::StreamCancel::new(&context);
+            let receiver = context.events().subscribe(
+                EventFilter::default().with_internal(|event| {
+                    matches!(event, InternalEvent::PreferencesChanged { .. })
+                }),
+                Some(1024),
+            );
+            let stream = receiver.stream_consent_updates();
+
+            futures::pin_mut!(stream);
+            let _ = tx.send(());
+            let cancelled = loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => break true,
+                    next = stream.next() => match next {
+                        Some(message) => callback(message),
+                        None => break false,
+                    }
+                }
+            };
+            tracing::debug!("`stream_consent` stream ended, dropping stream");
+            let result = watchdog::close_reason(&cancel, cancelled, &mut callback);
+            on_close();
+            result
+        }),
+    )
+}
+
+/// `keep_alive` lives as long as the stream task.
+pub fn stream_preferences_with_callback<Context>(
+    context: Context,
+    keep_alive: impl MaybeSend + 'static,
+    mut callback: impl FnMut(Result<Vec<PreferenceUpdate>>) + MaybeSend + 'static,
+    on_close: impl FnOnce() + MaybeSend + 'static,
+) -> impl StreamHandle<StreamOutput = Result<()>>
+where
+    Context: XmtpSharedContext + 'static,
+{
+    let (tx, rx) = oneshot::channel();
+
+    xmtp_common::spawn(
+        Some(rx),
+        xmtp_common::bind_task_hub(async move {
+            let _keep_alive = keep_alive;
+            // Cancellation can carry a blocked connection cause,
+            // and this stream closes with it rather than silently.
+            let cancel = watchdog::StreamCancel::new(&context);
+            let receiver = context.events().subscribe(
+                EventFilter::default().with_internal(|event| {
+                    matches!(event, InternalEvent::PreferencesChanged { .. })
+                }),
+                Some(1024),
+            );
+            let stream = receiver.stream_preference_updates();
+
+            futures::pin_mut!(stream);
+            let _ = tx.send(());
+            let cancelled = loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => break true,
+                    next = stream.next() => match next {
+                        Some(message) => callback(message),
+                        None => break false,
+                    }
+                }
+            };
+            tracing::debug!("`stream_preferences` stream ended, dropping stream");
+            let result = watchdog::close_reason(&cancel, cancelled, &mut callback);
+            on_close();
+            result
+        }),
+    )
+}
+
+/// `keep_alive` lives as long as the stream task.
+pub fn stream_message_deletions_with_callback<Context>(
+    context: Context,
+    keep_alive: impl MaybeSend + 'static,
+    mut callback: impl FnMut(Result<DecodedMessage>) + MaybeSend + 'static,
+    on_close: impl FnOnce() + MaybeSend + 'static,
+) -> impl StreamHandle<StreamOutput = Result<()>>
+where
+    Context: XmtpSharedContext + 'static,
+{
+    let (tx, rx) = oneshot::channel();
+
+    xmtp_common::spawn(
+        Some(rx),
+        xmtp_common::bind_task_hub(async move {
+            let _keep_alive = keep_alive;
+            // Cancellation can carry a blocked connection cause,
+            // and this stream closes with it rather than silently.
+            let cancel = watchdog::StreamCancel::new(&context);
+            let receiver = context.events().subscribe(
+                EventFilter::default().with_internal(InternalEvent::is_message_deletion),
+                Some(1024),
+            );
+            let stream = receiver.stream_message_deletions();
+
+            futures::pin_mut!(stream);
+            let _ = tx.send(());
+            let cancelled = loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => break true,
+                    next = stream.next() => match next {
+                        Some(message) => callback(message),
+                        None => break false,
+                    }
+                }
+            };
+            tracing::debug!("`stream_message_deletions` stream ended, dropping stream");
+            let result = watchdog::close_reason(&cancel, cancelled, &mut callback);
+            on_close();
+            result
+        }),
+    )
+}
+
+/// As [`stream_all_messages_owned`], with the stream's statistics.
+#[tracing::instrument(level = "trace", skip_all)]
+#[cfg(any(test, feature = "test-utils"))]
+pub async fn stream_all_messages_owned_with_stats<Context>(
+    context: Context,
+    conversation_type: Option<ConversationType>,
+    consent_state: Option<Vec<ConsentState>>,
+) -> Result<impl StreamWithStats<Item = Result<StoredGroupMessage>> + 'static>
+where
+    Context: XmtpSharedContext + 'static,
+    Context::ApiClient: XmtpMlsStreams + 'static,
+    Context::MlsStorage: 'static,
+    <Context::ApiClient as XmtpMlsStreams>::GroupMessageStream: Unpin,
+    <Context::ApiClient as XmtpMlsStreams>::WelcomeMessageStream: Unpin,
+{
+    tracing::debug!(
+        inbox_id = context.inbox_id(),
+        installation_id = context.installation_id().as_slice().snippet(),
+        conversation_type = ?conversation_type,
+        "stream all messages"
+    );
+
+    let stream = StreamAllMessages::new_owned(context, conversation_type, consent_state).await?;
+
+    Ok(StreamStatsWrapper::new(stream))
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum StreamKind {
+    All,
+    Conversations,
+    Messages,
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(not(target_arch = "wasm32"))]
+    mod disconnect_propagation;
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), ctor::ctor(unsafe))]
+#[cfg(all(test, not(target_arch = "wasm32")))]
+fn test_setup() {
+    xmtp_common::logger();
+    let _ = fdlimit::raise_fd_limit();
+}

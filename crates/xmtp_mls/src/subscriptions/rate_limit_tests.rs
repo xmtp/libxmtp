@@ -3,10 +3,7 @@
 //! end a rent period; the backend's keepalive turns each session's loop
 //! often enough to see it.
 
-use crate::{
-    builder::ClientBuilder, context::XmtpSharedContext, groups::send_message_opts::SendMessageOpts,
-    tester, utils::test::backend::EphemeralBackend,
-};
+use crate::{builder::ClientBuilder, tester, utils::test::backend::EphemeralBackend};
 use futures::{Stream, StreamExt};
 use std::sync::{
     Arc,
@@ -19,6 +16,7 @@ use xmtp_backend::{
 };
 use xmtp_common::{BoxDynError, time::Duration};
 use xmtp_db::group_message::{GroupMessageKind, StoredGroupMessage};
+use xmtp_mls_engine::groups::{context::XmtpSharedContext, send_message_opts::SendMessageOpts};
 
 const SECOND: u64 = 1_000_000_000;
 const ALIX_KEY: &str = "alix-api-key-0123456789abcdefghijklmnopqrstu";

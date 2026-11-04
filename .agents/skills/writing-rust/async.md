@@ -26,7 +26,7 @@ Periodic workers use a jittered interval so instances do not fire together.
 The first tick is immediate; skip it for sleep-then-run.
 
 ```rust
-// crates/xmtp_mls/src/worker/device_sync/worker.rs
+// crates/xmtp_mls_device_sync/src/worker.rs
 let mut ticks = time::jittered_interval_stream(base, jitter);
 let _ = ticks.next().await;
 while ticks.next().await.is_some() { /* work */ }

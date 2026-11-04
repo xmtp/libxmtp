@@ -45,15 +45,25 @@ pub mod server_configuration {
 use crate::core::state_tx;
 pub use client::VisibilityConfirmationOptions;
 pub use xmtp_mls_server_config::storage_location;
-pub mod subscriptions;
+/// The streams crate with the engine's receiver modules, at their old paths.
+pub mod subscriptions {
+    #[doc(hidden)]
+    pub use xmtp_mls_core::events as internal;
+    pub use xmtp_mls_engine::subscriptions::{barrier, incoming};
+    pub use xmtp_mls_streams::*;
+
+    // A message stream against a backend that charges stream rent.
+    #[cfg(all(test, not(target_arch = "wasm32")))]
+    mod rate_limit_tests;
+}
 pub mod task_handlers;
 pub mod utils;
 /// The core worker framework with the feature workers, at their old paths.
 pub mod worker {
-    pub mod device_sync;
     pub use xmtp_mls_core::worker::*;
+    pub use xmtp_mls_device_sync as device_sync;
     pub use xmtp_mls_identity::key_package_maintenance;
-    pub(crate) mod notifications;
+    pub(crate) use xmtp_mls_notifications::worker as notifications;
 }
 #[cfg(test)]
 mod worker_tests;

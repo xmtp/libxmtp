@@ -1,0 +1,802 @@
+use super::{
+    DeviceSyncClient, DeviceSyncError, ReceivedContent, decode_sync_message,
+    preference_sync::apply_preference_updates, selected_sync_group_in, with_plaintext,
+};
+use futures::TryFutureExt;
+use std::{collections::HashSet, sync::Arc, time::Duration};
+use tokio::sync::OnceCell;
+use tracing::instrument;
+use xmtp_common::time::Instant;
+use xmtp_common::{Event, RetryableError};
+use xmtp_db::group_message::{DeliveryStatus, StoredGroupMessage};
+use xmtp_db::prelude::*;
+use xmtp_db::processed_device_sync_messages::SyncMessageKey;
+use xmtp_db::{StorageError, TransactionOutcome::Continue, sync_outbox::has_owed};
+use xmtp_events::{EventFilter, Subscription};
+use xmtp_id::associations::{AssociationState, IdentityAction, verify_updates};
+use xmtp_macro::log_event;
+pub use xmtp_mls_core::metrics::SyncMetric;
+use xmtp_mls_core::{
+    events::{InternalEvent, emit_consent_changes, emit_root_key_changed},
+    worker::{
+        BoxedWorker, NeedsDbReconnect, NewWorker, Worker, WorkerFactory, WorkerKind, WorkerResult,
+        metrics::WorkerMetrics,
+    },
+};
+use xmtp_mls_engine::{
+    groups::context::XmtpSharedContext,
+    subscriptions::incoming::{IncomingCoordinator, IncomingScope},
+};
+use xmtp_mls_identity::{
+    identity_ext::IdentityExt,
+    identity_updates::{
+        IdentityUpdateError, load_identity_updates_for_client, store_association_state,
+    },
+};
+use xmtp_proto::ShortHex;
+use xmtp_proto::xmtp::device_sync::content::{
+    DeviceSyncAcknowledge, PreferenceUpdates as PreferenceUpdatesProto,
+    device_sync_content::Content as ContentProto,
+};
+
+pub(super) fn log_incoming_preference_updates(
+    updates: &[xmtp_proto::xmtp::device_sync::content::PreferenceUpdate],
+) {
+    tracing::info!(update_count = updates.len(), "Incoming preference updates");
+}
+
+const RETRY_FIRST: Duration = Duration::from_secs(1);
+const RETRY_MAX: Duration = Duration::from_secs(10 * 60);
+
+/// 2 s doubling to 10 min.
+fn backoff(n: u32) -> Duration {
+    RETRY_FIRST.saturating_mul(1 << n.min(10)).min(RETRY_MAX)
+}
+
+/// A pass that is owed. Nothing is ever dropped: the work is in the database.
+#[derive(Default)]
+struct Pass {
+    due: Option<Instant>,
+    failures: u32,
+}
+
+/// The receive and outbox passes. Shared by the factory, so a worker rebuilt
+/// after a reconnect keeps their backoffs and rate-limit waits.
+#[derive(Default)]
+struct Passes {
+    inbox: Pass,
+    outbox: Pass,
+}
+
+type SharedPasses = Arc<parking_lot::Mutex<Passes>>;
+
+impl Pass {
+    /// A restart drains what is owed, but not inside a backoff.
+    fn restart(&mut self) {
+        if self.failures == 0 {
+            self.due = Some(Instant::now());
+        }
+    }
+
+    /// A wake does not cut a backoff short.
+    fn wake(&mut self) {
+        if self.failures == 0 {
+            self.due = Some(Instant::now());
+        }
+    }
+
+    fn is_due(&self) -> bool {
+        self.due.is_some_and(|at| at <= Instant::now())
+    }
+
+    // implements: SYNC-033
+    fn finish(
+        &mut self,
+        pass: &'static str,
+        result: Result<(), DeviceSyncError>,
+    ) -> Result<(), DeviceSyncError> {
+        match result {
+            Ok(()) => *self = Self::default(),
+            Err(e) if e.needs_db_reconnect() => return Err(e),
+            Err(e) => {
+                self.failures = self.failures.saturating_add(1);
+                // A retry resends the refused request, so it also waits out
+                // a rate limit's delay.
+                // implements: RATE-041
+                let delay = RetryableError::rate_limit_delay(&e).unwrap_or_default();
+                let wait = backoff(self.failures).max(delay);
+                self.due = Some(xmtp_common::time::saturating_after(Instant::now(), wait));
+                tracing::warn!(error = %e, pass, failures = self.failures, "device sync pass failed; it stays owed");
+            }
+        }
+        Ok(())
+    }
+}
+
+pub struct SyncWorker<Context> {
+    client: DeviceSyncClient<Context>,
+    subscription: Option<Arc<Subscription<InternalEvent>>>,
+    passes: SharedPasses,
+    init: OnceCell<()>,
+    metrics: Arc<WorkerMetrics<SyncMetric>>,
+}
+
+impl<Context> SyncWorker<Context>
+where
+    Context: XmtpSharedContext + 'static,
+{
+    fn new(
+        context: Context,
+        metrics: Option<Arc<WorkerMetrics<SyncMetric>>>,
+        passes: SharedPasses,
+    ) -> Self {
+        let metrics =
+            metrics.unwrap_or_else(|| Arc::new(WorkerMetrics::new(context.installation_id())));
+        let client = DeviceSyncClient::new(context, metrics.clone());
+
+        Self {
+            client,
+            subscription: None,
+            passes,
+            init: OnceCell::new(),
+            metrics,
+        }
+    }
+}
+
+struct Factory<Context> {
+    context: Context,
+    passes: SharedPasses,
+    metrics: Arc<WorkerMetrics<SyncMetric>>,
+}
+
+impl<Context> WorkerFactory for Factory<Context>
+where
+    Context: XmtpSharedContext + 'static,
+{
+    fn create(&self) -> BoxedWorker {
+        Box::new(SyncWorker::new(
+            self.context.clone(),
+            Some(self.metrics.clone()),
+            self.passes.clone(),
+        ))
+    }
+
+    fn kind(&self) -> WorkerKind {
+        WorkerKind::DeviceSync
+    }
+
+    fn event_interest(&self) -> Option<(EventFilter<InternalEvent>, Option<usize>)> {
+        let filter = EventFilter::default().with_internal(|event| {
+            matches!(
+                event,
+                InternalEvent::MessageStored { is_sync: true, .. } | InternalEvent::OutboxChanged
+            )
+        });
+        Some((filter, None))
+    }
+}
+
+impl<Context> NewWorker<Context> for SyncWorker<Context>
+where
+    Context: XmtpSharedContext + 'static,
+{
+    fn factory(context: Context) -> impl WorkerFactory + 'static {
+        Factory {
+            metrics: Arc::new(WorkerMetrics::new(context.installation_id())),
+            context,
+            passes: SharedPasses::default(),
+        }
+    }
+}
+
+#[xmtp_common::async_trait]
+impl<Context> Worker for SyncWorker<Context>
+where
+    Context: XmtpSharedContext + 'static,
+{
+    fn kind(&self) -> WorkerKind {
+        WorkerKind::DeviceSync
+    }
+
+    fn set_subscription(&mut self, subscription: Arc<Subscription<InternalEvent>>) {
+        self.subscription = Some(subscription);
+    }
+
+    fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
+        Some(self.metrics.clone())
+    }
+
+    async fn run_tasks(&mut self) -> WorkerResult<()> {
+        self.run().map_err(|e| Box::new(e) as Box<_>).await
+    }
+}
+
+impl<Context> SyncWorker<Context>
+where
+    Context: XmtpSharedContext + 'static,
+{
+    async fn run(&mut self) -> Result<(), DeviceSyncError> {
+        // Keep the large startup future off the worker poll stack.
+        Box::pin(self.sync_init()).await?;
+        // Receipt must outlive each sync call so remote updates can wake this worker.
+        let _receipt = IncomingCoordinator::for_context(&self.client.context)
+            .acquire(IncomingScope::DeviceSyncGroups);
+        self.metrics.increment_metric(SyncMetric::Init);
+
+        // Keep pass futures off the containing worker poll stack.
+        Box::pin(self.run_internal()).await
+    }
+
+    /// Two independent passes: a failing receive cannot block the outbox,
+    /// and the reverse. A wake marks a pass due; the tick re-reads both.
+    async fn run_internal(&mut self) -> Result<(), DeviceSyncError> {
+        use futures::StreamExt;
+        let (base, jitter) = self
+            .client
+            .context
+            .worker_interval(WorkerKind::DeviceSync, Duration::from_secs(20));
+        let mut intervals = xmtp_common::time::jittered_interval_stream(base, jitter);
+        // Poll events while native startup jitter delays the first tick.
+        let mut skip_initial_tick = cfg!(not(target_arch = "wasm32"));
+        let subscription = self
+            .subscription
+            .as_ref()
+            .expect("runner installs subscription")
+            .clone();
+        {
+            let mut passes = self.passes.lock();
+            passes.inbox.restart();
+            passes.outbox.restart();
+        }
+        loop {
+            if self.passes.lock().inbox.is_due() {
+                let result = Box::pin(self.client.process_sync_group_messages()).await;
+                self.passes.lock().inbox.finish("receive", result)?;
+            }
+            if self.passes.lock().outbox.is_due() {
+                let result = Box::pin(self.client.publish_outbox()).await;
+                self.passes.lock().outbox.finish("publish", result)?;
+            }
+            let wait = {
+                let passes = self.passes.lock();
+                [passes.inbox.due, passes.outbox.due]
+                    .into_iter()
+                    .flatten()
+                    .min()
+                    .map(|at| at.saturating_duration_since(Instant::now()))
+            };
+            tokio::select! {
+                event = subscription.next() => {
+                    let Some(event) = event else { break; };
+                    match event.internal {
+                        Some(InternalEvent::MessageStored { is_sync: true, .. }) => {
+                            self.passes.lock().inbox.wake();
+                        }
+                        Some(InternalEvent::OutboxChanged) => self.passes.lock().outbox.wake(),
+                        _ => {}
+                    }
+                }
+                _ = xmtp_common::time::sleep(wait.unwrap_or_default()), if wait.is_some() => {}
+                _ = intervals.next() => {
+                    if skip_initial_tick {
+                        skip_initial_tick = false;
+                        continue;
+                    }
+                    self.passes.lock().inbox.wake();
+                    if has_owed(&self.client.db())? {
+                        self.passes.lock().outbox.wake();
+                    }
+                },
+            }
+        }
+        Ok(())
+    }
+
+    /// Initialize the sync group when the client is registered.
+    #[instrument(level = "trace", skip_all)]
+    async fn sync_init(&mut self) -> Result<(), DeviceSyncError> {
+        let Self { init, client, .. } = &self;
+
+        init.get_or_try_init(|| async {
+            log_event!(
+                Event::DeviceSyncInitializing,
+                self.client.context.installation_id()
+            );
+
+            // The only thing that sync init really does right now is ensures that there's a sync group.
+            if client.primary_sync_group()?.is_none() {
+                log_event!(
+                    Event::DeviceSyncNoPrimarySyncGroup,
+                    self.client.context.installation_id()
+                );
+                // Sync-group creation polls membership publication below this call.
+                let sync_group = Box::pin(client.get_sync_group()).await?;
+                log_event!(
+                    Event::DeviceSyncCreatedPrimarySyncGroup,
+                    self.client.context.installation_id(),
+                    group_id = sync_group.group_id
+                );
+            }
+
+            log_event!(
+                Event::DeviceSyncInitializingFinished,
+                self.client.context.installation_id()
+            );
+
+            Ok(())
+        })
+        .await
+        .copied()
+    }
+}
+
+/// The own inbox's installation set after each own identity update, in
+/// sequence order, with the update's server time.
+struct OwnTimeline {
+    steps: Vec<(i64, HashSet<Vec<u8>>)>,
+}
+
+enum Sender {
+    Member,
+    Gone,
+    NotYetKnown,
+}
+
+impl OwnTimeline {
+    /// Load the own inbox's identity updates from the network, then build the
+    /// timeline. The load also emits own-installation events, which cycle the
+    /// root key on a revocation.
+    async fn load(context: &impl XmtpSharedContext) -> Result<Self, DeviceSyncError> {
+        let db = context.db();
+        let inbox_id = context.inbox_id();
+        load_identity_updates_for_client(context, &db, &[inbox_id]).await?;
+        let updates = db.get_identity_updates(inbox_id, None, None)?;
+        // A cached prefix state is one read.
+        let mut states = vec![];
+        for update in &updates {
+            let Some(cached) = db.read_from_cache(inbox_id, update.sequence_id)? else {
+                break;
+            };
+            states.push(AssociationState::try_from(cached).map_err(StorageError::from)?);
+        }
+        // The rest are verified in one batch, folded from the last cached
+        // state, and cached.
+        let rest = &updates[states.len()..];
+        if !rest.is_empty() {
+            let unverified = rest
+                .iter()
+                .cloned()
+                .map(IdentityExt::to_unverified)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(IdentityUpdateError::from)?;
+            let verifier = context.scw_verifier();
+            let verified = verify_updates(unverified, &verifier)
+                .await
+                .map_err(IdentityUpdateError::from)?;
+            for (stored, update) in rest.iter().zip(verified) {
+                let state = update
+                    .update_state(states.last().cloned(), update.client_timestamp_ns)
+                    .map_err(IdentityUpdateError::from)?;
+                store_association_state(context, stored.sequence_id, &state)?;
+                states.push(state);
+            }
+        }
+        let steps = updates
+            .iter()
+            .zip(states)
+            .map(|(update, state)| {
+                let installations = state.installation_ids().into_iter().collect();
+                (update.server_timestamp_ns, installations)
+            })
+            .collect();
+        Ok(Self { steps })
+    }
+
+    // implements: SYNC-030
+    fn sender_status(&self, own_inbox: &str, msg: &StoredGroupMessage) -> Sender {
+        if msg.sender_inbox_id != own_inbox {
+            // Sync groups admit only the own inbox already.
+            return Sender::Gone;
+        }
+        let id = &msg.sender_installation_id;
+        // Up to the last update, in sequence order, that the backend timed at
+        // or before the message. Server times need not grow with sequence.
+        let n = self
+            .steps
+            .iter()
+            .rposition(|(at, _)| *at <= msg.sent_at_ns)
+            .map_or(0, |last| last + 1);
+        if n > 0 && self.steps[n - 1].1.contains(id) {
+            Sender::Member
+        } else if self.steps[..n].iter().any(|(_, set)| set.contains(id)) {
+            Sender::Gone
+        } else {
+            Sender::NotYetKnown
+        }
+    }
+}
+
+impl<Context> DeviceSyncClient<Context>
+where
+    Context: XmtpSharedContext,
+{
+    /// Apply every unprocessed sync message whose sender was an own
+    /// installation at its envelope time.
+    // implements: SYNC-016, SYNC-030
+    pub async fn process_sync_group_messages(&self) -> Result<(), DeviceSyncError> {
+        let mut after = None;
+        loop {
+            let page = self
+                .context
+                .db()
+                .unprocessed_sync_group_messages(after.as_ref())?;
+            let Some(last) = page.last() else {
+                return Ok(());
+            };
+            after = Some(SyncMessageKey::of(last));
+            tracing::info!("Processing {} messages.", page.len());
+            // The plaintext and its inner encoding can hold an HMAC root key.
+            // Both are wiped on every path, including skipped messages.
+            let page = with_plaintext(page);
+            // Every message in `page` was stored before this load, so the load
+            // holds every own identity update the backend timed at or before
+            // it, unless a lagging replica serves the read. A failure leaves
+            // every row Pending, and the pass backs off.
+            let own = OwnTimeline::load(&self.context).await?;
+            for (msg, plaintext) in page {
+                // Only this installation's own messages are not yet published,
+                // or failed for good; neither has an envelope time to judge.
+                match msg.delivery_status {
+                    DeliveryStatus::Unpublished => continue,
+                    DeliveryStatus::Failed => {
+                        self.context
+                            .db()
+                            .mark_device_sync_msg_as_processed(&msg.id)?;
+                        continue;
+                    }
+                    DeliveryStatus::Published => {}
+                }
+                match own.sender_status(self.context.inbox_id(), &msg) {
+                    Sender::Member => {}
+                    Sender::Gone => {
+                        tracing::warn!(
+                            group_id = msg.group_id.short_hex(),
+                            "dropping a sync message whose sender was not an own installation when it sent"
+                        );
+                        self.context
+                            .db()
+                            .mark_device_sync_msg_as_processed(&msg.id)?;
+                        continue;
+                    }
+                    // Its registration is not loaded yet: read it again later.
+                    Sender::NotYetKnown => continue,
+                }
+                if let Err(err) = self.apply_message(&msg, &plaintext) {
+                    // implements: SYNC-016 (a storage error leaves the row Pending for the next pass)
+                    // A failed message is non-fatal, but a dropped pool must stop the worker.
+                    if err.needs_db_reconnect() {
+                        return Err(err);
+                    }
+                    log_event!(
+                        Event::DeviceSyncMessageProcessingError,
+                        self.context.installation_id(),
+                        error = %err,
+                        message_id = #msg.id
+                    );
+                }
+            }
+        }
+    }
+
+    /// Apply one sync message and mark it processed, in one transaction.
+    /// Content this client does not support, such as older archive transfer
+    /// content, is marked processed.
+    pub(super) fn apply_message(
+        &self,
+        msg: &StoredGroupMessage,
+        plaintext: &[u8],
+    ) -> Result<(), DeviceSyncError> {
+        let content = decode_sync_message(plaintext);
+        let own = msg.sender_installation_id == self.installation_id().as_slice();
+        let updates = match &content {
+            Some(ReceivedContent(ContentProto::PreferenceUpdates(PreferenceUpdatesProto {
+                updates,
+            }))) => updates.as_slice(),
+            Some(ReceivedContent(ContentProto::Acknowledge(DeviceSyncAcknowledge { .. })))
+            | None => &[],
+        };
+        let msg_type = match &content {
+            Some(ReceivedContent(ContentProto::PreferenceUpdates(_))) => "PreferenceUpdates",
+            Some(ReceivedContent(ContentProto::Acknowledge(_))) => "Acknowledge",
+            None => "Unsupported",
+        };
+        log_event!(
+            Event::DeviceSyncProcessingMessages,
+            self.context.installation_id(),
+            msg_type,
+            external = !own,
+            message_id = #msg.id,
+            group_id = msg.group_id
+        );
+        if !own {
+            log_incoming_preference_updates(updates);
+        }
+        // implements: PROC-036
+        tracing::info!(update_count = updates.len(), "storing preference updates");
+        xmtp_mls_core::state_tx::state_write_with_events(
+            self.context.mls_storage(),
+            self.context.events(),
+            |tx, events| {
+                // Read in this write, so a sync Welcome commits wholly before
+                // or after it.
+                let selected = selected_sync_group_in(tx, self.context.inbox_id())?;
+                let storage = tx.storage();
+                let db = storage.db();
+                let applied =
+                    apply_preference_updates(&db, self.context.inbox_id(), msg, updates, selected)?;
+                emit_consent_changes(&self.context, events, &db, &applied.consent)?;
+                if let Some(marked) = applied.root_key {
+                    emit_root_key_changed(events, &db, marked)?;
+                }
+                db.mark_device_sync_msg_as_processed(&msg.id)?;
+                Ok::<_, xmtp_mls_engine::groups::GroupError>(Continue(()))
+            },
+        )?;
+        for update in updates.iter().filter_map(|update| update.update.as_ref()) {
+            if !own {
+                self.metrics.increment_metric(match update {
+                    super::PreferenceUpdateProto::Consent(_) => SyncMetric::ConsentReceived,
+                    super::PreferenceUpdateProto::Hmac(_) => SyncMetric::HmacReceived,
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::*;
+    use xmtp_mls_core::context::CoreContext;
+    use xmtp_mls_engine::groups::test_support::{
+        EngineTestPeer, message_rows::generate_stored_msg,
+    };
+
+    fn idle_worker<C: XmtpSharedContext + 'static>(context: C) -> SyncWorker<C> {
+        SyncWorker::new(context, None, SharedPasses::default())
+    }
+
+    /// A failed pass stays owed and waits out its backoff; a wake does not
+    /// cut the backoff short; a success clears it.
+    // verifies: SYNC-033
+    #[xmtp_common::test(unwrap_try = true)]
+    fn pass_backs_off_and_stays_owed() {
+        let mut pass = Pass::default();
+        pass.restart();
+        assert!(pass.is_due());
+        pass.finish("test", Err(DeviceSyncError::OutboxPageUnpublished))?;
+        assert_eq!(pass.failures, 1);
+        assert!(pass.due.is_some(), "a failed pass stays owed");
+        assert!(!pass.is_due());
+        pass.wake();
+        assert!(!pass.is_due(), "a wake does not cut a backoff short");
+        pass.finish("test", Err(DeviceSyncError::OutboxPageUnpublished))?;
+        assert_eq!(pass.failures, 2);
+        assert!(backoff(2) > backoff(1));
+        pass.finish("test", Ok(()))?;
+        assert_eq!((pass.due, pass.failures), (None, 0));
+        pass.wake();
+        assert!(pass.is_due());
+    }
+
+    /// A pass refused by a rate limit runs again only after the delay: a wake
+    /// or a tick does not cut it short, and neither does a worker rebuilt
+    /// after a reconnect, which shares the passes through the factory. A
+    /// refused publish and a refused own-identity read both wait.
+    // verifies: RATE-041
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_rate_limited_pass_waits_out_its_delay() {
+        let alix = EngineTestPeer::new().await;
+        let delay = Duration::from_secs(300);
+        let refused = |method| {
+            xmtp_api::ApiError::Api(xmtp_proto::api::NetworkError::new(
+                xmtp_api_grpc::error::GrpcError::Status(xmtp_api_grpc::error::rate_limited_status(
+                    method, delay,
+                )),
+            ))
+        };
+        let publish = DeviceSyncError::Group(xmtp_mls_engine::groups::GroupError::WrappedApi(
+            refused("publish"),
+        ));
+        let identity = DeviceSyncError::IdentityUpdate(
+            xmtp_mls_identity::identity_updates::IdentityUpdateError::Api(refused(
+                "get_identity_updates",
+            )),
+        );
+        for error in [&publish, &identity] {
+            assert_eq!(RetryableError::rate_limit_delay(error), Some(delay));
+        }
+        let factory = Factory {
+            context: alix.context.clone(),
+            passes: SharedPasses::default(),
+            metrics: Arc::new(WorkerMetrics::new(alix.context.installation_id())),
+        };
+        let before = Instant::now();
+        {
+            let mut passes = factory.passes.lock();
+            passes.outbox.finish("publish", Err(publish))?;
+            passes.inbox.finish("receive", Err(identity))?;
+        }
+        let _rebuilt = factory.create();
+        assert_eq!(
+            Arc::strong_count(&factory.passes),
+            2,
+            "a rebuilt worker shares the passes"
+        );
+        let mut guard = factory.passes.lock();
+        let passes = &mut *guard;
+        for pass in [&mut passes.outbox, &mut passes.inbox] {
+            pass.wake();
+            pass.restart();
+            assert!(!pass.is_due());
+            assert!(pass.due.unwrap() >= before + delay);
+        }
+    }
+
+    /// The sender of a sync message is judged at its envelope time against
+    /// the own identity history.
+    // verifies: SYNC-030
+    #[xmtp_common::test]
+    fn sender_is_judged_at_the_envelope_time() {
+        let set = |ids: &[u8]| ids.iter().map(|id| vec![*id]).collect::<HashSet<_>>();
+        let timeline = OwnTimeline {
+            steps: vec![(10, set(&[1])), (20, set(&[1, 2])), (30, set(&[2]))],
+        };
+        let message = |inbox: &str, installation: u8, sent_at_ns| StoredGroupMessage {
+            sender_inbox_id: inbox.into(),
+            sender_installation_id: vec![installation],
+            sent_at_ns,
+            ..generate_stored_msg(
+                xmtp_proto::types::Cursor(1),
+                xmtp_proto::types::GroupId::from([1; 16]),
+            )
+        };
+        // The backend's clock stepped back: 3 is revoked at 60, then an
+        // update is timed at 50.
+        let stepped_back = OwnTimeline {
+            steps: vec![(40, set(&[3])), (60, set(&[4])), (50, set(&[4]))],
+        };
+        for (at, expected) in [(45, "member"), (55, "gone")] {
+            let status = match stepped_back.sender_status("me", &message("me", 3, at)) {
+                Sender::Member => "member",
+                Sender::Gone => "gone",
+                Sender::NotYetKnown => "not yet known",
+            };
+            assert_eq!(status, expected, "3 at {at} after the step back");
+        }
+        for (inbox, installation, at, expected) in [
+            ("me", 1, 15, "member"),
+            // Sent before its revocation at 30: applied, whenever it is processed.
+            ("me", 1, 29, "member"),
+            ("me", 1, 30, "gone"),
+            ("me", 2, 15, "not yet known"),
+            ("me", 2, 20, "member"),
+            ("me", 3, 40, "not yet known"),
+            ("other", 1, 15, "gone"),
+        ] {
+            let status = match timeline.sender_status("me", &message(inbox, installation, at)) {
+                Sender::Member => "member",
+                Sender::Gone => "gone",
+                Sender::NotYetKnown => "not yet known",
+            };
+            assert_eq!(status, expected, "{inbox} {installation} at {at}");
+        }
+    }
+
+    /// A timeline built from the cache and one verified pass gives each
+    /// prefix the state the resolver gives it, and caches each one.
+    // verifies: SYNC-030
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn timeline_states_match_each_prefix() {
+        use diesel::prelude::*;
+        use xmtp_db::{ConnectionExt, schema::association_state::dsl};
+        let alix1 = EngineTestPeer::new().await;
+        let alix2 = alix1.new_installation().await;
+        let alix3 = alix1.new_installation().await;
+        let db = alix1.context.db();
+        let inbox_id = alix1.context.inbox_id();
+        load_identity_updates_for_client(&alix1.context, &db, &[inbox_id]).await?;
+        let updates = db.get_identity_updates(inbox_id, None, None)?;
+        assert!(updates.len() >= 3);
+        let mut expected = vec![];
+        for update in &updates {
+            let state = xmtp_mls_identity::identity_updates::IdentityUpdates::new(&alix1.context)
+                .get_association_state(&db, inbox_id, Some(update.sequence_id))
+                .await?;
+            let installations: HashSet<_> = state.installation_ids().into_iter().collect();
+            expected.push((update.server_timestamp_ns, installations));
+        }
+        // Only the first prefix stays cached, so the fold starts from it.
+        db.raw_query(|conn| {
+            diesel::delete(
+                dsl::association_state.filter(dsl::sequence_id.gt(updates[0].sequence_id)),
+            )
+            .execute(conn)
+        })?;
+        let timeline = OwnTimeline::load(&alix1.context).await?;
+        assert_eq!(timeline.steps, expected);
+        for update in &updates {
+            assert!(db.read_from_cache(inbox_id, update.sequence_id)?.is_some());
+        }
+        drop((alix2, alix3));
+    }
+
+    /// Closing the subscription stops the worker after its owed passes.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn closing_subscription_stops_worker() {
+        let alix = EngineTestPeer::new().await;
+        let mut worker = idle_worker(alix.context.clone());
+        let (filter, depth) = SyncWorker::factory(alix.context.clone())
+            .event_interest()
+            .unwrap();
+        let subscription = Arc::new(alix.context.events().subscribe(filter, depth));
+        worker.set_subscription(subscription.clone());
+        subscription.close();
+        xmtp_common::time::timeout(Duration::from_secs(60), worker.run_internal()).await??;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SyncWorker;
+    use xmtp_events::{EventBus, EventWriter};
+    use xmtp_mls_core::context::test_support::mock_context;
+    use xmtp_mls_core::events::InternalEvent;
+    use xmtp_mls_core::worker::{NewWorker, WorkerFactory, WorkerKind};
+    use xmtp_mls_engine::groups::test_support::{EngineTestFeatures, MockEngineContext};
+
+    /// The sync worker's event interest, as the runner subscribes with it.
+    fn worker_event_filter(
+        kind: WorkerKind,
+    ) -> Option<(xmtp_events::EventFilter<InternalEvent>, Option<usize>)> {
+        let factory =
+            SyncWorker::<MockEngineContext>::factory(mock_context::<EngineTestFeatures>());
+        assert_eq!(factory.kind(), kind);
+        factory.event_interest()
+    }
+
+    /// The outbox and the sync messages are stored state; the worker wakes
+    /// only for them, and never drops a wake while busy.
+    // verifies: SYNC-029
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn device_sync_wakes_for_sync_messages_and_the_outbox() {
+        let (filter, depth) = worker_event_filter(WorkerKind::DeviceSync).unwrap();
+        assert_eq!(depth, None);
+        let bus = EventBus::new();
+        let subscription = bus.subscribe(filter, depth);
+        let group_id = xmtp_proto::types::GroupId::from([9; 16]);
+        let stored = |is_sync| InternalEvent::MessageStored {
+            group_id,
+            message_id: vec![],
+            expires_at_ns: None,
+            is_sync,
+        };
+        for event in [
+            InternalEvent::PreferencesChanged { updates: vec![] },
+            InternalEvent::GroupJoined {
+                group_id,
+                is_sync: true,
+            },
+            stored(false),
+        ] {
+            bus.emit(None, Some(event));
+        }
+        assert!(subscription.drain().is_empty());
+        for _ in 0..1_000 {
+            bus.emit(None, Some(InternalEvent::OutboxChanged));
+        }
+        bus.emit(None, Some(stored(true)));
+        assert_eq!(subscription.drain().len(), 1_001);
+    }
+}

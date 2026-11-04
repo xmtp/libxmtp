@@ -307,12 +307,15 @@ xmtp_macro = { path = "crates/xmtp_macro" }
 xmtp_mls = { path = "crates/xmtp_mls" }
 xmtp_mls_attachments = { path = "crates/xmtp_mls_attachments" }
 xmtp_mls_core = { path = "crates/xmtp_mls_core" }
+xmtp_mls_device_sync = { path = "crates/xmtp_mls_device_sync" }
 xmtp_mls_engine = { path = "crates/xmtp_mls_engine" }
 xmtp_mls_group_keys = { path = "crates/xmtp_mls_group_keys" }
 xmtp_mls_group_state = { path = "crates/xmtp_mls_group_state" }
 xmtp_mls_identity = { path = "crates/xmtp_mls_identity" }
 xmtp_mls_messages = { path = "crates/xmtp_mls_messages" }
+xmtp_mls_notifications = { path = "crates/xmtp_mls_notifications" }
 xmtp_mls_server_config = { path = "crates/xmtp_mls_server_config" }
+xmtp_mls_streams = { path = "crates/xmtp_mls_streams" }
 xmtp_mls_tls_collections = { path = "crates/xmtp_mls_tls_collections" }
 xmtp_mls_validation = { path = "crates/xmtp_mls_validation" }
 xmtp_proto = { path = "crates/xmtp_proto" }

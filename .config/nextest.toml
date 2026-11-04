@@ -32,7 +32,7 @@ path = "junit.xml"
 # first matching override wins.
 [[profile.ci.overrides]]
 platform = 'cfg(all(target_family = "wasm", target_os = "unknown"))'
-filter = 'package(xmtp_mls) & test(/^subscriptions::watchdog::tests::(new_uses_a_real_timer|disabled_watchdog_never_trips)$/)'
+filter = 'package(xmtp_mls_streams) & test(/^watchdog::tests::(new_uses_a_real_timer|disabled_watchdog_never_trips)$/)'
 slow-timeout = { period = "20s", terminate-after = 2, grace-period = "5s" }
 retries = 2
 

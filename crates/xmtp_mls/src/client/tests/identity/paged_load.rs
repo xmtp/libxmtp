@@ -6,13 +6,13 @@ use crate::context::XmtpSharedContext;
 use crate::identity_updates::load_identity_updates;
 use crate::identity_updates::test_support::{IdentityScript, ScriptedIdentity};
 use crate::prelude::*;
-use crate::subscriptions::policy::StreamPolicy;
 use crate::tester;
 use parking_lot::Mutex;
 use std::sync::Arc;
 use tokio::sync::Notify;
 use xmtp_events::{ClientEvent, EventFilter, EventKind};
 use xmtp_id::associations::test_utils::add_wallet_signature;
+use xmtp_mls_core::policy::StreamPolicy;
 
 type ScriptedContext = Arc<
     crate::context::XmtpMlsLocalContext<

@@ -1,3 +1,9 @@
+pub use crate::core::config::DeviceSync;
+use crate::subscriptions::catch_up::{CatchUpError, CatchUpSummary};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::subscriptions::router_callbacks::{self, ApiClientIdentity};
+#[cfg(any(test, feature = "test-utils"))]
+use crate::subscriptions::stream_messages::stream_stats::StreamWithStats;
 use crate::{
     attachments::Attachments,
     context::XmtpSharedContext,
@@ -21,13 +27,6 @@ use crate::{
     worker::device_sync::{DeviceSyncClient, worker::SyncMetric},
     worker::{WorkerRunner, metrics::WorkerMetrics},
 };
-pub mod notifications;
-pub use crate::core::config::DeviceSync;
-use crate::subscriptions::catch_up::{CatchUpError, CatchUpSummary};
-#[cfg(not(target_arch = "wasm32"))]
-use crate::subscriptions::router_callbacks::{self, ApiClientIdentity};
-#[cfg(any(test, feature = "test-utils"))]
-use crate::subscriptions::stream_messages::stream_stats::StreamWithStats;
 use crate::{
     core::events::PreferenceUpdate,
     subscriptions::{self, SubscribeError},
@@ -88,6 +87,7 @@ use xmtp_mls_group_state::{
     group_metadata::DmMembers,
     group_mutable_metadata::MessageDisappearingSettings,
 };
+pub use xmtp_mls_notifications::client as notifications;
 #[cfg(not(target_arch = "wasm32"))]
 use xmtp_proto::api_client::XmtpMlsBidiStreams;
 use xmtp_proto::api_client::XmtpMlsStreams;

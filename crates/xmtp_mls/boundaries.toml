@@ -12,14 +12,10 @@ source = "crates/xmtp_mls/src"
 "" = "facade"
 "builder" = "facade"
 "client" = "facade"
-"client::notifications" = "notifications"
 "definitions" = "facade"
 "diagnostics" = "facade"
-"subscriptions" = "streams"
 "test" = "facade"
 "utils" = "facade"
-"worker::device_sync" = "device_sync"
-"worker::notifications" = "notifications"
 
 # The Target crates table: each crate and the crates it may depend on.
 [allowed]

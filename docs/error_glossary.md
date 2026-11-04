@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**43 error types** across **15 crates** with **446 total error codes**.
+**43 error types** across **18 crates** with **446 total error codes**.
 
 ## xmtp_api
 
@@ -387,14 +387,6 @@ Stable failure categories. Inner causes remain available to Rust callers.
 
 ## xmtp_mls
 
-### CatchUpError <sub>enum</sub>
-
-<small>`crates/xmtp_mls/src/subscriptions/catch_up.rs`</small>
-
-| Error Code | Description |
-|:-----------|:------------|
-| `CatchUpError::Incomplete` | Fixed targets remain unfinished. Partial committed progress is retained. May be retryable. |
-
 ### ClientBuilderError <sub>enum</sub>
 
 <small>`crates/xmtp_mls/src/builder.rs`</small>
@@ -446,82 +438,6 @@ Stable failure categories. Inner causes remain available to Rust callers.
 | `ClientError::ChainNotAccepted` | Chain not accepted. The backend does not verify smart contract wallet signatures on this chain. Not retryable — use a chain the deployment accepts. |
 | `ClientError::InvalidListOptions` | Invalid list options. A conversation listing named a limit below 1 or above the maximum page size, a before conversation id without the before time of its list order, or sync or one-shot groups. Not retryable — fix the options. |
 
-### DeviceSyncError <sub>enum</sub>
-
-<small>`crates/xmtp_mls/src/worker/device_sync/mod.rs`</small>
-
-| Error Code | Description |
-|:-----------|:------------|
-| `DeviceSyncError::IO` | I/O error. File system or network I/O failed. May be retryable. |
-| `DeviceSyncError::Serde` | Serialization error. JSON serialization/deserialization failed. Retryable. |
-| `DeviceSyncError::AesGcm` | AES-GCM encryption error. Encryption/decryption of sync payload failed. Retryable. |
-| `DeviceSyncError::Conversion` | Type conversion error. Internal type conversion failed. Retryable. |
-| `DeviceSyncError::UTF8` | UTF-8 error. String is not valid UTF-8. Retryable. |
-| `DeviceSyncError::InvalidPayload` | Invalid payload. Sync message payload is malformed. Retryable. |
-| `DeviceSyncError::UnspecifiedDeviceSyncKind` | Unspecified sync kind. Device sync kind not specified. Not retryable. |
-| `DeviceSyncError::Archive` | Archive error. Sync archive operation failed. Retryable. |
-| `DeviceSyncError::Decode` | Decode error. Protobuf decoding failed. Retryable. |
-| `DeviceSyncError::MissingSyncGroup` | Missing sync group. Sync group not found. Not retryable. |
-| `DeviceSyncError::Sync` | Sync summary. Sync completed with errors. May be retryable. |
-| `DeviceSyncError::MlsStore` | MLS store error. OpenMLS key store operation failed. Retryable. |
-| `DeviceSyncError::Recv` | Receive error. Channel receive failed. Retryable. |
-| `DeviceSyncError::MissingField` | Missing field. Required field not present. Retryable. |
-| `DeviceSyncError::OutboxPageUnpublished` | Outbox page unpublished. A queued sync message is not published yet; its values stay owed and the outbox retries. Retryable. |
-
-### LocalDeliveryError <sub>enum</sub>
-
-<small>`crates/xmtp_mls/src/subscriptions/local_delivery/types.rs`</small>
-
-| Error Code | Description |
-|:-----------|:------------|
-| `LocalDeliveryError::EnrichedMessageUnavailable` | The retained item has no decoded message. Not retryable. |
-| `LocalDeliveryError::NetworkRecoveryExhausted` | This stream exhausted its network retry budget. Not retryable; a new stream may retry. |
-| `LocalDeliveryError::NetworkFailure` | A terminal network error stopped this stream. A transient configuration admission failure may be retried by opening a new reader. |
-| `LocalDeliveryError::AcknowledgementRejected` | The callback failed or its token was dropped before acknowledgement. Not retryable. |
-| `LocalDeliveryError::AcknowledgementFailed` | A previous acknowledgement write failed. Reopen to retry delivery. Not retryable. |
-| `LocalDeliveryError::SelectionChanged` | Scope, filters, or retained content changed before dispatch. Reselect without acknowledgement. |
-| `LocalDeliveryError::InvalidConfiguration` | The batch or timing settings cannot maintain a valid consumer lease. Not retryable. |
-| `LocalDeliveryError::Closed` | This reader has been closed. Not retryable. |
-
-### NotificationError <sub>enum</sub>
-
-<small>`crates/xmtp_mls/src/client/notifications.rs`</small>
-
-Errors use fixed messages and never include notification credentials.
-
-| Error Code | Description |
-|:-----------|:------------|
-| `NotificationError::TaskRunnerDisabled` | The task runner is disabled. Not retryable. |
-| `NotificationError::PermissionDenied` | The recipient credential was rejected. Not retryable. |
-| `NotificationError::InvalidArgument` | The delivery configuration is invalid. Not retryable. |
-| `NotificationError::OutOfRange` | A notification value is outside the allowed range. Not retryable. |
-| `NotificationError::Unimplemented` | The backend does not support notifications. Not retryable. |
-| `NotificationError::ChannelNotConfigured` | The delivery channel is not configured. Not retryable. |
-| `NotificationError::ResourceExhausted` | The recipient topic limit was reached. Retry after the desired set changes. |
-| `NotificationError::RequestTimeout` | The notification request exceeded its time limit. Retryable. |
-| `NotificationError::NotFound` | The recipient must register again. Retryable. |
-
-### SubscribeError <sub>enum</sub>
-
-<small>`crates/xmtp_mls/src/subscriptions/mod.rs`</small>
-
-| Error Code | Description |
-|:-----------|:------------|
-| `SubscribeError::Transport` | The shared native transport failed. May be retryable. |
-| `SubscribeError::Group` | Group error. Group operation failed during subscription. May be retryable. |
-| `SubscribeError::NotFound` | Not found. Subscribed resource not found. Retryable. |
-| `SubscribeError::GroupMessageNotFound` | Group message not found. Expected message missing from database. Retryable. |
-| `SubscribeError::ReceiveGroup` | Receive group error. Processing streamed group message failed. May be retryable. |
-| `SubscribeError::Storage` | Storage error. Database operation failed. May be retryable. |
-| `SubscribeError::Decode` | Decode error. Protobuf decoding failed. Not retryable. |
-| `SubscribeError::ApiClient` | API client error. Network request failed. Retryable. |
-| `SubscribeError::BoxError` | Boxed error. Wrapped dynamic error. May be retryable. |
-| `SubscribeError::Db` | Database connection error. Database connection failed. Retryable. |
-| `SubscribeError::Conversion` | Conversion error. Proto conversion failed. Not retryable. |
-| `SubscribeError::Envelope` | Envelope error. Invalid backend envelope. Not retryable. |
-| `SubscribeError::Enriched` | Enriched Message Error. |
-| `SubscribeError::StreamStale` | Stream liveness watchdog tripped. No activity arrived within the idle timeout, so the stream was terminated to force a reconnect (resuming from the persisted cursor). Retryable. |
-
 ## xmtp_mls_core
 
 ### IdentityError <sub>enum</sub>
@@ -549,6 +465,30 @@ Errors use fixed messages and never include notification credentials.
 | `IdentityError::InvalidExtension` | Invalid extension error. MLS extension validation failed. Not retryable. |
 | `IdentityError::MissingPostQuantumPublicKey` | Missing PQ public key. Post-quantum public key not found. Not retryable. |
 | `IdentityError::UninitializedField` | Uninitialized field. Builder field not initialized. Not retryable. |
+
+## xmtp_mls_device_sync
+
+### DeviceSyncError <sub>enum</sub>
+
+<small>`crates/xmtp_mls_device_sync/src/lib.rs`</small>
+
+| Error Code | Description |
+|:-----------|:------------|
+| `DeviceSyncError::IO` | I/O error. File system or network I/O failed. May be retryable. |
+| `DeviceSyncError::Serde` | Serialization error. JSON serialization/deserialization failed. Retryable. |
+| `DeviceSyncError::AesGcm` | AES-GCM encryption error. Encryption/decryption of sync payload failed. Retryable. |
+| `DeviceSyncError::Conversion` | Type conversion error. Internal type conversion failed. Retryable. |
+| `DeviceSyncError::UTF8` | UTF-8 error. String is not valid UTF-8. Retryable. |
+| `DeviceSyncError::InvalidPayload` | Invalid payload. Sync message payload is malformed. Retryable. |
+| `DeviceSyncError::UnspecifiedDeviceSyncKind` | Unspecified sync kind. Device sync kind not specified. Not retryable. |
+| `DeviceSyncError::Archive` | Archive error. Sync archive operation failed. Retryable. |
+| `DeviceSyncError::Decode` | Decode error. Protobuf decoding failed. Retryable. |
+| `DeviceSyncError::MissingSyncGroup` | Missing sync group. Sync group not found. Not retryable. |
+| `DeviceSyncError::Sync` | Sync summary. Sync completed with errors. May be retryable. |
+| `DeviceSyncError::MlsStore` | MLS store error. OpenMLS key store operation failed. Retryable. |
+| `DeviceSyncError::Recv` | Receive error. Channel receive failed. Retryable. |
+| `DeviceSyncError::MissingField` | Missing field. Required field not present. Retryable. |
+| `DeviceSyncError::OutboxPageUnpublished` | Outbox page unpublished. A queued sync message is not published yet; its values stay owed and the outbox retries. Retryable. |
 
 ## xmtp_mls_engine
 
@@ -697,6 +637,26 @@ A failure to read, verify, build, or publish identity updates.
 | Error Code | Description |
 |:-----------|:------------|
 
+## xmtp_mls_notifications
+
+### NotificationError <sub>enum</sub>
+
+<small>`crates/xmtp_mls_notifications/src/client.rs`</small>
+
+Errors use fixed messages and never include notification credentials.
+
+| Error Code | Description |
+|:-----------|:------------|
+| `NotificationError::TaskRunnerDisabled` | The task runner is disabled. Not retryable. |
+| `NotificationError::PermissionDenied` | The recipient credential was rejected. Not retryable. |
+| `NotificationError::InvalidArgument` | The delivery configuration is invalid. Not retryable. |
+| `NotificationError::OutOfRange` | A notification value is outside the allowed range. Not retryable. |
+| `NotificationError::Unimplemented` | The backend does not support notifications. Not retryable. |
+| `NotificationError::ChannelNotConfigured` | The delivery channel is not configured. Not retryable. |
+| `NotificationError::ResourceExhausted` | The recipient topic limit was reached. Retry after the desired set changes. |
+| `NotificationError::RequestTimeout` | The notification request exceeded its time limit. Retryable. |
+| `NotificationError::NotFound` | The recipient must register again. Retryable. |
+
 ## xmtp_mls_server_config
 
 ### BlockedConnection <sub>enum</sub>
@@ -722,6 +682,52 @@ Why resolving, fetching, or storing the server configuration failed.
 | `ServerConfigError::Unavailable` | Server configuration unavailable. The backend did not serve its configuration, or the answer could not be stored. Retryable exactly when the wrapped failure is. |
 | `ServerConfigError::Invalid` | Server configuration invalid. The backend published a configuration this client cannot use. Not retryable. |
 | `ServerConfigError::Closed` | Client is closed. The client shut down before a deferred configuration check or an explicit refresh finished. Not retryable. |
+
+## xmtp_mls_streams
+
+### CatchUpError <sub>enum</sub>
+
+<small>`crates/xmtp_mls_streams/src/catch_up.rs`</small>
+
+| Error Code | Description |
+|:-----------|:------------|
+| `CatchUpError::Incomplete` | Fixed targets remain unfinished. Partial committed progress is retained. May be retryable. |
+
+### LocalDeliveryError <sub>enum</sub>
+
+<small>`crates/xmtp_mls_streams/src/local_delivery/types.rs`</small>
+
+| Error Code | Description |
+|:-----------|:------------|
+| `LocalDeliveryError::EnrichedMessageUnavailable` | The retained item has no decoded message. Not retryable. |
+| `LocalDeliveryError::NetworkRecoveryExhausted` | This stream exhausted its network retry budget. Not retryable; a new stream may retry. |
+| `LocalDeliveryError::NetworkFailure` | A terminal network error stopped this stream. A transient configuration admission failure may be retried by opening a new reader. |
+| `LocalDeliveryError::AcknowledgementRejected` | The callback failed or its token was dropped before acknowledgement. Not retryable. |
+| `LocalDeliveryError::AcknowledgementFailed` | A previous acknowledgement write failed. Reopen to retry delivery. Not retryable. |
+| `LocalDeliveryError::SelectionChanged` | Scope, filters, or retained content changed before dispatch. Reselect without acknowledgement. |
+| `LocalDeliveryError::InvalidConfiguration` | The batch or timing settings cannot maintain a valid consumer lease. Not retryable. |
+| `LocalDeliveryError::Closed` | This reader has been closed. Not retryable. |
+
+### SubscribeError <sub>enum</sub>
+
+<small>`crates/xmtp_mls_streams/src/lib.rs`</small>
+
+| Error Code | Description |
+|:-----------|:------------|
+| `SubscribeError::Transport` | The shared native transport failed. May be retryable. |
+| `SubscribeError::Group` | Group error. Group operation failed during subscription. May be retryable. |
+| `SubscribeError::NotFound` | Not found. Subscribed resource not found. Retryable. |
+| `SubscribeError::GroupMessageNotFound` | Group message not found. Expected message missing from database. Retryable. |
+| `SubscribeError::ReceiveGroup` | Receive group error. Processing streamed group message failed. May be retryable. |
+| `SubscribeError::Storage` | Storage error. Database operation failed. May be retryable. |
+| `SubscribeError::Decode` | Decode error. Protobuf decoding failed. Not retryable. |
+| `SubscribeError::ApiClient` | API client error. Network request failed. Retryable. |
+| `SubscribeError::BoxError` | Boxed error. Wrapped dynamic error. May be retryable. |
+| `SubscribeError::Db` | Database connection error. Database connection failed. Retryable. |
+| `SubscribeError::Conversion` | Conversion error. Proto conversion failed. Not retryable. |
+| `SubscribeError::Envelope` | Envelope error. Invalid backend envelope. Not retryable. |
+| `SubscribeError::Enriched` | Enriched Message Error. |
+| `SubscribeError::StreamStale` | Stream liveness watchdog tripped. No activity arrived within the idle timeout, so the stream was terminated to force a reconnect (resuming from the persisted cursor). Retryable. |
 
 ## xmtp_mls_validation
 

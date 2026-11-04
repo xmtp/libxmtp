@@ -14,6 +14,8 @@ use xmtp_id::associations::AssociationState;
 use xmtp_mls_core::context::{CoreContext, test_support::MockContext};
 use xmtp_mls_core::events::InternalEvent;
 use xmtp_mls_core::policy::StreamPolicy;
+/// The identity test peer that engine peers build on.
+pub use xmtp_mls_identity::identity_lifecycle::test_support::{PeerApi, PeerFeatures, TestPeer};
 #[cfg(all(test, not(target_arch = "wasm32")))]
 use xmtp_mls_identity::identity_updates::IdentityUpdates;
 pub mod crafted_welcome;
@@ -44,9 +46,7 @@ use xmtp_mls_group_state::{
     group::{DMMetadataOptions, GroupMetadataOptions},
     group_metadata::DmMembers,
 };
-use xmtp_mls_identity::identity_lifecycle::test_support::{
-    PeerApi, PeerContext, PeerFeatures, TestPeer,
-};
+use xmtp_mls_identity::identity_lifecycle::test_support::PeerContext;
 use xmtp_mls_identity::identity_updates::{IdentityFeatures, IdentityResolutionRegistry};
 use xmtp_proto::types::{Cursor, GroupId, GroupMessage, Topic};
 
@@ -101,7 +101,7 @@ impl PeerFeatures<PeerApi> for EngineTestFeatures {
 impl EngineTestFeatures {
     /// The features of a context over a query-only API client: no streaming
     /// receiver, as a client build over `ClientBuilder::api_client` has.
-    pub(crate) fn query_only(policy: &StreamPolicy, own_inbox_stored_through: Option<i64>) -> Self {
+    pub fn query_only(policy: &StreamPolicy, own_inbox_stored_through: Option<i64>) -> Self {
         Self {
             incoming: Arc::new(IncomingRuntime::new(policy.clone(), None)),
             identity_resolutions: Arc::new(IdentityResolutionRegistry::starting_after(
