@@ -32,7 +32,7 @@ use xmtp_proto::{
     xmtp::mls::database::{NotificationSync, Task, task::Task as TaskKind},
 };
 
-const RETRY_NS: i64 = 60 * NS_IN_SEC;
+pub(crate) const RETRY_NS: i64 = 60 * NS_IN_SEC;
 
 /// The two logical deadlines owned by the single durable task.
 #[derive(Default, Serialize, Deserialize)]

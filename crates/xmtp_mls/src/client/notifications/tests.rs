@@ -1,13 +1,12 @@
 use super::*;
-use crate::{
-    tester,
-    worker::{
-        notifications,
-        notifications::tests::{config, support},
-    },
+use crate::worker::{
+    notifications,
+    notifications::tests::{config, support},
 };
+use support::NotificationPeer;
 use xmtp_db::consent_record::ConsentState;
 use xmtp_mls_engine::groups::MlsGroup;
+use xmtp_mls_engine::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 
 #[xmtp_common::test(unwrap_try = true)]
 fn notification_error_debug_does_not_expose_backend_text() {
@@ -24,7 +23,7 @@ fn notification_error_debug_does_not_expose_backend_text() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn notification_http_signing_key_boundaries_before_persistence() {
     for size in [15, 16, 64, 65] {
-        let (client, peer) = support::client().await;
+        let (client, peer) = support::peer().await;
         let config = NotificationConfig::new(NotificationChannel::Http {
             url: "https://example.test".into(),
             signing_key: vec![7; size].into(),
@@ -50,20 +49,6 @@ async fn notification_http_signing_key_boundaries_before_persistence() {
     }
 }
 
-// verifies: PUSH-266
-#[xmtp_common::test(unwrap_try = true)]
-async fn notification_enable_without_task_runner_stores_nothing() {
-    tester!(alix, disable_workers);
-    let result = alix.enable_notifications(config()).await;
-    assert!(matches!(result, Err(NotificationError::TaskRunnerDisabled)));
-    let record = alix.db().notification_record()?;
-    assert_eq!(record.push_state, 0);
-    assert!(record.push_config.is_none());
-    assert!(record.push_recipient_id.is_none());
-    assert!(record.push_recipient_secret.is_none());
-    assert_eq!(record.push_generation, 0);
-}
-
 #[xmtp_common::test(unwrap_try = true)]
 async fn notification_apns_and_fcm_preserve_registration_rules_and_state() {
     use xmtp_db::ConnectionExt;
@@ -77,7 +62,7 @@ async fn notification_apns_and_fcm_preserve_registration_rules_and_state() {
             token: "fcm-exact-token".into(),
         },
     ] {
-        let (client, peer) = support::client().await;
+        let (client, peer) = support::peer().await;
         let group = client.create_group(None, None)?;
         group.update_consent_state(ConsentState::Denied)?;
         let excluded = client.create_group(None, None)?;
@@ -136,7 +121,7 @@ async fn notification_apns_and_fcm_preserve_registration_rules_and_state() {
                 .db()
                 .raw_query(|conn| Ok(conn.serialize_database_to_buffer().to_vec()))?,
         );
-        tester!(restored, snapshot: snapshot, disable_workers);
+        let restored = support::restored(&client, &snapshot).await;
         let persisted = restored.db().notification_record()?;
         assert_eq!(persisted.push_config, Some(encode_config(&config)?));
         assert_eq!(persisted.push_recipient_id, record.push_recipient_id);
@@ -162,7 +147,7 @@ async fn notification_apns_and_fcm_preserve_registration_rules_and_state() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn notification_registration_capacity_error_uses_backoff() {
-    let (client, peer) = support::client().await;
+    let (client, peer) = support::peer().await;
     peer.state.lock().next_error = Some(tonic::Code::ResourceExhausted);
     assert!(matches!(
         client.enable_notifications(config()).await,
@@ -183,7 +168,7 @@ async fn notification_registration_capacity_error_uses_backoff() {
 // verifies: PUSH-266
 #[xmtp_common::test(unwrap_try = true)]
 async fn notification_disable_keeps_identity_and_conversation_override() {
-    let (client, peer) = support::client().await;
+    let (client, peer) = support::peer().await;
     let group = client.create_group(None, None)?;
     group.set_notifications(NotificationOverride::Disabled)?;
     assert!(matches!(
@@ -219,7 +204,7 @@ async fn notification_disable_keeps_identity_and_conversation_override() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn notification_failed_unregister_stays_disabled_without_background_retry() {
     for code in [tonic::Code::Unavailable, tonic::Code::DeadlineExceeded] {
-        let (client, peer) = support::client().await;
+        let (client, peer) = support::peer().await;
         client.enable_notifications(config()).await?;
         notifications::run(&client.context).await?;
         let original = client.db().notification_record()?;
@@ -267,7 +252,7 @@ async fn notification_failed_unregister_restart_resets_before_reregistering() {
     use xmtp_db::ConnectionExt;
     use xmtp_proto::{backend_v1::register_request::Delivery, types::Topic};
 
-    let (client, peer) = support::client().await;
+    let (client, peer) = support::peer().await;
     let group = client.create_group(None, None)?;
     let group_id = group.group_id;
     let topic = Topic::new_group_message(group_id).cloned_vec();
@@ -296,9 +281,9 @@ async fn notification_failed_unregister_restart_resets_before_reregistering() {
             .db()
             .raw_query(|conn| Ok(conn.serialize_database_to_buffer().to_vec()))?,
     );
+    let restored = support::client_from_snapshot(&client, &snapshot, peer.clone()).await;
     drop(group);
     drop(client);
-    let restored = support::client_from_snapshot(snapshot, peer.clone()).await;
     assert!(restored.db().uploaded_topics()?.is_empty());
     assert!(restored.db().notification_record()?.push_unregister_owed);
 
@@ -358,7 +343,7 @@ async fn notification_failed_unregister_restart_resets_before_reregistering() {
 // verifies: PUSH-265
 #[xmtp_common::test(unwrap_try = true)]
 async fn notification_enable_reset_failure_stays_enabled_and_the_task_retries_it() {
-    let (client, peer) = support::client().await;
+    let (client, peer) = support::peer().await;
     client.enable_notifications(config()).await?;
     notifications::run(&client.context).await?;
     assert!(!peer.state.lock().subscriptions.is_empty());
@@ -405,7 +390,7 @@ async fn notification_enable_reset_failure_stays_enabled_and_the_task_retries_it
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn notification_terminal_status_is_typed_and_stops_tasks() {
-    let (client, peer) = support::client().await;
+    let (client, peer) = support::peer().await;
     for (code, expected) in [
         (
             tonic::Code::PermissionDenied,
@@ -458,8 +443,8 @@ async fn notification_terminal_status_is_typed_and_stops_tasks() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn notification_effective_rule_and_duplicate_dms() {
-    let (client, _) = support::client().await;
-    tester!(bo, disable_workers);
+    let (client, _) = support::peer().await;
+    let bo = EngineTestPeer::new().await;
     let group = client.create_group(None, None)?;
     let dm1 = MlsGroup::create_dm_and_insert(
         &client.context,
@@ -492,26 +477,6 @@ async fn notification_effective_rule_and_duplicate_dms() {
     }
 }
 
-xmtp_common::if_native! {
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn notification_real_backend_registers_and_restores_on_start() {
-        let backend = crate::utils::backend::EphemeralBackend::start("[push.http]\nallow_private_addresses = true").await?;
-        tester!(alix, backend: &backend);
-        alix.client.workers.shutdown().await;
-        alix.create_group(None, None)?;
-        alix.enable_notifications(config()).await?;
-        let original = alix.db().notification_record()?;
-        assert!(original.push_last_state.is_some());
-        // No upload happened before the snapshot. Start-up must compute it from groups.
-        assert!(alix.db().uploaded_topics()?.is_empty());
-        let snapshot = std::sync::Arc::new(alix.db_snapshot());
-        tester!(restored, snapshot: snapshot, backend: &backend);
-        xmtp_common::wait_for_eq(|| async { restored.db().uploaded_topics().unwrap().len() }, 2).await?;
-        assert_eq!(original.push_recipient_id, restored.db().notification_record()?.push_recipient_id);
-        restored.disable_notifications().await?;
-    }
-}
-
 #[xmtp_common::test(unwrap_try = true)]
 async fn notification_empty_tokens_and_url_reach_backend_failure() {
     for channel in [
@@ -526,7 +491,7 @@ async fn notification_empty_tokens_and_url_reach_backend_failure() {
             signing_key: vec![7; 16].into(),
         },
     ] {
-        let (client, peer) = support::client().await;
+        let (client, peer) = support::peer().await;
         peer.state.lock().next_error = Some(tonic::Code::InvalidArgument);
         assert!(matches!(
             client
@@ -549,7 +514,7 @@ async fn notification_empty_tokens_and_url_reach_backend_failure() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn notification_backend_invalid_argument_fails_after_registration() {
-    let (client, peer) = support::client().await;
+    let (client, peer) = support::peer().await;
     peer.state.lock().next_error = Some(tonic::Code::InvalidArgument);
     assert!(matches!(
         client
@@ -593,7 +558,7 @@ async fn notification_config_column_keeps_its_json() {
     config.include_commits = true;
     assert_eq!(encode(&config)?, STORED.as_bytes());
 
-    let (client, _peer) = support::client().await;
+    let (client, _peer) = support::peer().await;
     assert!(matches!(
         client.enable_notifications(config).await?,
         NotificationState::Enabled

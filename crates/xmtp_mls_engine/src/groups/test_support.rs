@@ -101,7 +101,7 @@ impl PeerFeatures<PeerApi> for EngineTestFeatures {
 impl EngineTestFeatures {
     /// The features of a context over a query-only API client: no streaming
     /// receiver, as a client build over `ClientBuilder::api_client` has.
-    pub(crate) fn query_only(policy: &StreamPolicy, own_inbox_stored_through: Option<i64>) -> Self {
+    pub fn query_only(policy: &StreamPolicy, own_inbox_stored_through: Option<i64>) -> Self {
         Self {
             incoming: Arc::new(IncomingRuntime::new(policy.clone(), None)),
             identity_resolutions: Arc::new(IdentityResolutionRegistry::starting_after(
