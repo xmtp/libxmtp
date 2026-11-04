@@ -35,7 +35,7 @@ async fn deferred_preflight_precedes_even_synchronous_factory_effects() {
     .with_preflight(client.context.api().api_client.clone());
     let (send, receive) = oneshot::channel();
     *script.pause.lock() = Some(receive);
-    let mut open = runtime.factory.as_ref().unwrap().open(
+    let mut open = runtime.factory_for_test().unwrap().open(
         Default::default(),
         IncomingBatchLimits {
             max_rows: 1,

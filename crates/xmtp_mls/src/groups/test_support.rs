@@ -682,6 +682,60 @@ pub fn store_external_application_message<C: XmtpSharedContext>(
     group.store_external_application_message(storage, message, super_admin, event_writer)
 }
 
+/// Store a Restored placeholder for `group_id`, as an archive import does
+/// before the group's Welcome arrives.
+pub fn insert_restored_placeholder<C: XmtpSharedContext>(
+    context: &C,
+    group_id: &GroupId,
+    conversation_type: ConversationType,
+) -> Result<xmtp_db::group::StoredGroup, GroupError> {
+    MlsGroup::insert(
+        context,
+        Some(group_id.as_slice()),
+        xmtp_db::group::GroupMembershipState::Restored,
+        conversation_type,
+        PolicySet::default(),
+        GroupMetadataOptions::default(),
+        None,
+        false,
+    )
+}
+
+/// The component registry committed in `group`'s dictionary.
+pub fn load_component_registry(
+    group: &openmls::group::MlsGroup,
+) -> Result<
+    xmtp_mls_group_state::app_data::component_registry::ComponentRegistry,
+    xmtp_mls_group_state::app_data::component_source::ComponentSourceError,
+> {
+    crate::groups::app_data::load_component_registry(group)
+}
+
+/// The OpenMLS group context of `group`'s current epoch.
+pub fn load_group_context<C: XmtpSharedContext>(
+    group: &MlsGroup<C>,
+) -> Result<openmls::group::GroupContext, GroupError> {
+    group.load_group_context()
+}
+
+/// Raise `group`'s minimum version to this client's version. Production
+/// code never does this; the method documents why.
+pub async fn update_group_min_version_to_match_self<C: XmtpSharedContext>(
+    group: &MlsGroup<C>,
+) -> Result<(), GroupError> {
+    group.update_group_min_version_to_match_self().await
+}
+
+/// The intent data of a proposal that adds `add_inbox_ids` and removes
+/// `remove_inbox_ids`.
+pub fn propose_member_update_data(
+    add_inbox_ids: Vec<String>,
+    remove_inbox_ids: Vec<String>,
+) -> Result<Vec<u8>, crate::groups::intents::IntentError> {
+    crate::groups::intents::ProposeMemberUpdateIntentData::new(add_inbox_ids, remove_inbox_ids)
+        .try_into()
+}
+
 #[allow(clippy::unwrap_used)]
 impl<Context: XmtpSharedContext> MlsGroup<Context> {
     /// Sign `message` under the group signing key of this group's root, as a
@@ -782,8 +836,7 @@ where
 /// naming its inbox, whose key package extensions are exactly `extensions`.
 /// Its capabilities advertise both XMTP addressing extensions. Nothing
 /// uploads it.
-#[cfg(test)]
-pub(crate) fn key_package_with_extensions(
+pub fn key_package_with_extensions(
     context: &impl XmtpSharedContext,
     ciphersuite: openmls::prelude::Ciphersuite,
     extensions: Vec<openmls::prelude::Extension>,

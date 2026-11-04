@@ -42,7 +42,12 @@ async fn test_should_publish_commit_log() {
 /// The keys of a conversation's group root, as its commit-log worker derives
 /// them.
 fn keys_of(group: &MlsGroup<impl XmtpSharedContext>) -> GroupKeys {
-    group_keys_from_extensions(group.load_group_context().unwrap().extensions()).unwrap()
+    group_keys_from_extensions(
+        crate::groups::test_support::load_group_context(group)
+            .unwrap()
+            .extensions(),
+    )
+    .unwrap()
 }
 
 /// Every conversation stores its commit-log id at creation and at join. It

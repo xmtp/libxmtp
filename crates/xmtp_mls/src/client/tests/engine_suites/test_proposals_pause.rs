@@ -40,7 +40,7 @@ async fn test_welcome_on_dictionary_group_pauses_below_min_version() {
     // Bump min-version in legacy GMM (the only place to write it
     // before migration). Bootstrap synthesis will pull this value
     // forward into the AppData dict.
-    alix_group.update_group_min_version_to_match_self().await?;
+    crate::groups::test_support::update_group_min_version_to_match_self(&alix_group).await?;
     alix_group.sync().await?;
 
     // Alix migrates. Post-migration the legacy GMM is stripped and the

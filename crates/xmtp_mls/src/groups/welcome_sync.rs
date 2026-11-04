@@ -1116,8 +1116,12 @@ fn combine_sync_errors(first: GroupError, second: GroupError) -> GroupError {
     }
 }
 
+/// The pending envelope that stores `welcome` for this installation. It
+/// receives Welcome pages until the envelope is stored, and fails with
+/// `WelcomeAlreadyProcessed` once the pages end without it.
 #[cfg(any(test, feature = "test-utils"))]
-pub(crate) async fn pending_welcome_for_test(
+#[doc(hidden)]
+pub async fn pending_welcome_for_test(
     context: &impl XmtpSharedContext,
     welcome: &xmtp_proto::types::WelcomeMessage,
 ) -> Result<StoredIncomingEnvelope, GroupError> {

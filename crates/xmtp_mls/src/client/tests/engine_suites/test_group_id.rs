@@ -72,7 +72,7 @@ async fn every_new_conversation_is_named_by_its_root() {
         let (mls_id, root, signer, registered) = group.with_group_snapshot(|mls_group| {
             let extensions = mls_group.extensions();
             let dictionary = extensions.app_data_dictionary().map(|d| d.dictionary());
-            let registry = crate::groups::app_data::load_component_registry(mls_group)
+            let registry = crate::groups::test_support::load_component_registry(mls_group)
                 .map_err(|_| crate::groups::GroupError::InvalidWelcomeMetadata)?;
             Ok((
                 mls_group.group_id().as_slice().to_vec(),

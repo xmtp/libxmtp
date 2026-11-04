@@ -7,11 +7,7 @@
 use crate::{
     client::notifications::{NotificationChannel, NotificationConfig},
     context::CoreContext,
-    groups::{
-        MlsGroup,
-        commit_log::{CommitLogTestFunction, CommitLogWorker},
-        group_permissions::PolicySet,
-    },
+    groups::commit_log::{CommitLogTestFunction, CommitLogWorker},
     tester,
     worker::WorkerConfig,
 };
@@ -25,7 +21,6 @@ use xmtp_db::{
     group::{ConversationType, GroupMembershipState},
     prelude::*,
 };
-use xmtp_mls_group_state::group::GroupMetadataOptions;
 use xmtp_proto::{
     api::{ApiClientError, ArcClient, BytesStream, Client as Transport, IsConnectedCheck},
     backend_v1 as wire,
@@ -213,15 +208,10 @@ fn insert_placeholder(
     id: [u8; 16],
 ) -> Result<GroupId, crate::groups::GroupError> {
     let legacy = GroupId::from(id);
-    MlsGroup::insert(
+    crate::groups::test_support::insert_restored_placeholder(
         &client.context,
-        Some(legacy.as_slice()),
-        GroupMembershipState::Restored,
+        &legacy,
         ConversationType::Group,
-        PolicySet::default(),
-        GroupMetadataOptions::default(),
-        None,
-        false,
     )?;
     Ok(legacy)
 }

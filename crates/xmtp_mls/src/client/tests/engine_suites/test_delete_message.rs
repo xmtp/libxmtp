@@ -133,8 +133,14 @@ async fn admin_delete_of_expired_message_names_the_admin() {
         alix.context.events(),
         |tx, buffer| {
             let storage = tx.storage();
-            alix_group.store_external_application_message(&storage, &deletion, true, buffer)?;
-            Ok::<_, crate::groups::mls_sync::GroupMessageProcessingError>(
+            crate::groups::test_support::store_external_application_message(
+                &alix_group,
+                &storage,
+                &deletion,
+                true,
+                buffer,
+            )?;
+            Ok::<_, crate::groups::GroupMessageProcessingError>(
                 xmtp_db::TransactionOutcome::Continue(()),
             )
         },

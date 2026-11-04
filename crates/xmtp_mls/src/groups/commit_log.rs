@@ -332,7 +332,9 @@ pub struct SaveRemoteCommitLogResult {
 }
 
 // Test related types
-#[cfg(test)]
+/// The commit-log worker steps that `CommitLogWorker::run_test` runs.
+#[cfg(any(test, feature = "test-utils"))]
+#[doc(hidden)]
 pub enum CommitLogTestFunction {
     PublishCommitLogsToRemote,
     SaveRemoteCommitLog,
@@ -340,7 +342,9 @@ pub enum CommitLogTestFunction {
     All,
 }
 
-#[cfg(test)]
+/// What each step of one `CommitLogWorker::run_test` pass returned.
+#[cfg(any(test, feature = "test-utils"))]
+#[doc(hidden)]
 pub struct TestResult {
     pub save_remote_commit_log_results: Option<HashMap<Vec<u8>, usize>>,
     pub publish_commit_log_results: Option<Vec<ConversationCursorInfo>>,
@@ -1454,27 +1458,32 @@ pub(crate) fn should_skip_remote_commit_log_entry(
 }
 
 // Helper that exposes private methods for testing
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 impl<Context> CommitLogWorker<Context>
 where
     Context: XmtpSharedContext + 'static,
 {
+    #[cfg(test)]
     pub async fn _tick(&mut self) -> Result<(), CommitLogError> {
         self.tick().await
     }
 
     /// The worker's loop, as the supervisor runs it.
+    #[cfg(test)]
     pub async fn _run(&mut self) -> Result<(), CommitLogError> {
         self.run().await
     }
 
     /// Pass every seal result through `fault`.
+    #[cfg(test)]
     pub(crate) fn with_seal_fault(mut self, fault: SealFault) -> Self {
         self.seal_fault = Some(fault);
         self
     }
 
     // Test helper to get fork status for all groups that would be checked (for backward compatibility with tests)
+    /// The stored fork status of every group.
+    #[doc(hidden)]
     pub fn get_all_fork_statuses(&self) -> Result<HashMap<Vec<u8>, Option<bool>>, CommitLogError> {
         use xmtp_db::group::GroupQueryArgs;
         let conn = &self.context.db();
@@ -1491,6 +1500,7 @@ where
     }
 
     /// Test-only version that runs without infinite loop
+    #[doc(hidden)]
     pub async fn run_test(
         &mut self,
         commit_log_test_function: CommitLogTestFunction,

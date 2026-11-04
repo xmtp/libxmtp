@@ -2,7 +2,7 @@
 
 use crate::{
     context::XmtpSharedContext,
-    groups::{GroupError, MlsGroup, app_data::load_component_registry},
+    groups::{GroupError, MlsGroup, test_support::load_component_registry},
     tester,
 };
 use openmls::{extensions::ExtensionType, messages::proposals::ProposalType};

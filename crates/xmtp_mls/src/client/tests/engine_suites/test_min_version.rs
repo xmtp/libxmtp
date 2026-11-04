@@ -61,8 +61,7 @@ async fn test_client_on_old_version_blocks_welcome_until_upgrade() {
     assert_eq!(message_text, "Hello, world!");
 
     // Step 5: Amal updates the group to have a min version of current version + 1
-    amal_group
-        .update_group_min_version_to_match_self()
+    crate::groups::test_support::update_group_min_version_to_match_self(&amal_group)
         .await
         .unwrap();
     amal_group.sync().await.unwrap();

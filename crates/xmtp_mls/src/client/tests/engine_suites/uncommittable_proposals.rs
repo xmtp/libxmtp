@@ -11,7 +11,7 @@ use crate::tester;
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn a_pending_add_of_another_inbox_to_a_sync_group_is_omitted()
 -> Result<(), Box<dyn std::error::Error>> {
-    use crate::groups::intents::{ProposeMemberUpdateIntentData, QueueIntent};
+    use crate::groups::{intents::QueueIntent, test_support::propose_member_update_data};
 
     tester!(alix1, disable_workers);
     tester!(alix2, from: alix1, disable_workers);
@@ -20,10 +20,10 @@ async fn a_pending_add_of_another_inbox_to_a_sync_group_is_omitted()
     alix2.sync_welcomes().await?;
     let alix2_group = alix2.group(&group.group_id)?;
     let intent = QueueIntent::propose_member_update()
-        .data(Vec::<u8>::try_from(ProposeMemberUpdateIntentData::new(
+        .data(propose_member_update_data(
             vec![eve.inbox_id().to_string()],
             vec![],
-        ))?)
+        )?)
         .queue(&group)?;
     group.sync_until_intent_resolved(intent.id).await?;
     alix2_group.sync().await?;
