@@ -12,7 +12,7 @@ use super::{
     barrier::{BarrierCause, BarrierError, BarrierFailure, BarrierTopic},
     incoming::IncomingError,
 };
-use crate::groups::{GroupError, mls_sync::GroupMessageProcessingError, summary::SyncSummary};
+use crate::groups::{GroupError, GroupMessageProcessingError, summary::SyncSummary};
 
 /// The suffix version is independent of the normal error message and code.
 pub const STREAM_FAILURE_MARKER: &str = "\n[XMTP_STREAM_FAILURE_V1]";

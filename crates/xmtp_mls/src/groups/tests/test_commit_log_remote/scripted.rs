@@ -309,7 +309,7 @@ pub(super) async fn scripted_with_page_size(
     };
     let client = crate::builder::ClientBuilder::from_client(base.clone())
         .api_client(api)
-        .stream_policy(crate::subscriptions::policy::StreamPolicy {
+        .stream_policy(crate::core::policy::StreamPolicy {
             max_fetched_rows: page_size,
             ..Default::default()
         })

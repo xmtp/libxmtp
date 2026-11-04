@@ -345,13 +345,13 @@ where
     pub(crate) fn hmac_keys_in(
         &self,
         conn: impl xmtp_db::DbQuery,
-        events: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
+        events: &impl xmtp_events::EventWriter<crate::core::events::InternalEvent>,
         epoch_delta_range: RangeInclusive<i64>,
     ) -> Result<Zeroizing<Vec<HmacKey>>, StorageError> {
         // implements: SYNC-026
         let (root_key, made) = ensure_root_key(&conn)?;
         if made {
-            crate::subscriptions::internal::emit_root_key_changed(events, &conn, true)?;
+            crate::core::events::emit_root_key_changed(events, &conn, true)?;
         }
         let root_key = root_key.as_slice();
         let group_id = self.group_id.as_ref();
@@ -409,7 +409,7 @@ where
     pub(super) fn prepare_group_envelopes_in(
         &self,
         conn: impl xmtp_db::DbQuery,
-        events: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
+        events: &impl xmtp_events::EventWriter<crate::core::events::InternalEvent>,
         group: &OpenMlsGroup,
         payloads: Vec<(&[u8], bool)>,
     ) -> Result<Vec<ClientEnvelope>, GroupError> {

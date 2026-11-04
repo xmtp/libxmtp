@@ -41,7 +41,7 @@ async fn limited_group(
 ) -> MlsGroup<super::faults::FaultyContext> {
     let client = crate::builder::ClientBuilder::from_client(tester.client.clone())
         .api_client(api)
-        .stream_policy(crate::subscriptions::policy::StreamPolicy {
+        .stream_policy(crate::core::policy::StreamPolicy {
             barrier_timeout,
             ..Default::default()
         })

@@ -44,11 +44,8 @@ where
             .ok_or(NotFound::GroupById(self.group_id))?;
         let consent_state = consent.unwrap_or(ConsentState::Unknown);
         let notification = db.notification_record()?;
-        let notifications_enabled = crate::client::notifications::enabled_from_record(
-            &notification,
-            &stored,
-            consent_state,
-        )?;
+        let notifications_enabled =
+            crate::core::notifications::enabled_from_record(&notification, &stored, consent_state)?;
         let disappearing_settings = match (
             stored.message_disappear_from_ns,
             stored.message_disappear_in_ns,
@@ -201,12 +198,7 @@ where
                 let changes: Vec<_> = write_consent(&db, &key, decision, Owed::Mark)?
                     .into_iter()
                     .collect();
-                crate::subscriptions::internal::emit_consent_changes(
-                    &self.context,
-                    events,
-                    &db,
-                    &changes,
-                )?;
+                crate::core::events::emit_consent_changes(&self.context, events, &db, &changes)?;
                 Ok::<_, GroupError>(Continue(()))
             },
         )?

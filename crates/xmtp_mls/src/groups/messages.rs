@@ -369,7 +369,7 @@ where
         &self,
         db: &impl DbQuery,
         message: &StoredGroupMessage,
-        events: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
+        events: &impl xmtp_events::EventWriter<crate::core::events::InternalEvent>,
     ) -> Result<bool, GroupError> {
         if message.group_id != self.group_id {
             return Err(GroupError::NotFound(NotFound::MessageById(
@@ -505,7 +505,7 @@ where
     fn queue_stored_message(
         &self,
         db: &impl DbQuery,
-        events: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
+        events: &impl xmtp_events::EventWriter<crate::core::events::InternalEvent>,
         message: &StoredGroupMessage,
     ) -> Result<Option<i32>, GroupError> {
         if message.delivery_status == DeliveryStatus::Published {
@@ -543,7 +543,7 @@ where
     fn allow_after_send(
         &self,
         db: &impl DbQuery,
-        events: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
+        events: &impl xmtp_events::EventWriter<crate::core::events::InternalEvent>,
         message: &StoredGroupMessage,
     ) -> Result<(), GroupError> {
         let Some(decision) = Decision::on_send(self.conversation_type, message.content_type) else {
@@ -558,7 +558,7 @@ where
         let changes: Vec<_> = write_consent(db, &key, ConsentWrite::Decide(decision), Owed::Mark)?
             .into_iter()
             .collect();
-        crate::subscriptions::internal::emit_consent_changes(&self.context, events, db, &changes)?;
+        crate::core::events::emit_consent_changes(&self.context, events, db, &changes)?;
         Ok(())
     }
 

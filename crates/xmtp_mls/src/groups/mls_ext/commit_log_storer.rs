@@ -1,4 +1,3 @@
-use crate::StorageError;
 use crate::groups::GroupError;
 use crate::groups::{mls_sync::GroupMessageProcessingError, validated_commit::ValidatedCommit};
 use crate::identity::Identity;
@@ -10,6 +9,7 @@ use prost::Message;
 use std::collections::HashMap;
 use xmtp_content_types::{ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_db::MlsProviderExt;
+use xmtp_db::StorageError;
 use xmtp_db::group_message::{ContentType, GroupMessageKind, MsgQueryArgs};
 use xmtp_db::refresh_state::EntityKind;
 use xmtp_db::{

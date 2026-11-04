@@ -1,6 +1,7 @@
 //! XMTP Welcome Processing
 //! Processes a new welcome from the network
 
+use crate::core::events::{InternalEvent, dm_event_context, emit_root_key_changed};
 use crate::core::sync_tasks::schedule_newcomer_adds;
 use crate::groups::MetadataPermissionsError;
 use crate::groups::mls_ext::CommitLogStorer;
@@ -11,7 +12,6 @@ use crate::identity_updates::{
     IdentityDependencyError, IdentityRequirement, InstallationDiffError, require_association_state,
 };
 use crate::state_tx::{state_write, state_write_with_events};
-use crate::subscriptions::internal::{InternalEvent, dm_event_context, emit_root_key_changed};
 use crate::worker::device_sync::is_own_sync_group;
 use crate::{
     context::XmtpSharedContext,

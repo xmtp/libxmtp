@@ -198,7 +198,7 @@ where
         intent: &StoredGroupIntent,
         envelope: &GroupMessage,
         storage: &impl XmtpMlsStorageProvider,
-        event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
+        event_writer: &impl xmtp_events::EventWriter<crate::core::events::InternalEvent>,
     ) -> Result<Option<Vec<u8>>, IntentResolutionError> {
         if intent.state == IntentState::Committed
             || intent.state == IntentState::Processed
@@ -407,14 +407,12 @@ where
         if !self.conversation_type.is_virtual() {
             event_writer.emit(
                 None,
-                Some(
-                    crate::subscriptions::internal::InternalEvent::MessageStored {
-                        group_id: self.group_id,
-                        message_id: id.clone(),
-                        expires_at_ns: message_expire_at_ns,
-                        is_sync: false,
-                    },
-                ),
+                Some(crate::core::events::InternalEvent::MessageStored {
+                    group_id: self.group_id,
+                    message_id: id.clone(),
+                    expires_at_ns: message_expire_at_ns,
+                    is_sync: false,
+                }),
             );
         }
         Ok(Some(id))

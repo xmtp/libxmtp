@@ -229,7 +229,7 @@ where
             }
             Err(err) => {
                 use crate::DuplicateItem::*;
-                use crate::StorageError::*;
+                use xmtp_db::StorageError::*;
 
                 if matches!(err, GroupError::Storage(Duplicate(WelcomeId(_)))) {
                     tracing::warn!(

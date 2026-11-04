@@ -63,7 +63,7 @@ where
         storage: &impl XmtpMlsStorageProvider,
         message: &StoredGroupMessage,
         super_admin: bool,
-        event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
+        event_writer: &impl xmtp_events::EventWriter<crate::core::events::InternalEvent>,
     ) -> Result<(), GroupMessageProcessingError> {
         let db = storage.db();
         let stored = db.get_group_message(&message.id)?;
@@ -104,7 +104,7 @@ where
         mls_group: &mut OpenMlsGroup,
         envelope: &GroupMessage,
         storage: &impl XmtpMlsStorageProvider,
-        event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
+        event_writer: &impl xmtp_events::EventWriter<crate::core::events::InternalEvent>,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
         #[cfg(any(test, feature = "test-hooks"))]
         {
@@ -251,7 +251,7 @@ where
         message_envelope: &GroupMessage,
         validated_commit: Option<ValidatedCommit>,
         storage: &impl XmtpMlsStorageProvider,
-        event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
+        event_writer: &impl xmtp_events::EventWriter<crate::core::events::InternalEvent>,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
         let GroupMessage { cursor, .. } = &message_envelope;
         let envelope_timestamp_ns = message_envelope.timestamp();
@@ -332,14 +332,12 @@ where
                         {
                             event_writer.emit(
                                 None,
-                                Some(
-                                    crate::subscriptions::internal::InternalEvent::MessageStored {
-                                        group_id: self.group_id,
-                                        message_id: message.id.clone(),
-                                        expires_at_ns: message.expire_at_ns,
-                                        is_sync: group.conversation_type == ConversationType::Sync,
-                                    },
-                                ),
+                                Some(crate::core::events::InternalEvent::MessageStored {
+                                    group_id: self.group_id,
+                                    message_id: message.id.clone(),
+                                    expires_at_ns: message.expire_at_ns,
+                                    is_sync: group.conversation_type == ConversationType::Sync,
+                                }),
                             );
                         }
                         if message.content_type == ContentType::LeaveRequest {

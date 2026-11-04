@@ -11,7 +11,7 @@ where
         mls_group: &OpenMlsGroup,
         storage: &impl XmtpMlsStorageProvider,
         message_id: &[u8],
-        event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
+        event_writer: &impl xmtp_events::EventWriter<crate::core::events::InternalEvent>,
     ) {
         if let Ok(Some(message)) = storage.db().get_group_message(message_id)
             && message.content_type == ContentType::LeaveRequest
@@ -33,7 +33,7 @@ where
         mls_group: &OpenMlsGroup,
         storage: &impl XmtpMlsStorageProvider,
         message: &StoredGroupMessage,
-        event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
+        event_writer: &impl xmtp_events::EventWriter<crate::core::events::InternalEvent>,
     ) -> Result<(), GroupMessageProcessingError> {
         let current_inbox_id = self.context.inbox_id().to_string();
 
@@ -74,7 +74,7 @@ where
             .upsert_pending_self_remove_task(&self.group_id, task)?;
         event_writer.emit(
             None,
-            Some(crate::subscriptions::internal::InternalEvent::TaskScheduled),
+            Some(crate::core::events::InternalEvent::TaskScheduled),
         );
 
         // If we reach here, the action was by another user or no validated commit

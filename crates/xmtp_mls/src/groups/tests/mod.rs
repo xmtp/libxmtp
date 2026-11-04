@@ -489,7 +489,7 @@ async fn test_get_and_set_consent(
     assert_eq!(bola_group.consent_state().unwrap(), ConsentState::Allowed);
 
     // A send in an allowed conversation stores no record.
-    use crate::subscriptions::internal::InternalEvent::PreferencesChanged;
+    use crate::core::events::InternalEvent::PreferencesChanged;
     let preferences = bola.context.events().subscribe(
         xmtp_events::EventFilter::default()
             .with_internal(|e| matches!(e, PreferencesChanged { .. })),

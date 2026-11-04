@@ -419,7 +419,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         &self,
         db: &impl DbQuery,
         intent: &StoredGroupIntent,
-        event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
+        event_writer: &impl xmtp_events::EventWriter<crate::core::events::InternalEvent>,
     ) -> Result<(), GroupError> {
         let message_id = calculate_message_id_for_intent(intent)?;
         let previous_status = message_id

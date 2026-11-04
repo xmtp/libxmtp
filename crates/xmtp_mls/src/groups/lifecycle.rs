@@ -2,8 +2,8 @@
 
 use super::intents::UpdateGroupMembershipIntentData;
 use super::*;
+use crate::core::events::{dm_event_context, emit_consent_changes};
 use crate::mls_store::MlsStoreError;
-use crate::subscriptions::internal::{dm_event_context, emit_consent_changes};
 use xmtp_db::consent_record::{
     ConsentChange, ConsentKey, ConsentWrite, Decision, Owed, fold_into_inbox, write_consent,
 };
@@ -224,7 +224,7 @@ where
         operation: impl AsyncFnOnce(OpenMlsGroup) -> Result<R, E>,
     ) -> Result<R, E>
     where
-        E: From<crate::StorageError> + From<xmtp_db::sql_key_store::SqlKeyStoreError>,
+        E: From<xmtp_db::StorageError> + From<xmtp_db::sql_key_store::SqlKeyStoreError>,
     {
         let mls_storage = self.context.mls_storage();
         // Get the group ID for locking
@@ -532,7 +532,7 @@ where
                             context.task_channels().mark_notification_changed();
                             events.emit(
                                 None,
-                                Some(crate::subscriptions::internal::InternalEvent::GroupJoined {
+                                Some(crate::core::events::InternalEvent::GroupJoined {
                                     group_id: stored_group.id,
                                     is_sync: true,
                                 }),
@@ -609,7 +609,7 @@ where
                             adder_inbox_id: None,
                         },
                     )),
-                    Some(crate::subscriptions::internal::InternalEvent::GroupJoined {
+                    Some(crate::core::events::InternalEvent::GroupJoined {
                         group_id: stored_group.id,
                         is_sync: false,
                     }),
@@ -789,7 +789,7 @@ where
                                         adder_inbox_id: None,
                                     },
                                 )),
-                                Some(crate::subscriptions::internal::InternalEvent::GroupJoined {
+                                Some(crate::core::events::InternalEvent::GroupJoined {
                                     group_id: stored_group.id,
                                     is_sync: false,
                                 }),

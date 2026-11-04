@@ -87,7 +87,7 @@ impl RateLimitHold {
 /// The controller slot orders its final release with the next reader acquisition.
 #[derive(Default)]
 pub struct IncomingRuntime {
-    policy: super::policy::StreamPolicy,
+    policy: crate::core::policy::StreamPolicy,
     pub(crate) factory: Option<Arc<dyn SubscriptionFactory>>,
     #[cfg(any(test, feature = "test-utils"))]
     pub(crate) original_factory: Option<Arc<dyn SubscriptionFactory>>,
@@ -100,7 +100,7 @@ pub struct IncomingRuntime {
 
 impl IncomingRuntime {
     pub(crate) fn new(
-        policy: super::policy::StreamPolicy,
+        policy: crate::core::policy::StreamPolicy,
         factory: Option<Arc<dyn SubscriptionFactory>>,
     ) -> Self {
         Self {
@@ -124,7 +124,7 @@ impl IncomingRuntime {
         self
     }
 
-    pub(crate) fn policy(&self) -> &super::policy::StreamPolicy {
+    pub(crate) fn policy(&self) -> &crate::core::policy::StreamPolicy {
         &self.policy
     }
 

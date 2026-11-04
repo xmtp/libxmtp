@@ -56,7 +56,7 @@ use crate::subscriptions::stream_messages::stream_stats::{StreamStatsWrapper, St
 use crate::worker::device_sync::preference_sync::PreferenceUpdate;
 use crate::{
     context::XmtpSharedContext,
-    groups::{GroupError, MlsGroup, mls_sync::GroupMessageProcessingError},
+    groups::{GroupError, GroupMessageProcessingError, MlsGroup},
     messages::decoded_message::{DecodedMessage, DeletedBy},
 };
 use internal::InternalEvent;

@@ -282,7 +282,7 @@ mod disconnect_propagation_tests {
         use crate::client::ClientError;
         use crate::client::notifications::NotificationError;
         use crate::groups::{
-            mls_sync::GroupMessageProcessingError, summary::SyncSummary,
+            GroupMessageProcessingError, summary::SyncSummary,
             validated_commit::CommitValidationError,
         };
         use crate::identity::IdentityError;

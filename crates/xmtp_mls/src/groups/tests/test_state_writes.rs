@@ -82,11 +82,11 @@ async fn failed_intent_insert_rolls_back_optimistic_message() {
 /// the work only after commit. Receipt queues no rotation.
 #[xmtp_common::test(unwrap_try = true)]
 async fn welcome_install_queues_rotation_atomically() {
+    use crate::core::events::InternalEvent;
     use crate::groups::{
         InitialMembershipValidator,
         welcome_sync::{WelcomeService, pending_welcome_for_test},
     };
-    use crate::subscriptions::internal::InternalEvent;
     use xmtp_common::time::now_ns;
     use xmtp_configuration::KEY_PACKAGE_QUEUE_INTERVAL_NS;
     use xmtp_db::prelude::{QueryGroup, QueryIdentity, QueryIncomingEnvelope};

@@ -621,7 +621,7 @@ async fn restored_history_ignores_a_stray_dm_id_on_a_group() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn restored_history_forged_claim_yields_to_live_permissions_after_activation() {
     use crate::groups::{
-        GroupError, UpdateAdminListType, mls_sync::GroupMessageProcessingError,
+        GroupError, GroupMessageProcessingError, UpdateAdminListType,
         validated_commit::CommitValidationError,
     };
     use xmtp_mls_validation::commit::CommitRuleError;

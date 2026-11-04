@@ -5,7 +5,7 @@ use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_proto::types::Cursor;
 
 use crate::groups::{
-    mls_sync::GroupMessageProcessingError,
+    GroupMessageProcessingError,
     summary::{MessageIdentifier, ProcessSummary, SyncSummary},
 };
 

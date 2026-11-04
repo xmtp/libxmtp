@@ -163,7 +163,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         message_id: Vec<u8>,
         previous: xmtp_events::MessageStatus,
         current: xmtp_events::MessageStatus,
-        writer: &impl EventWriter<crate::subscriptions::internal::InternalEvent>,
+        writer: &impl EventWriter<crate::core::events::InternalEvent>,
     ) {
         if self.conversation_type.is_virtual() || previous == current {
             return;
@@ -192,7 +192,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         commit: &ValidatedCommit,
         group_active: bool,
         storage: &impl XmtpMlsStorageProvider,
-        writer: &impl EventWriter<crate::subscriptions::internal::InternalEvent>,
+        writer: &impl EventWriter<crate::core::events::InternalEvent>,
     ) -> Result<(), GroupMessageProcessingError> {
         if self.conversation_type.is_virtual() {
             return Ok(());

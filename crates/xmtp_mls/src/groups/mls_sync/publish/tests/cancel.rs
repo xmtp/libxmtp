@@ -23,7 +23,7 @@ fn deletion_rows<C: XmtpSharedContext>(group: &MlsGroup<C>) -> usize {
 }
 
 fn deleted_events(
-    events: &xmtp_events::Subscription<crate::subscriptions::internal::InternalEvent>,
+    events: &xmtp_events::Subscription<crate::core::events::InternalEvent>,
     id: &[u8],
 ) -> Vec<xmtp_events::DeletionCause> {
     events

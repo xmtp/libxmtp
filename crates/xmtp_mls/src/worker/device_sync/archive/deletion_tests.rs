@@ -1,6 +1,6 @@
 //! Deletions survive archives, re-imports and local removal.
 use super::*;
-use crate::groups::mls_sync::GroupMessageProcessingError;
+use crate::groups::GroupMessageProcessingError;
 use crate::tester;
 use crate::worker::device_sync::{ArchiveOptions, BackupElementSelection};
 use futures::io::{BufReader, Cursor};

@@ -2,10 +2,10 @@
 
 use super::*;
 use crate::{
+    core::events::{InternalEvent, emit_root_key_changed},
     core::sync_tasks::schedule_newcomer_adds,
     identity_updates::{IdentityDependencyError, IdentityRequirement},
     state_tx::{state_write, state_write_with_events},
-    subscriptions::internal::{InternalEvent, emit_root_key_changed},
 };
 use std::collections::BTreeSet;
 use xmtp_api_backend::envelope::decode_group_message;
@@ -195,12 +195,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                                     .map(|member| member.signature_key)
                                     .collect::<HashSet<_>>()
                             });
-                            let mut outcome = self.process_message_inner(
-                                group,
-                                storage,
-                                envelope,
-                                event_buffer,
-                            )?;
+                            let mut outcome =
+                                self.process_message_inner(group, storage, envelope, event_buffer)?;
                             // implements: SYNC-014, SYNC-035
                             // A new leaf is owed every record and the root key,
                             // and the adds to conversations, stored with this
@@ -242,7 +238,9 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                             self.context.task_channels().mark_notification_changed();
                             event_buffer.emit(
                                 None,
-                                Some(crate::subscriptions::internal::InternalEvent::NotificationSettingsChanged),
+                                Some(
+                                    crate::core::events::InternalEvent::NotificationSettingsChanged,
+                                ),
                             );
                         }
                         return Ok(Continue(Ok(outcome)));
@@ -258,11 +256,13 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                             ),
                         ),
                         Some(missing),
-                    ) if required.contains(missing) => GroupMessageProcessingError::CommitValidation(
-                        CommitValidationError::IdentityDependency(
-                            IdentityDependencyError::MissingReference(missing.clone()),
-                        ),
-                    ),
+                    ) if required.contains(missing) => {
+                        GroupMessageProcessingError::CommitValidation(
+                            CommitValidationError::IdentityDependency(
+                                IdentityDependencyError::MissingReference(missing.clone()),
+                            ),
+                        )
+                    }
                     _ => error,
                 };
                 let error = if error.is_missing_proposal()
@@ -279,10 +279,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     CommitRuleError::ProtocolVersionTooLow(version),
                 )) = &error
                 {
-                    let already_paused = tx
-                        .storage()
-                        .db()
-                        .get_group_paused_version(&self.group_id)?;
+                    let already_paused =
+                        tx.storage().db().get_group_paused_version(&self.group_id)?;
                     tx.storage()
                         .db()
                         .set_group_paused(&self.group_id, version)?;
@@ -296,10 +294,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                             )),
                             None,
                             xmtp_events::EventContext {
-                                dm_identifier: self
-                                    .dm_id
-                                    .as_ref()
-                                    .map(|id| id.as_bytes().to_vec()),
+                                dm_identifier: self.dm_id.as_ref().map(|id| id.as_bytes().to_vec()),
                                 references_own_messages: false,
                                 ..Default::default()
                             },
