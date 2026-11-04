@@ -1,11 +1,12 @@
+use crate::context::XmtpSharedContext;
 use crate::groups::MlsGroup;
 use crate::groups::PolicySet;
 use crate::groups::commit_log::{
     CommitLogTestFunction, CommitLogWorker, Factory, should_skip_remote_commit_log_entry,
 };
 use crate::groups::send_message_opts::SendMessageOpts;
+use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 use crate::prelude::*;
-use crate::{context::XmtpSharedContext, tester};
 use openmls::prelude::{OpenMlsCrypto, SignatureScheme};
 use openmls_rust_crypto::RustCrypto;
 use prost::Message;
@@ -167,7 +168,7 @@ async fn publishable(group: &MlsGroup<impl XmtpSharedContext>) -> Vec<PlaintextC
 /// Read a conversation's commit-log topic from the backend and open every
 /// entry with its keys.
 async fn remote_entries(
-    client: &crate::utils::FullXmtpClient,
+    client: &EngineTestPeer,
     group: &MlsGroup<impl XmtpSharedContext>,
 ) -> Vec<PlaintextCommitLogEntry> {
     let keys = keys_of(group);
@@ -190,7 +191,7 @@ async fn remote_entries(
         .collect()
 }
 
-fn upload_cursor(client: &crate::utils::FullXmtpClient, group_id: &GroupId) -> Cursor {
+fn upload_cursor(client: &EngineTestPeer, group_id: &GroupId) -> Cursor {
     client
         .context
         .db()
@@ -214,46 +215,12 @@ async fn publish_turn<C: XmtpSharedContext + 'static>(
         .collect()
 }
 
-/// Every conversation stores its commit-log id at creation and at join. It
-/// is the public key of the commit-log signing key the group root derives,
-/// so every member stores the same one, and it is not the group id.
-// verifies: GMOD-041
-#[xmtp_common::test(unwrap_try = true)]
-async fn the_commit_log_id_is_stored_at_creation_and_join() {
-    tester!(alix, with_commit_log_worker: false);
-    tester!(bo, with_commit_log_worker: false);
-
-    let group = alix
-        .create_group_with_members(&[bo.inbox_id()], None, None)
-        .await?;
-    let dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
-    bo.sync_welcomes().await?;
-    for created in [&group, &dm] {
-        let joined = bo.group(&created.group_id)?;
-        let commit_log_id = keys_of(created).commit_log_id().to_vec();
-        assert_ne!(commit_log_id, created.group_id.to_vec());
-        assert_eq!(keys_of(&joined).commit_log_id().to_vec(), commit_log_id);
-        let created_row = alix.context.db().find_group(&created.group_id)??;
-        assert_eq!(
-            created_row.commit_log_public_key,
-            Some(commit_log_id.clone()),
-            "stored at creation"
-        );
-        let joined_row = bo.context.db().find_group(&created.group_id)??;
-        assert_eq!(
-            joined_row.commit_log_public_key,
-            Some(commit_log_id),
-            "stored at join"
-        );
-    }
-}
-
 /// A restored placeholder holds no root and no commit-log id. The Welcome
 /// that activates it stores the commit-log id its root derives.
 #[xmtp_common::test(unwrap_try = true)]
 async fn activating_a_placeholder_stores_its_commit_log_id() {
-    tester!(alix, with_commit_log_worker: false);
-    tester!(bo, with_commit_log_worker: false);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
 
     let a = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
@@ -290,8 +257,8 @@ async fn activating_a_placeholder_stores_its_commit_log_id() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_publish_commit_log_to_remote() {
     // Disable background CommitLogWorker for deterministic testing
-    tester!(alix, with_commit_log_worker: false);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
 
     // Alix creates a group with Bo
     let alix_group = alix.create_group(None, None)?;
@@ -367,10 +334,10 @@ async fn test_publish_commit_log_to_remote() {
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_rate_limited_publish_waits_out_its_delay() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.update_group_name("limited".into()).await?;
-    let (client, script) = scripted::scripted(&alix.client).await;
+    let (client, script) = scripted::scripted(&alix).await;
     script.lock().rate_limit = Some(xmtp_common::time::Duration::from_secs(300));
     let id = keys_of(&group).commit_log_id().to_vec();
     let mut worker = CommitLogWorker::new(client.context.clone());
@@ -389,10 +356,10 @@ async fn a_rate_limited_publish_waits_out_its_delay() {
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_publish_hold_survives_a_new_worker() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.update_group_name("limited".into()).await?;
-    let (client, script) = scripted::scripted(&alix.client).await;
+    let (client, script) = scripted::scripted(&alix).await;
     script.lock().rate_limit = Some(Duration::from_secs(300));
     let id = keys_of(&group).commit_log_id().to_vec();
     let factory = Factory::new(client.context.clone());
@@ -412,8 +379,8 @@ async fn a_publish_hold_survives_a_new_worker() {
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_rate_limited_readd_waits_out_its_delay() {
-    tester!(alix, disable_workers, enable_fork_recovery_requests);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new_with(|o| o.enable_fork_recovery_requests()).await;
+    let bo = EngineTestPeer::new().await;
     let dm = alix
         .find_or_create_dm(bo.inbox_id().to_string(), None)
         .await?;
@@ -423,7 +390,7 @@ async fn a_rate_limited_readd_waits_out_its_delay() {
     dm.key_update().await?;
     bo_dm.sync().await?;
     let mut alix_worker = CommitLogWorker::new(alix.context.clone());
-    let (bo_client, script) = scripted::scripted(&bo.client).await;
+    let (bo_client, script) = scripted::scripted(&bo).await;
     let factory = Factory::new(bo_client.context.clone());
     let mut bo_worker = factory.worker();
     alix_worker._tick().await?;
@@ -459,7 +426,7 @@ async fn a_rate_limited_readd_waits_out_its_delay() {
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_rate_limited_publish_holds_only_its_conversation() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let first = alix.create_group(None, None)?;
     first.update_group_name("one".into()).await?;
     let second = alix.create_group(None, None)?;
@@ -468,7 +435,7 @@ async fn a_rate_limited_publish_holds_only_its_conversation() {
         keys_of(&first).commit_log_id().to_vec(),
         keys_of(&second).commit_log_id().to_vec(),
     ];
-    let (client, script) = scripted::scripted(&alix.client).await;
+    let (client, script) = scripted::scripted(&alix).await;
     script.lock().rate_limit = Some(xmtp_common::time::Duration::from_secs(300));
     let mut worker = CommitLogWorker::new(client.context.clone());
     assert!(publish_turn(&mut worker).await.is_empty());
@@ -495,7 +462,7 @@ async fn a_rate_limited_publish_holds_only_its_conversation() {
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_rate_limited_publish_does_not_end_the_turn() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let first = alix.create_group(None, None)?;
     first.update_group_name("one".into()).await?;
     let second = alix.create_group(None, None)?;
@@ -504,7 +471,7 @@ async fn a_rate_limited_publish_does_not_end_the_turn() {
         keys_of(&first).commit_log_id().to_vec(),
         keys_of(&second).commit_log_id().to_vec(),
     ];
-    let (client, script) = scripted::scripted(&alix.client).await;
+    let (client, script) = scripted::scripted(&alix).await;
     {
         let mut script = script.lock();
         script.rate_limit = Some(xmtp_common::time::Duration::from_secs(300));
@@ -530,10 +497,10 @@ async fn a_rate_limited_publish_does_not_end_the_turn() {
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_commit_log_publish_resumes_after_its_hold() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.update_group_name("limited".into()).await?;
-    let (client, script) = scripted::scripted(&alix.client).await;
+    let (client, script) = scripted::scripted(&alix).await;
     script.lock().rate_limit = Some(xmtp_common::time::Duration::from_millis(50));
     let mut worker = CommitLogWorker::new(client.context.clone());
     assert!(publish_turn(&mut worker).await.is_empty());
@@ -552,13 +519,13 @@ async fn a_commit_log_publish_resumes_after_its_hold() {
 // verifies: FORK-021
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_refused_conversation_does_not_hold_back_another() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let refused = alix.create_group(None, None)?;
     let accepted = alix.create_group(None, None)?;
     refused.update_group_name("refused".into()).await?;
     accepted.update_group_name("accepted".into()).await?;
 
-    let (client, script) = scripted::scripted(&alix.client).await;
+    let (client, script) = scripted::scripted(&alix).await;
     let refused_id = keys_of(&refused).commit_log_id().to_vec();
     script.lock().refuse.insert(refused_id.clone());
     let mut worker = CommitLogWorker::new(client.context.clone());
@@ -608,13 +575,13 @@ async fn a_refused_conversation_does_not_hold_back_another() {
 // verifies: FORK-021
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_conversation_that_fails_the_local_parse_does_not_hold_back_another() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let broken = alix.create_group(None, None)?;
     let healthy = alix.create_group(None, None)?;
     broken.update_group_name("broken".into()).await?;
     healthy.update_group_name("healthy".into()).await?;
 
-    let (client, script) = scripted::scripted(&alix.client).await;
+    let (client, script) = scripted::scripted(&alix).await;
     let broken_group = broken.group_id;
     let mut worker = CommitLogWorker::new(client.context.clone()).with_seal_fault(Arc::new(
         move |group_id, sealed| {
@@ -660,7 +627,7 @@ async fn a_conversation_that_fails_the_local_parse_does_not_hold_back_another() 
 async fn a_conversation_whose_state_does_not_load_does_not_hold_back_another() {
     use openmls_traits::storage::StorageProvider as _;
 
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let broken = alix.create_group(None, None)?;
     let healthy = alix.create_group(None, None)?;
     broken.update_group_name("broken".into()).await?;
@@ -672,7 +639,7 @@ async fn a_conversation_whose_state_does_not_load_does_not_hold_back_another() {
             broken.group_id.as_slice(),
         ))?;
 
-    let (client, script) = scripted::scripted(&alix.client).await;
+    let (client, script) = scripted::scripted(&alix).await;
     let mut worker = CommitLogWorker::new(client.context.clone());
     assert_eq!(
         publish_turn(&mut worker).await,
@@ -693,13 +660,13 @@ async fn a_conversation_whose_state_does_not_load_does_not_hold_back_another() {
 // verifies: FORK-021
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_transport_failure_ends_the_publishing_turn() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let first = alix.create_group(None, None)?;
     let second = alix.create_group(None, None)?;
     first.update_group_name("first".into()).await?;
     second.update_group_name("second".into()).await?;
 
-    let (client, script) = scripted::scripted(&alix.client).await;
+    let (client, script) = scripted::scripted(&alix).await;
     script.lock().unavailable = true;
     let mut worker = CommitLogWorker::new(client.context.clone());
     assert!(publish_turn(&mut worker).await.is_empty());
@@ -724,7 +691,7 @@ async fn a_transport_failure_ends_the_publishing_turn() {
 // verifies: FORK-021
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_partly_stored_publish_resumes_from_its_first_unstored_entry() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     for name in ["one", "two", "three"] {
         group.update_group_name(name.into()).await?;
@@ -738,7 +705,7 @@ async fn a_partly_stored_publish_resumes_from_its_first_unstored_entry() {
     let count = rows.len();
     assert!(count >= 2, "{count} entries");
 
-    let (client, script) = scripted::scripted(&alix.client).await;
+    let (client, script) = scripted::scripted(&alix).await;
     let commit_log_id = keys_of(&group).commit_log_id().to_vec();
     {
         let mut script = script.lock();
@@ -785,13 +752,13 @@ async fn a_partly_stored_publish_resumes_from_its_first_unstored_entry() {
 async fn a_seal_failure_skips_only_that_conversation() {
     use xmtp_logging::{Level, test_logging::LogCapture};
 
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let faulty = alix.create_group(None, None)?;
     let healthy = alix.create_group(None, None)?;
     faulty.update_group_name("faulty".into()).await?;
     healthy.update_group_name("healthy".into()).await?;
 
-    let (client, script) = scripted::scripted(&alix.client).await;
+    let (client, script) = scripted::scripted(&alix).await;
     let faulty_group = faulty.group_id;
     let failing = Arc::new(AtomicBool::new(true));
     let fault = failing.clone();
@@ -846,20 +813,19 @@ async fn a_failed_publish_ends_the_turn_not_the_worker() {
     // after it must close, before the next tick.
     const INTERVAL: Duration = Duration::from_secs(10);
     const AFTER_PUBLISH: Duration = Duration::from_secs(2);
-    tester!(
-        alix,
-        disable_workers,
-        fork_recovery_opts: crate::builder::ForkRecoveryOpts {
+    let alix = EngineTestPeer::new_with(|o| {
+        o.fork_recovery_opts = crate::builder::ForkRecoveryOpts {
             worker_interval_ns: Some(INTERVAL.as_nanos() as u64),
             ..Default::default()
         }
-    );
+    })
+    .await;
     let group = alix.create_group(None, None)?;
     group.update_group_name("refused".into()).await?;
     let pending = publishable(&group).await.len();
     assert!(pending > 0);
 
-    let (client, script) = scripted::scripted(&alix.client).await;
+    let (client, script) = scripted::scripted(&alix).await;
     let commit_log_id = keys_of(&group).commit_log_id().to_vec();
     script.lock().refuse.insert(commit_log_id.clone());
     let seals = Arc::new(AtomicUsize::new(0));
@@ -902,8 +868,8 @@ async fn a_failed_publish_ends_the_turn_not_the_worker() {
 // verifies: FORK-077, FORK-083
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_reader_discards_each_entry_that_fails_fork_075() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -984,7 +950,7 @@ async fn a_reader_discards_each_entry_that_fails_fork_075() {
         .collect();
     let last_sequence_id = envelopes.len() as u64;
 
-    let (client, script) = scripted::scripted(&bo.client).await;
+    let (client, script) = scripted::scripted(&bo).await;
     script
         .lock()
         .reads
@@ -1051,7 +1017,7 @@ async fn a_reader_discards_each_entry_that_fails_fork_075() {
 // verifies: FORK-030
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_restored_placeholder_is_skipped_by_publish_and_read() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.update_group_name("live".into()).await?;
     let db = alix.context.db();
@@ -1089,7 +1055,7 @@ async fn a_restored_placeholder_is_skipped_by_publish_and_read() {
         placeholders.push(row.id);
     }
 
-    let (client, script) = scripted::scripted(&alix.client).await;
+    let (client, script) = scripted::scripted(&alix).await;
     CommitLogWorker::new(client.context.clone())._tick().await?;
 
     let commit_log_id = keys_of(&group).commit_log_id().to_vec();
@@ -1109,41 +1075,10 @@ async fn a_restored_placeholder_is_skipped_by_publish_and_read() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_should_publish_commit_log() {
-    tester!(alix);
-    tester!(bo);
-
-    let alix_group = alix.create_group(None, None).unwrap();
-    alix_group.add_members(&[bo.inbox_id()]).await.unwrap();
-    bo.sync_all_welcomes_and_groups(None).await.unwrap();
-
-    let binding = bo.list_conversations(GroupQueryArgs::default()).unwrap();
-    let bo_group = binding.first().unwrap();
-    assert_eq!(bo_group.group.group_id, alix_group.group_id);
-
-    let alix_should_publish_commit_log_groups = alix
-        .find_groups(GroupQueryArgs {
-            should_publish_commit_log: Some(true),
-            ..Default::default()
-        })
-        .unwrap();
-
-    let bo_should_publish_commit_log_groups = bo
-        .find_groups(GroupQueryArgs {
-            should_publish_commit_log: Some(true),
-            ..Default::default()
-        })
-        .unwrap();
-
-    assert_eq!(alix_should_publish_commit_log_groups.len(), 1);
-    assert_eq!(bo_should_publish_commit_log_groups.len(), 0);
-}
-
-#[xmtp_common::test(unwrap_try = true)]
 async fn test_download_commit_log_from_remote() {
     // Disable background CommitLogWorker for deterministic testing
-    tester!(alix, with_commit_log_worker: false);
-    tester!(bo, with_commit_log_worker: false);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
 
     // Alix creates a group with Bo (1 commit)
     let alix_group = alix.create_group(None, None).unwrap();
@@ -1650,8 +1585,8 @@ fn test_should_skip_remote_log_entry() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_consecutive_entries_verification_happy_case() {
     // Disable background CommitLogWorker for deterministic testing
-    tester!(alix, with_commit_log_worker: false);
-    tester!(bo, with_commit_log_worker: false);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
 
     // Create a DM between alix and bo
     let alix_dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
@@ -1786,8 +1721,8 @@ async fn test_consecutive_entries_verification_happy_case() {
 // verifies: FORK-087
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_member_cannot_poison_the_commit_log() {
-    tester!(alix, with_commit_log_worker: false);
-    tester!(bo, with_commit_log_worker: false);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
 
     let a = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
@@ -1893,8 +1828,8 @@ async fn a_member_cannot_poison_the_commit_log() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn the_publisher_flag_follows_the_super_admin_list() {
     use crate::groups::UpdateAdminListType::{AddSuper, RemoveSuper};
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let a = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -1950,8 +1885,8 @@ async fn the_publisher_flag_follows_the_super_admin_list() {
 // verifies: FORK-085
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_readded_publisher_does_not_publish_its_earlier_membership() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let a = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -1984,9 +1919,9 @@ async fn a_readded_publisher_does_not_publish_its_earlier_membership() {
 // verifies: FORK-087
 #[xmtp_common::test(unwrap_try = true)]
 async fn an_entry_ahead_of_the_reader_is_held() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     let a = alix
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
@@ -2036,8 +1971,8 @@ async fn an_entry_ahead_of_the_reader_is_held() {
 // verifies: FORK-087
 #[xmtp_common::test(unwrap_try = true)]
 async fn an_inactive_reader_does_not_hold() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let a = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -2070,8 +2005,8 @@ async fn an_inactive_reader_does_not_hold() {
 // verifies: FORK-030, FORK-087
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_held_entry_stops_later_pages_of_its_topic() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let a = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -2115,7 +2050,7 @@ async fn a_held_entry_stops_later_pages_of_its_topic() {
         )
     })
     .collect();
-    let (client, script) = scripted::scripted_with_page_size(&bo.client, 2).await;
+    let (client, script) = scripted::scripted_with_page_size(&bo, 2).await;
     script.lock().reads.insert(topic.cloned_vec(), entries);
     let mut reader = CommitLogWorker::new(client.context.clone());
     reader
@@ -2175,8 +2110,8 @@ async fn commit_log_download_commits_each_page() {
     const ENTRIES: u64 = 16;
     const PAGE_ROWS: u32 = 2;
     const STORED_PAGES: usize = 3;
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let a = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -2234,7 +2169,7 @@ async fn commit_log_download_commits_each_page() {
             )
         })
         .collect();
-    let (client, script) = scripted::scripted_with_page_size(&bo.client, PAGE_ROWS).await;
+    let (client, script) = scripted::scripted_with_page_size(&bo, PAGE_ROWS).await;
     {
         let mut script = script.lock();
         script.reads.insert(topic.cloned_vec(), entries);
@@ -2291,10 +2226,10 @@ async fn commit_log_download_commits_each_page() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_publisher_handover_keeps_the_log_readable() {
     use crate::groups::UpdateAdminListType::{AddSuper, RemoveSuper};
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
-    tester!(dan, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
+    let dan = EngineTestPeer::new().await;
     let a = alix
         .create_group_with_members(
             &[bo.inbox_id(), caro.inbox_id(), dan.inbox_id()],
@@ -2404,14 +2339,14 @@ enum PublisherReturn {
 
 async fn assert_returning_publisher_progresses(change: PublisherReturn) {
     use crate::groups::UpdateAdminListType::{AddSuper, RemoveSuper};
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     #[cfg(not(target_arch = "wasm32"))]
-    tester!(caro, persistent_db, disable_workers);
+    let caro = EngineTestPeer::persistent().await;
     #[cfg(target_arch = "wasm32")]
-    tester!(caro, disable_workers);
-    tester!(dan, disable_workers);
-    tester!(eve, disable_workers);
+    let caro = EngineTestPeer::new().await;
+    let dan = EngineTestPeer::new().await;
+    let eve = EngineTestPeer::new().await;
     let a = alix
         .create_group_with_members(
             &[bo.inbox_id(), caro.inbox_id(), dan.inbox_id()],
@@ -2539,13 +2474,10 @@ async fn assert_returning_publisher_progresses(change: PublisherReturn) {
             xmtp_db::StorageOption::Persistent(path) => path.clone(),
             xmtp_db::StorageOption::Ephemeral => panic!("restart test needs a persistent database"),
         };
+        let owner = caro.owner.clone();
         drop((c, caro));
-        super::test_commit_log_upgrade::reopen_commit_log_client(&path).await
+        super::test_commit_log_upgrade::reopen_commit_log_client(owner, &path).await
     };
-    #[cfg(target_arch = "wasm32")]
-    let caro = caro.client;
-    let dan = dan.client;
-    let eve = eve.client;
     // Caro retains Alix's prefix; Dan downloads it after the return; Eve's
     // Welcome follows the return. All three must reach the same local tip.
     for (label, client) in [("returning", &caro), ("delayed", &dan), ("joined", &eve)] {

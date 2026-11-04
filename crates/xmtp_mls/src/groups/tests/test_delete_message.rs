@@ -1,8 +1,8 @@
 use crate::groups::GroupError;
 use crate::groups::error::DeleteMessageError;
 use crate::groups::send_message_opts::SendMessageOpts;
+use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 use crate::messages::decoded_message::{DeletedBy, MessageBody};
-use crate::tester;
 use xmtp_content_types::{ContentCodec, compression::compress, text::TextCodec};
 use xmtp_db::Store;
 use xmtp_db::group_message::{
@@ -62,7 +62,7 @@ fn cached_text_row(
 // verifies: CTYPE-018, PROC-037
 #[xmtp_common::test(unwrap_try = true)]
 async fn old_cached_text_cannot_be_deleted_locally() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let db = alix.context.db();
     for (id, sender) in [
@@ -98,8 +98,8 @@ async fn received_deletion_rejects_old_cached_text_target() {
     use xmtp_content_types::delete_message::DeleteMessageCodec;
     use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
     let bo_group = bo.sync_welcomes().await?.remove(0);
@@ -145,8 +145,8 @@ async fn received_deletion_rejects_old_cached_text_target() {
 /// Test basic message deletion by the original sender
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_delete_message_by_sender() {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
@@ -208,8 +208,8 @@ async fn compressed_delete_message_is_applied() {
     use xmtp_content_types::delete_message::DeleteMessageCodec;
     use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
     let bo_group = bo.sync_welcomes().await?.remove(0);
@@ -246,8 +246,8 @@ async fn compressed_delete_message_is_applied() {
 // verifies: PROC-037
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_delete_message_by_super_admin() {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
@@ -302,8 +302,8 @@ async fn test_delete_message_by_super_admin() {
 /// Test that non-authorized members cannot delete messages
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_delete_message_authorization_failure() {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
@@ -330,8 +330,8 @@ async fn test_delete_message_authorization_failure() {
 /// Test that transcript messages cannot be deleted
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_cannot_delete_transcript_messages() {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
@@ -360,7 +360,7 @@ async fn test_cannot_delete_transcript_messages() {
 /// Test deleting a message that doesn't exist
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_delete_nonexistent_message() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let alix_group = alix.create_group(None, None)?;
 
     // Try to delete a message that doesn't exist
@@ -377,7 +377,7 @@ async fn test_delete_nonexistent_message() {
 /// Test deleting an already deleted message
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_delete_already_deleted_message() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let alix_group = alix.create_group(None, None)?;
 
     // Send a message
@@ -405,8 +405,8 @@ async fn test_delete_already_deleted_message() {
 /// A member who joins after a message and its deletion receives both in topic order
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_out_of_order_deletion() {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
@@ -445,7 +445,7 @@ async fn admin_delete_of_expired_message_names_the_admin() {
     use xmtp_content_types::delete_message::DeleteMessageCodec;
     use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let alix_group = alix.create_group(None, None)?;
     let target_id = vec![0xAD, 0x01];
     let target = StoredGroupMessage {
@@ -507,9 +507,9 @@ async fn unauthorized_pending_delete_does_not_block_super_admin_delete() {
     use xmtp_content_types::delete_message::DeleteMessageCodec;
     use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     let alix_group = alix.create_group(None, None)?;
     alix_group
         .add_members(&[bo.inbox_id(), caro.inbox_id()])
@@ -603,9 +603,9 @@ async fn cross_group_pending_delete_does_not_block_super_admin_delete() {
     use xmtp_content_types::delete_message::DeleteMessageCodec;
     use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     let target_group = alix
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
@@ -673,8 +673,8 @@ async fn cross_group_pending_delete_does_not_block_super_admin_delete() {
 // verifies: PROC-060
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_enrichment_with_deleted_messages() {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
@@ -768,7 +768,7 @@ async fn test_enrichment_with_deleted_messages() {
 /// Test that DeleteMessage content type is not shown in message lists
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_delete_message_filtered_from_lists() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let alix_group = alix.create_group(None, None)?;
 
     // Send a message
@@ -800,8 +800,8 @@ async fn test_delete_message_filtered_from_lists() {
 async fn test_reply_to_deleted_message() {
     use xmtp_content_types::reply::ReplyCodec;
 
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
@@ -886,8 +886,8 @@ async fn deletion_clears_original_evidence_on_message_and_parent() {
     use crate::messages::enrichment::deleted_message_content_type;
     use xmtp_content_types::reply::ReplyCodec;
 
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
@@ -964,8 +964,8 @@ async fn deletion_clears_an_undecodable_deletable_row_and_parent() {
     use crate::messages::decoded_message::ContentDecodeFailureKind;
     use xmtp_content_types::reply::ReplyCodec;
 
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
@@ -1040,8 +1040,8 @@ async fn deletion_clears_an_undecodable_deletable_row_and_parent() {
 /// Test that cross-group deletion attempts are rejected
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_cannot_delete_message_from_different_group() {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
 
     // Create two separate groups
     let group1 = alix.create_group(None, None)?;
@@ -1086,8 +1086,8 @@ async fn test_cannot_delete_message_from_different_group() {
 /// Test that we cannot delete a delete message
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_cannot_delete_delete_message() {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
@@ -1133,9 +1133,9 @@ async fn test_cannot_delete_delete_message() {
 /// Test concurrent deletions - multiple people trying to delete the same message
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_concurrent_deletions() {
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
 
     // Alix creates a group with Bo and Caro, making Bo also a super admin
     let alix_group = alix.create_group(None, None)?;
@@ -1226,8 +1226,8 @@ async fn test_concurrent_deletions() {
 /// Test that deletion works correctly when both sender and admin try to delete
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_sender_and_admin_both_delete() {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
 
     // Alix creates a group with Bo
     let alix_group = alix.create_group(None, None)?;
@@ -1280,83 +1280,6 @@ async fn test_sender_and_admin_both_delete() {
     );
 }
 
-/// Test that stream_message_deletions receives a callback when another client deletes a message
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_stream_message_deletions_from_other_client() {
-    use crate::utils::FullXmtpClient;
-    use parking_lot::Mutex;
-    use std::sync::Arc;
-    use std::time::Duration;
-    use tokio::sync::Notify;
-    use xmtp_common::StreamHandle;
-
-    tester!(alix);
-    tester!(bo);
-
-    // Create a group and add bo
-    let alix_group = alix.create_group(None, None)?;
-    alix_group.add_members(&[bo.inbox_id()]).await?;
-
-    // Bo syncs to join the group
-    let bo_groups = bo.wait_for_welcomes().await?;
-    assert_eq!(bo_groups.len(), 1);
-    let bo_group = &bo_groups[0];
-
-    // Alix sends a message
-    let text_content = TextCodec::encode("Message to be deleted".to_string())?;
-    let text_bytes = xmtp_content_types::encoded_content_to_bytes(text_content);
-    let message_id = alix_group
-        .send_message(&text_bytes, SendMessageOpts::default())
-        .await?;
-
-    // Bo syncs to receive the message (needed so the original message is in Bo's DB)
-    bo_group.sync().await?;
-
-    // Set up shared state for Bo's callback
-    let deleted_message: Arc<Mutex<Option<crate::messages::decoded_message::DecodedMessage>>> =
-        Arc::new(Mutex::new(None));
-    let notify = Arc::new(Notify::new());
-
-    let deleted_message_clone = deleted_message.clone();
-    let notify_clone = notify.clone();
-
-    // Bo sets up the deletion stream with callback
-    // (Bo will receive the deletion event when syncing, since alix sent it)
-    let mut handle = FullXmtpClient::stream_message_deletions_with_callback(
-        Arc::new(bo.client.clone()),
-        move |msg| {
-            if let Ok(message) = msg {
-                *deleted_message_clone.lock() = Some(message);
-                notify_clone.notify_one();
-            }
-        },
-        || {},
-    );
-
-    // Wait for stream to be ready
-    handle.wait_for_ready().await;
-
-    // Alix deletes the message and publishes
-    alix_group.delete_message(message_id.clone())?;
-    alix_group.publish_messages().await?;
-
-    // Bo syncs to receive the deletion (this triggers the MessageDeleted event)
-    bo_group.sync().await?;
-
-    // Wait for callback to be called (5s timeout provides buffer for async processing)
-    xmtp_common::time::timeout(Duration::from_secs(5), notify.notified())
-        .await
-        .expect("Timed out waiting for deletion callback");
-
-    // Verify the stream received the correct deleted message
-    let deleted_message = deleted_message
-        .lock()
-        .take()
-        .expect("No deleted message received");
-    assert_eq!(deleted_message.metadata.id, message_id);
-    assert_eq!(deleted_message.metadata.sender_inbox_id, alix.inbox_id());
-}
-
 /// A request queues the deletion and changes nothing; the echo marks the
 /// target and emits one `message.deleted`. A second request before publish is
 /// allowed, and both publish to one mark.
@@ -1365,8 +1288,8 @@ async fn test_stream_message_deletions_from_other_client() {
 async fn request_queues_and_applies_at_echo() {
     use crate::context::CoreContext;
 
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
     let bo_group = bo.wait_for_welcomes().await?.remove(0);

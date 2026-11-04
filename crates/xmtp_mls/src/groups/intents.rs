@@ -1398,11 +1398,10 @@ mod app_data_update_intent_tests {
 pub(crate) mod tests {
     use crate::context::CoreContext;
     use crate::groups::send_message_opts::SendMessageOpts;
+    use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer};
     use openmls::prelude::{ProcessedMessageContent, ProtocolMessage};
-    use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_db::XmtpOpenMlsProviderRef;
 
-    use crate::{builder::ClientBuilder, utils::TestMlsGroup};
+    use xmtp_db::XmtpOpenMlsProviderRef;
 
     use super::*;
 
@@ -1494,8 +1493,8 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     async fn test_key_rotation_before_first_message() {
-        let client_a = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
-        let client_b = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
+        let client_a = EngineTestPeer::new_with(|o| o.triggers = true).await;
+        let client_b = EngineTestPeer::new_with(|o| o.triggers = true).await;
 
         // client A makes a group with client B, and then sends a message to client B.
         let group_a = client_a.create_group(None, None).expect("create group");
@@ -1545,7 +1544,7 @@ pub(crate) mod tests {
     }
 
     async fn verify_num_payloads_in_group(
-        group: &TestMlsGroup,
+        group: &EngineTestGroup,
         num_messages: usize,
     ) -> Vec<xmtp_proto::types::GroupMessage> {
         let messages = group
@@ -1559,7 +1558,7 @@ pub(crate) mod tests {
     }
 
     fn verify_commit_updates_leaf_node(
-        group: &TestMlsGroup,
+        group: &EngineTestGroup,
         message: &xmtp_proto::types::GroupMessage,
     ) {
         let mls_message = message.message.clone();

@@ -381,7 +381,7 @@ where
         Ok(result)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     #[tracing::instrument(level = "trace", skip_all)]
     pub(in crate::groups) fn prepare_group_messages(
         &self,

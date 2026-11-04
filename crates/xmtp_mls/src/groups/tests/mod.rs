@@ -1,11 +1,10 @@
+use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
 use crate::prelude::*;
 #[cfg(not(target_arch = "wasm32"))]
 mod disconnect_propagation;
-mod post_quantum_interop;
 mod test_bad_key_packages;
 mod test_change_callbacks;
 mod test_commit_log_fork_detection;
-mod test_commit_log_local;
 mod test_commit_log_readd_requests;
 mod test_commit_log_remote;
 mod test_commit_log_upgrade;
@@ -21,19 +20,13 @@ mod test_group_info;
 mod test_group_updated;
 mod test_identity_revocation;
 mod test_identity_updates;
-mod test_inbox_handles;
 mod test_leaf_key_binding;
-#[cfg(not(target_arch = "wasm32"))]
-mod test_legacy_placeholder_topics;
 mod test_membership;
-mod test_message_deletion_lifetime;
 mod test_message_disappearing_settings;
 mod test_metadata_permissions;
 #[cfg(not(target_arch = "wasm32"))]
 mod test_metadata_read_amplification;
 mod test_min_version;
-#[cfg(not(target_arch = "wasm32"))]
-mod test_network;
 mod test_prepare_message_for_later_publish;
 mod test_proposals;
 mod test_proposals_app_data;
@@ -41,8 +34,6 @@ mod test_proposals_pause;
 mod test_proposals_permissions;
 #[cfg(not(target_arch = "wasm32"))]
 mod test_publication_durability;
-#[cfg(not(target_arch = "wasm32"))]
-mod test_rate_limits;
 mod test_self_removal;
 mod test_send_message_opts;
 mod test_send_receive;
@@ -64,35 +55,26 @@ use xmtp_proto::types::{Cursor, Topic};
 
 use super::group_permissions::{MembershipPolicies, PolicySet};
 use crate::context::XmtpSharedContext;
+use crate::core::version::VersionInfo;
 use crate::groups::intents::QueueIntent;
+use crate::groups::{
+    DeliveryStatus, GroupError, GroupMetadataOptions, PreconfiguredPolicies, UpdateAdminListType,
+    intents::{PermissionPolicyOption, PermissionUpdateType},
+    members::{GroupMember, PermissionLevel},
+    validate_dm_group,
+};
 use crate::groups::{DmValidationError, GroupLeaveValidationError, MetadataPermissionsError};
 use crate::groups::{
     MAX_APP_DATA_LENGTH, MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH,
     MAX_GROUP_NAME_LENGTH,
 };
-use crate::tester;
-use crate::utils::fixtures::{alix, bola, caro};
-use crate::utils::{ClientTester, LocalTester, TestMlsGroup, Tester, VersionInfo};
-use crate::{
-    builder::ClientBuilder,
-    groups::{
-        DeliveryStatus, GroupError, GroupMetadataOptions, PreconfiguredPolicies,
-        UpdateAdminListType,
-        intents::{PermissionPolicyOption, PermissionUpdateType},
-        members::{GroupMember, PermissionLevel},
-        validate_dm_group,
-    },
-    utils::test::FullXmtpClient,
-};
 use diesel::connection::SimpleConnection;
 use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
-use futures::future::join_all;
 use rstest::*;
 use xmtp_common::StreamHandle as _;
 use xmtp_common::time::now_ns;
 use xmtp_common::{assert_err, assert_ok};
 use xmtp_content_types::{ContentCodec, group_updated::GroupUpdatedCodec};
-use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_db::group::{GroupMembershipState, StoredGroup};
 use xmtp_db::pending_remove::QueryPendingRemove;
 use xmtp_db::schema::groups;
@@ -105,34 +87,10 @@ use xmtp_db::{
 };
 use xmtp_id::associations::Identifier;
 use xmtp_id::associations::test_utils::add_wallet_signature;
-use xmtp_mls_group_state::group_metadata::GroupMetadata;
 use xmtp_mls_group_state::group_mutable_metadata::{MessageDisappearingSettings, MetadataField};
 use xmtp_proto::xmtp::mls::message_contents::{EncodedContent, PlaintextEnvelope};
 
-#[track_caller]
-pub(super) fn assert_blocked_obligation(
-    error: &crate::subscriptions::barrier::BarrierError,
-    topic: &Topic,
-    processed: Cursor,
-    code: &str,
-) -> crate::subscriptions::barrier::BarrierTopic {
-    use crate::subscriptions::barrier::{BarrierCause, BarrierError, BarrierFailure};
-    let BarrierError::Incomplete { reason, unfinished } = error;
-    assert_eq!(*reason, BarrierFailure::Blocked);
-    let [status] = unfinished.as_slice() else {
-        panic!("expected one blocked obligation, got {unfinished:?}");
-    };
-    assert_eq!(&status.topic, topic);
-    let target = status
-        .target
-        .expect("blocked work must have a fixed target");
-    assert!(status.received >= target);
-    assert_eq!(status.processed, processed);
-    assert!(target > processed);
-    assert!(!status.inactive);
-    assert!(matches!(&status.cause, Some(BarrierCause::Blocked(actual)) if actual == code));
-    status.clone()
-}
+pub(super) use crate::groups::test_support::{assert_blocked_obligation, increment_patch_version};
 
 #[track_caller]
 pub(super) fn assert_version_sync_blocked(error: GroupError, topic: &Topic, processed: Cursor) {
@@ -157,27 +115,27 @@ pub(super) fn assert_paused_sync(error: GroupError, expected_version: &str) {
     ));
 }
 
-pub(super) async fn receive_group_invite(client: &FullXmtpClient) -> TestMlsGroup {
+pub(super) async fn receive_group_invite(client: &EngineTestPeer) -> EngineTestGroup {
     client.sync_welcomes().await.unwrap();
     let mut groups = client.find_groups(GroupQueryArgs::default()).unwrap();
 
     groups.remove(0)
 }
 
-pub(super) async fn get_latest_message(group: &TestMlsGroup) -> StoredGroupMessage {
+pub(super) async fn get_latest_message(group: &EngineTestGroup) -> StoredGroupMessage {
     group.sync().await.unwrap();
     let mut messages = group.find_messages(&MsgQueryArgs::default()).unwrap();
     messages.pop().unwrap()
 }
 
 /// Revoke the installation `key` from `member`'s inbox.
-pub(in crate::groups) async fn revoke(member: &ClientTester, key: &[u8]) {
+pub(in crate::groups) async fn revoke(member: &EngineTestPeer, key: &[u8]) {
     let mut request = member
         .identity_updates()
         .revoke_installations(vec![key.to_vec()])
         .await
         .unwrap();
-    add_wallet_signature(&mut request, &member.builder.owner).await;
+    add_wallet_signature(&mut request, &member.owner).await;
     member
         .identity_updates()
         .apply_signature_request(request)
@@ -191,9 +149,9 @@ pub(in crate::groups) async fn revoke(member: &ClientTester, key: &[u8]) {
 // A test drives an OpenMLS convenience commit; its GroupInfo never leaves the test.
 #[allow(clippy::disallowed_methods)]
 pub(super) async fn force_add_member(
-    sender_client: &FullXmtpClient,
-    new_member_client: &FullXmtpClient,
-    sender_group: &TestMlsGroup,
+    sender_client: &EngineTestPeer,
+    new_member_client: &EngineTestPeer,
+    sender_group: &EngineTestGroup,
     sender_mls_group: &mut openmls::prelude::MlsGroup,
     sender_provider: &impl xmtp_db::MlsProviderExt,
 ) {
@@ -253,8 +211,8 @@ pub(super) async fn force_add_member(
 
 #[xmtp_common::test]
 async fn test_dm_stitching() {
-    let alix = Tester::new().await;
-    let bo = Tester::new().await;
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
 
     let bo_dm = bo
         .find_or_create_dm(alix.inbox_id().to_string(), None)
@@ -328,10 +286,10 @@ async fn test_dm_stitching() {
 
 #[xmtp_common::test(flavor = "multi_thread")]
 async fn test_self_resolve_epoch_mismatch() {
-    tester!(amal);
-    tester!(bola);
-    tester!(charlie);
-    tester!(dave);
+    let amal = EngineTestPeer::new().await;
+    let bola = EngineTestPeer::new().await;
+    let charlie = EngineTestPeer::new().await;
+    let dave = EngineTestPeer::new().await;
     let amal_group = amal.create_group(None, None).unwrap();
     // Add bola to the group
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
@@ -367,70 +325,8 @@ async fn test_self_resolve_epoch_mismatch() {
     assert!(expected_latest_message.eq(&dave_latest_message.decrypted_message_bytes));
 }
 
-#[xmtp_common::test]
-async fn test_dm_creation() {
-    tester!(amal);
-    tester!(bola);
-    tester!(caro);
-
-    // Amal creates a dm group targeting bola
-    let amal_dm = amal
-        .find_or_create_dm(bola.inbox_id().to_string(), None)
-        .await
-        .unwrap();
-
-    // Amal can not add caro to the dm group
-    let result = amal_dm.add_members(&[caro.inbox_id()]).await;
-    assert!(result.is_err());
-
-    // Bola is already a member
-    let result = amal_dm
-        .add_members(&[bola.inbox_id(), caro.inbox_id()])
-        .await;
-    assert!(result.is_err());
-    amal_dm.sync().await.unwrap();
-    let members = amal_dm.members().await.unwrap();
-    assert_eq!(members.len(), 2);
-
-    // Bola can message amal
-    let _ = bola.sync_welcomes().await;
-    let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
-
-    let bola_dm: &TestMlsGroup = bola_groups.first().unwrap();
-    bola_dm
-        .send_message(b"test one", SendMessageOpts::default())
-        .await
-        .unwrap();
-
-    // Amal sync and reads message
-    amal_dm.sync().await.unwrap();
-    let messages = amal_dm.find_messages(&MsgQueryArgs::default()).unwrap();
-    assert_eq!(messages.len(), 2);
-    let message = messages.last().unwrap();
-    assert_eq!(message.decrypted_message_bytes, b"test one");
-
-    // Amal can not remove bola
-    let result = amal_dm.remove_members(&[bola.inbox_id()]).await;
-    assert!(result.is_err());
-    amal_dm.sync().await.unwrap();
-    let members = amal_dm.members().await.unwrap();
-    assert_eq!(members.len(), 2);
-
-    // Neither Amal nor Bola is an admin or super admin
-    amal_dm.sync().await.unwrap();
-    bola_dm.sync().await.unwrap();
-    let is_amal_admin = amal_dm.is_admin(amal.inbox_id().to_string()).unwrap();
-    let is_bola_admin = amal_dm.is_admin(bola.inbox_id().to_string()).unwrap();
-    let is_amal_super_admin = amal_dm.is_super_admin(amal.inbox_id().to_string()).unwrap();
-    let is_bola_super_admin = amal_dm.is_super_admin(bola.inbox_id().to_string()).unwrap();
-    assert!(!is_amal_admin);
-    assert!(!is_bola_admin);
-    assert!(!is_amal_super_admin);
-    assert!(!is_bola_super_admin);
-}
-
 // Create a membership update intent, but don't sync it yet
-pub(super) async fn create_membership_update_no_sync(group: &TestMlsGroup) {
+pub(super) async fn create_membership_update_no_sync(group: &EngineTestGroup) {
     let intent_data = group.get_membership_update_intent(&[], &[]).await.unwrap();
 
     // If there is nothing to do, stop here
@@ -452,90 +348,6 @@ pub(super) async fn create_membership_update_no_sync(group: &TestMlsGroup) {
  * intents that do the same thing, leading to conflicts
  */
 
-// verifies: CONS-057
-#[cfg_attr(target_arch = "wasm32", ignore)]
-#[rstest]
-#[xmtp_common::test]
-#[awt]
-async fn test_get_and_set_consent(
-    #[future] alix: ClientTester,
-    #[future] bola: ClientTester,
-    #[future] caro: ClientTester,
-) {
-    let alix_group = alix.create_group(None, None).unwrap();
-
-    // group consent state should be allowed if user created it
-    assert_eq!(alix_group.consent_state().unwrap(), ConsentState::Allowed);
-
-    alix_group
-        .update_consent_state(ConsentState::Denied)
-        .unwrap();
-    assert_eq!(alix_group.consent_state().unwrap(), ConsentState::Denied);
-
-    alix_group.add_members(&[bola.inbox_id()]).await.unwrap();
-
-    bola.sync_welcomes().await.unwrap();
-    let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
-    let bola_group = bola_groups.first().unwrap();
-    // group consent state should default to unknown for users who did not create the group
-    assert_eq!(bola_group.consent_state().unwrap(), ConsentState::Unknown);
-
-    bola_group
-        .send_message("hi from bola".as_bytes(), SendMessageOpts::default())
-        .await
-        .unwrap();
-
-    // group consent state should be allowed if user sends a message to the group
-    assert_eq!(bola_group.consent_state().unwrap(), ConsentState::Allowed);
-
-    // A send in an allowed conversation stores no record.
-    use crate::core::events::InternalEvent::PreferencesChanged;
-    let preferences = bola.context.events().subscribe(
-        xmtp_events::EventFilter::default()
-            .with_internal(|e| matches!(e, PreferencesChanged { .. })),
-        Some(16),
-    );
-    bola_group
-        .send_message("again from bola".as_bytes(), SendMessageOpts::default())
-        .await
-        .unwrap();
-    assert!(preferences.drain().is_empty());
-
-    alix_group.add_members(&[caro.inbox_id()]).await.unwrap();
-
-    caro.sync_welcomes().await.unwrap();
-    let caro_groups = caro.find_groups(GroupQueryArgs::default()).unwrap();
-    let caro_group = caro_groups.first().unwrap();
-
-    let text = xmtp_content_types::text::TextCodec::encode("hi from caro".into()).unwrap();
-    let message_id = caro_group
-        .send_message_optimistic(
-            &xmtp_content_types::encoded_content_to_bytes(text),
-            SendMessageOpts::default(),
-        )
-        .unwrap();
-
-    // Queueing the message allows, before it is published.
-    assert_eq!(caro_group.consent_state().unwrap(), ConsentState::Allowed);
-
-    // A deny made before the publish completes stands, and a retry that
-    // reuses the queued intent does not replace it.
-    caro_group
-        .update_consent_state(ConsentState::Denied)
-        .unwrap();
-    caro_group
-        .publish_stored_message(&message_id)
-        .await
-        .unwrap();
-    assert_eq!(caro_group.consent_state().unwrap(), ConsentState::Denied);
-    caro_group.publish_messages().await.unwrap();
-    assert_eq!(caro_group.consent_state().unwrap(), ConsentState::Denied);
-
-    // Deleting a message does not allow.
-    caro_group.delete_message(message_id).unwrap();
-    assert_eq!(caro_group.consent_state().unwrap(), ConsentState::Denied);
-}
-
 // verifies: DMS-021
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_validate_dm_group() {
@@ -552,7 +364,7 @@ async fn test_validate_dm_group() {
     };
     use xmtp_mls_tls_collections::tls_set::TlsSet;
 
-    tester!(client);
+    let client = EngineTestPeer::new().await;
     let added_by_inbox = hex::encode([0x42; 32]);
     // A DM Welcome must carry the group's root.
     let root = GroupRoot::generate();
@@ -765,7 +577,7 @@ async fn test_validate_dm_group() {
 
 #[xmtp_common::test]
 async fn test_update_app_data() {
-    tester!(amal);
+    let amal = EngineTestPeer::new().await;
 
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
     let amal_group = amal.create_group(policy_set, None).unwrap();
@@ -797,8 +609,8 @@ async fn test_update_app_data() {
 
 #[xmtp_common::test]
 async fn test_app_data_in_dm() {
-    tester!(amal);
-    tester!(bola);
+    let amal = EngineTestPeer::new().await;
+    let bola = EngineTestPeer::new().await;
 
     // Create a DM
     let dm = amal
@@ -816,95 +628,10 @@ async fn test_app_data_in_dm() {
     ));
 }
 
-#[xmtp_common::test]
-async fn test_create_group_with_app_data() {
-    tester!(amal);
-
-    let initial_app_data = "Initial app data from options".to_string();
-
-    // Create a group with app_data set through GroupMetadataOptions
-    let group = amal
-        .create_group(
-            None,
-            Some(GroupMetadataOptions {
-                name: Some("Test Group".to_string()),
-                description: Some("Test Description".to_string()),
-                image_url_square: None,
-                message_disappearing_settings: None,
-                app_data: Some(initial_app_data.clone()),
-            }),
-        )
-        .unwrap();
-
-    group.sync().await.unwrap();
-
-    // Verify the app_data was set correctly
-    let retrieved_app_data = group.app_data().unwrap();
-    assert_eq!(retrieved_app_data, initial_app_data);
-
-    // Verify we can also update it
-    let updated_app_data = "Updated app data".to_string();
-    group
-        .update_app_data(updated_app_data.clone(), None)
-        .await
-        .unwrap();
-    group.sync().await.unwrap();
-
-    let final_app_data = group.app_data().unwrap();
-    assert_eq!(final_app_data, updated_app_data);
-}
-
-#[xmtp_common::test]
-async fn test_create_group_with_default_app_data() {
-    tester!(amal);
-
-    // Create a group without specifying app_data (should default to empty string)
-    let group = amal
-        .create_group(None, Some(GroupMetadataOptions::default()))
-        .unwrap();
-
-    group.sync().await.unwrap();
-
-    // Verify the app_data defaults to empty string
-    let retrieved_app_data = group.app_data().unwrap();
-    assert_eq!(retrieved_app_data, "");
-}
-
-pub(super) fn increment_patch_version(version: &str) -> Option<String> {
-    // Split version into numeric part and suffix (if any)
-    let (version_part, suffix) = match version.split_once('-') {
-        Some((v, s)) => (v, Some(s)),
-        None => (version, None),
-    };
-
-    // Split numeric version string into components
-    let mut parts: Vec<&str> = version_part.split('.').collect();
-
-    // Ensure we have exactly 3 parts (major.minor.patch)
-    if parts.len() != 3 {
-        return None;
-    }
-
-    // Parse the patch number and increment it
-    let patch = parts[2].parse::<u32>().ok()?;
-    let new_patch = patch + 1;
-
-    // Replace the patch number with the incremented value
-    let binding = new_patch.to_string();
-    parts[2] = &binding;
-
-    // Join the parts back together with dots and add suffix if it existed
-    let new_version = parts.join(".");
-    match suffix {
-        Some(s) => Some(format!("{}-{}", new_version, s)),
-        None => Some(new_version),
-    }
-}
-
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_membership_state() {
-    tester!(alix);
-    tester!(bola);
+    let alix = EngineTestPeer::new().await;
+    let bola = EngineTestPeer::new().await;
 
     // Create a group with alix as creator
     let group = alix.create_group(None, None)?;

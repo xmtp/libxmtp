@@ -613,16 +613,16 @@ pub(crate) fn apply_readd_installations_intent(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::groups::test_support::{EngineTestPeer, EngineTestPeerOps};
     use crate::prelude::*;
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn membership_delta_reuse_ignores_mutation_order() {
-        use crate::tester;
         use tls_codec::Deserialize;
-        tester!(alix, disable_workers);
-        tester!(bo, disable_workers);
-        tester!(caro, disable_workers);
-        tester!(dave, disable_workers);
+        let alix = EngineTestPeer::new().await;
+        let bo = EngineTestPeer::new().await;
+        let caro = EngineTestPeer::new().await;
+        let dave = EngineTestPeer::new().await;
         let group = alix
             .create_group_with_members(&[bo.inbox_id()], None, None)
             .await?;

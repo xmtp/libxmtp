@@ -6,8 +6,7 @@ use crate::groups::change_callbacks::{
 };
 use crate::groups::intents::{QueueIntent, UpdateMetadataIntentData};
 use crate::groups::send_message_opts::SendMessageOpts;
-use crate::tester;
-use crate::utils::TestMlsGroup;
+use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
 use std::sync::{Arc, Mutex, OnceLock};
 use xmtp_common::time::Duration;
 use xmtp_db::group_intent::{IntentState, StoredGroupIntent};
@@ -59,8 +58,8 @@ fn recording() -> (Arc<RecordingCallback>, UnstableChangeCallbacks) {
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_app_data_callback_fires_for_remote_change() {
     let (recorder, callbacks) = recording();
-    tester!(alix);
-    tester!(bo, change_callbacks: callbacks);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new_with(|o| o.change_callbacks = callbacks).await;
 
     let group = alix.create_group(None, None)?;
     group.add_members(&[bo.inbox_id()]).await?;
@@ -90,7 +89,7 @@ async fn test_app_data_callback_fires_for_remote_change() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_app_data_callback_fires_for_local_change() {
     let (recorder, callbacks) = recording();
-    tester!(alix, change_callbacks: callbacks);
+    let alix = EngineTestPeer::new_with(|o| o.change_callbacks = callbacks).await;
 
     let group = alix.create_group(None, None)?;
     group.update_app_data("from alix".to_string(), None).await?;
@@ -110,8 +109,8 @@ async fn test_app_data_callback_fires_for_local_change() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_app_data_callback_silent_for_unrelated_changes() {
     let (recorder, callbacks) = recording();
-    tester!(alix);
-    tester!(bo, change_callbacks: callbacks);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new_with(|o| o.change_callbacks = callbacks).await;
 
     let group = alix.create_group(None, None)?;
     group.add_members(&[bo.inbox_id()]).await?;
@@ -146,7 +145,7 @@ async fn test_callback_can_publish_back_into_the_same_group() {
     /// chase itself.
     #[derive(Default)]
     struct RepublishingCallback {
-        group: OnceLock<TestMlsGroup>,
+        group: OnceLock<EngineTestGroup>,
         published: Mutex<Vec<String>>,
         completed: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
     }
@@ -180,8 +179,8 @@ async fn test_callback_can_publish_back_into_the_same_group() {
         ..Default::default()
     };
 
-    tester!(alix);
-    tester!(bo, change_callbacks: callbacks);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new_with(|o| o.change_callbacks = callbacks).await;
 
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
@@ -232,8 +231,8 @@ async fn test_callback_can_publish_back_into_the_same_group() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_pending_local_intent_clobbers_a_remote_change() {
     let (recorder, callbacks) = recording();
-    tester!(alix, change_callbacks: callbacks);
-    tester!(bo);
+    let alix = EngineTestPeer::new_with(|o| o.change_callbacks = callbacks).await;
+    let bo = EngineTestPeer::new().await;
 
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
@@ -296,8 +295,8 @@ async fn test_pending_local_intent_clobbers_a_remote_change() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_guarded_update_is_abandoned_instead_of_clobbering() {
     let (recorder, callbacks) = recording();
-    tester!(alix, change_callbacks: callbacks);
-    tester!(bo);
+    let alix = EngineTestPeer::new_with(|o| o.change_callbacks = callbacks).await;
+    let bo = EngineTestPeer::new().await;
 
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
@@ -360,7 +359,7 @@ async fn test_guarded_update_is_abandoned_instead_of_clobbering() {
 // verifies: META-065
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_guarded_update_reports_the_value_that_landed() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
 
     let group = alix.create_group(None, None)?;
     group.update_app_data("current".to_string(), None).await?;
@@ -386,7 +385,7 @@ async fn test_guarded_update_reports_the_value_that_landed() {
 /// hang and then a misleading timeout.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_superseded_intent_resolves_promptly_as_an_error() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
 
     let group = alix.create_group(None, None)?;
     group.update_app_data("current".to_string(), None).await?;
@@ -493,8 +492,8 @@ fn wedging(timeout: Duration) -> (Arc<WedgingCallback>, UnstableChangeCallbacks)
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_wedged_callback_does_not_stall_sync_forever() {
     let (callback, callbacks) = wedging(Duration::from_millis(500));
-    tester!(alix);
-    tester!(bo, change_callbacks: callbacks);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new_with(|o| o.change_callbacks = callbacks).await;
 
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
@@ -545,8 +544,8 @@ async fn test_wedged_callback_does_not_stall_sync_forever() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_wedged_callback_drops_the_rest_of_its_batch() {
     let (callback, callbacks) = wedging(Duration::from_millis(500));
-    tester!(alix);
-    tester!(bo, change_callbacks: callbacks);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new_with(|o| o.change_callbacks = callbacks).await;
 
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;

@@ -2,8 +2,8 @@ use crate::context::CoreContext;
 use crate::groups::app_data::process_message_with_app_data;
 use crate::groups::commit_log::{CommitLogTestFunction, CommitLogWorker};
 use crate::groups::mls_ext::CommitLogStorer;
+use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 use crate::groups::validated_commit::ValidatedCommit;
-use crate::tester;
 use openmls::group::MlsGroup as OpenMlsGroup;
 use openmls::prelude::{ProcessedMessageContent, Sender};
 use xmtp_db::Store;
@@ -31,8 +31,8 @@ async fn fork_checks_select_only_allowed_conversations() {
     };
     use xmtp_proto::types::GroupId;
 
-    tester!(alix, with_commit_log_worker: false);
-    tester!(bo, with_commit_log_worker: false);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let unsolicited_dm = bo.find_or_create_dm(alix.inbox_id(), None).await?;
     alix.sync_welcomes().await?;
     let incoming_dm = alix.group(&unsolicited_dm.group_id)?;
@@ -94,11 +94,11 @@ async fn fork_checks_select_only_allowed_conversations() {
 // verifies: FORK-082, FORK-073
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_real_divergence_detected_through_signed_commit_logs() {
-    use crate::utils::test_mocks_helpers::set_test_mode_future_wrong_epoch;
+    use crate::groups::test_mocks::set_test_mode_future_wrong_epoch;
     use xmtp_db::consent_record::ConsentState;
 
-    tester!(alix, with_commit_log_worker: false);
-    tester!(bo, with_commit_log_worker: false);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let a = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -237,8 +237,8 @@ async fn test_real_divergence_detected_through_signed_commit_logs() {
 // verifies: EVENT-001, EVENT-010
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix.find_or_create_dm(bo.inbox_id(), None).await?;
     let group_id = group.group_id;
 
@@ -337,7 +337,7 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None).unwrap();
     let group_id = group.group_id;
 
@@ -512,7 +512,7 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_detection_returns_none_when_no_matching_remote()
 -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None).unwrap();
     let group_id = group.group_id;
 
@@ -588,7 +588,7 @@ async fn test_commit_log_fork_detection_returns_none_when_no_matching_remote()
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_status_persistence_no_new_commits()
 -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None).unwrap();
     let group_id = group.group_id;
 
@@ -771,8 +771,8 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_fork_detection_not_triggered_by_removal_and_readd()
 -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
 
     // Alix creates a group and adds Bo; Bo joins and settles.
     let alix_group = alix.create_group(None, None)?;
@@ -1015,9 +1015,9 @@ async fn test_merge_staged_commit_logged_rejects_non_advancing_authenticator()
         Ok(())
     }
 
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
 
     // Alix creates a group and adds Bo.
     let alix_group = alix.create_group(None, None)?;

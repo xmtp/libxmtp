@@ -1,178 +1,43 @@
 use super::*;
+use crate::core::policy::StreamPolicy;
+use crate::groups::test_support::stalled_api::{StalledApi, StalledCall};
+use crate::groups::test_support::{
+    EnginePeer, EngineTestFeatures, EngineTestPeer, EngineTestPeerOps,
+};
+use crate::identity_lifecycle::test_support::PeerFeatures;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
+use xmtp_api::ApiClientWrapper;
 use xmtp_common::time::{Duration, Instant, timeout};
-use xmtp_db::group::GroupQueryArgs;
-use xmtp_proto::{api::ApiClientError, api_client::XmtpBackendClient, backend_v1 as wire};
 
 const BUDGET: Duration = Duration::from_millis(250);
 const OUTER_BOUND: Duration = Duration::from_secs(2);
 
-type StalledContext = Arc<
-    crate::context::XmtpMlsLocalContext<
-        StalledApi,
-        xmtp_db::DefaultStore,
-        crate::utils::TestMlsStorage,
-    >,
->;
-
-#[derive(Clone, Copy)]
-enum StalledCall {
-    TargetQuery,
-    WelcomePublish,
-    /// Nothing stalls; publish counts the group-message and welcome envelopes.
-    Recorded,
-}
-
-#[derive(Clone)]
-struct StalledApi {
-    inner: crate::utils::TestClient,
-    call: StalledCall,
-    entered: Arc<AtomicBool>,
-    cancelled: Arc<AtomicBool>,
-    group_messages: Arc<AtomicUsize>,
-    welcomes: Arc<AtomicUsize>,
-}
-
-impl StalledApi {
-    async fn never_reply<T>(&self) -> T {
-        struct RequestGuard(Arc<AtomicBool>);
-        impl Drop for RequestGuard {
-            fn drop(&mut self) {
-                self.0.store(true, Ordering::SeqCst);
-            }
-        }
-        let _request = RequestGuard(self.cancelled.clone());
-        self.entered.store(true, Ordering::SeqCst);
-        futures::future::pending().await
-    }
-}
-
-#[xmtp_common::async_trait]
-impl XmtpBackendClient for StalledApi {
-    type Error = ApiClientError;
-
-    async fn publish(
-        &self,
-        request: wire::PublishRequest,
-    ) -> Result<wire::PublishResponse, Self::Error> {
-        match self.call {
-            // Missing receipts leave the prepared attempt unresolved, so the
-            // round must query its target before it can receive messages.
-            StalledCall::TargetQuery => Ok(wire::PublishResponse::default()),
-            StalledCall::WelcomePublish
-                if request.envelopes.iter().any(|envelope| {
-                    matches!(envelope.payload, Some(Payload::WelcomeMessage(_)))
-                }) =>
-            {
-                self.never_reply().await
-            }
-            StalledCall::WelcomePublish => self.inner.publish(request).await,
-            StalledCall::Recorded => {
-                for envelope in &request.envelopes {
-                    match envelope.payload {
-                        Some(Payload::GroupMessage(_)) => {
-                            self.group_messages.fetch_add(1, Ordering::SeqCst);
-                        }
-                        Some(Payload::WelcomeMessage(_)) => {
-                            self.welcomes.fetch_add(1, Ordering::SeqCst);
-                        }
-                        _ => {}
-                    }
-                }
-                self.inner.publish(request).await
-            }
-        }
-    }
-
-    async fn create_upload(
-        &self,
-        request: wire::CreateUploadRequest,
-    ) -> Result<wire::CreateUploadResponse, Self::Error> {
-        self.inner.create_upload(request).await
-    }
-
-    async fn query(&self, request: wire::QueryRequest) -> Result<wire::QueryResponse, Self::Error> {
-        self.inner.query(request).await
-    }
-
-    async fn query_raw_envelopes(
-        &self,
-        request: wire::QueryRequest,
-    ) -> Result<xmtp_proto::types::ReceivedQueryResponse, Self::Error> {
-        self.query(request).await.map(Into::into)
-    }
-    async fn query_newest(
-        &self,
-        request: wire::QueryNewestRequest,
-    ) -> Result<wire::QueryNewestResponse, Self::Error> {
-        match self.call {
-            StalledCall::TargetQuery => self.never_reply().await,
-            StalledCall::WelcomePublish | StalledCall::Recorded => {
-                self.inner.query_newest(request).await
-            }
-        }
-    }
-
-    async fn get_inbox_ids(
-        &self,
-        request: wire::GetInboxIdsRequest,
-    ) -> Result<wire::GetInboxIdsResponse, Self::Error> {
-        self.inner.get_inbox_ids(request).await
-    }
-    async fn get_configuration(
-        &self,
-        request: wire::GetConfigurationRequest,
-    ) -> Result<wire::GetConfigurationResponse, Self::Error> {
-        self.inner.get_configuration(request).await
-    }
-
-    async fn verify_smart_contract_wallet_signatures(
-        &self,
-        request: wire::VerifySmartContractWalletSignaturesRequest,
-    ) -> Result<wire::VerifySmartContractWalletSignaturesResponse, Self::Error> {
-        self.inner
-            .verify_smart_contract_wallet_signatures(request)
-            .await
-    }
-
-    async fn register(
-        &self,
-        request: wire::RegisterRequest,
-    ) -> Result<wire::RecipientState, Self::Error> {
-        self.inner.register(request).await
-    }
-
-    async fn unregister(
-        &self,
-        request: wire::UnregisterRequest,
-    ) -> Result<wire::UnregisterResponse, Self::Error> {
-        self.inner.unregister(request).await
-    }
-
-    async fn update_subscriptions(
-        &self,
-        request: wire::UpdateSubscriptionsRequest,
-    ) -> Result<wire::RecipientState, Self::Error> {
-        self.inner.update_subscriptions(request).await
+impl PeerFeatures<StalledApi> for EngineTestFeatures {
+    fn new(
+        _: &ApiClientWrapper<StalledApi>,
+        policy: &StreamPolicy,
+        own_inbox_stored_through: Option<i64>,
+    ) -> Self {
+        Self::query_only(policy, own_inbox_stored_through)
     }
 }
 
 async fn client_with_stalled_api(
-    tester: &crate::utils::ClientTester,
+    tester: &EngineTestPeer,
     call: StalledCall,
-) -> crate::Client<StalledContext> {
+) -> EngineTestPeer<StalledApi> {
     client_with_stalled_api_within(tester, call, BUDGET).await
 }
 
 /// As [`client_with_stalled_api`], with `budget` as the intent wait deadline.
 async fn client_with_stalled_api_within(
-    tester: &crate::utils::ClientTester,
+    tester: &EngineTestPeer,
     call: StalledCall,
     budget: Duration,
-) -> crate::Client<StalledContext> {
+) -> EngineTestPeer<StalledApi> {
     let api = StalledApi {
         inner: tester.context.api().api_client.raw_for_test().clone(),
         call,
@@ -181,22 +46,17 @@ async fn client_with_stalled_api_within(
         group_messages: Arc::new(AtomicUsize::new(0)),
         welcomes: Arc::new(AtomicUsize::new(0)),
     };
-    let mut settings = tester.context.incoming_runtime().policy().clone();
-    settings.barrier_timeout = budget;
     // Reuse registered tester state to inject one non-completing async RPC.
-    crate::builder::ClientBuilder::from_client(tester.client.clone())
-        .api_client(api)
-        .with_disable_workers(true)
-        .with_allow_offline(Some(true))
-        .stream_policy(settings)
-        .build()
+    tester
+        .with_api(api, None, |options| {
+            options.stream_policy.barrier_timeout = budget
+        })
         .await
-        .unwrap()
 }
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn intent_sync_deadline_bounds_a_stalled_target_query() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     group.send_message_optimistic(b"waiting for a target", Default::default())?;
@@ -222,8 +82,8 @@ async fn intent_sync_deadline_bounds_a_stalled_target_query() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn intent_sync_deadline_bounds_a_stalled_welcome_publish() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let data = group
@@ -287,8 +147,8 @@ async fn intent_sync_deadline_bounds_a_stalled_welcome_publish() {
 async fn later_send_completes_while_earlier_welcomes_stall() {
     /// Long enough for the send's own round on a loaded test machine.
     const SEND_BUDGET: Duration = Duration::from_secs(5);
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let membership = commit_membership_change(&group, &[bo.inbox_id()]).await;
@@ -321,8 +181,8 @@ async fn later_send_completes_while_earlier_welcomes_stall() {
 // verifies: SEND-025
 #[xmtp_common::test(unwrap_try = true)]
 async fn waiter_on_an_ended_follow_up_reports_unsent_welcomes() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let membership = commit_membership_change(&group, &[bo.inbox_id()]).await;
@@ -348,8 +208,8 @@ async fn waiter_on_an_ended_follow_up_reports_unsent_welcomes() {
 async fn an_unconfirmed_dm_repair_does_not_end_the_send() {
     /// Long enough for the add's and the send's rounds on a loaded machine.
     const SEND_BUDGET: Duration = Duration::from_secs(5);
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let orphan = MlsGroup::create_dm_without_peer(&alix.context, bo.inbox_id().to_string())?;
     let client =
         client_with_stalled_api_within(&alix, StalledCall::WelcomePublish, SEND_BUDGET).await;
@@ -375,67 +235,4 @@ async fn an_unconfirmed_dm_repair_does_not_end_the_send() {
             .iter()
             .any(|stored| stored.decrypted_message_bytes == message)
     );
-}
-
-/// Find-or-create on an interrupted DM reports its own repair's outcome, as a
-/// fresh creation reports its add: an unconfirmed add is not a returned DM.
-// verifies: DMS-020
-#[xmtp_common::test(unwrap_try = true)]
-async fn find_or_create_dm_reports_its_unconfirmed_repair() {
-    /// Long enough for the add's round on a loaded machine.
-    const ADD_BUDGET: Duration = Duration::from_secs(5);
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    MlsGroup::create_dm_without_peer(&alix.context, bo.inbox_id().to_string())?;
-    let client =
-        client_with_stalled_api_within(&alix, StalledCall::WelcomePublish, ADD_BUDGET).await;
-
-    let result = timeout(
-        ADD_BUDGET * 3,
-        client.find_or_create_dm(bo.inbox_id(), None),
-    )
-    .await?;
-    assert!(
-        matches!(
-            &result,
-            Err(crate::client::ClientError::Group(error))
-                if matches!(**error, GroupError::PublishedButUnconfirmed { .. })
-        ),
-        "{:?}",
-        result.map(|dm| dm.group_id)
-    );
-}
-
-// verifies: GMOD-056
-#[xmtp_common::test(unwrap_try = true)]
-async fn a_create_with_an_unconfirmed_add_returns_the_group() {
-    const ADD_BUDGET: Duration = Duration::from_secs(5);
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    let client =
-        client_with_stalled_api_within(&alix, StalledCall::WelcomePublish, ADD_BUDGET).await;
-    let result = timeout(
-        ADD_BUDGET * 3,
-        client.create_group_with_members(&[bo.inbox_id()], None, None),
-    )
-    .await?;
-    assert!(
-        result.is_ok(),
-        "{:?}",
-        result.as_ref().map(|group| group.group_id)
-    );
-    let group = result?;
-    assert_eq!(alix.find_groups(GroupQueryArgs::default())?.len(), 1);
-    assert!(
-        client
-            .context
-            .api()
-            .api_client
-            .raw_for_test()
-            .entered
-            .load(Ordering::SeqCst)
-    );
-    alix.group(&group.group_id)?.sync().await?;
-    bo.wait_for_welcomes().await?;
-    assert_eq!(bo.group(&group.group_id)?.members().await?.len(), 2);
 }

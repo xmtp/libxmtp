@@ -198,7 +198,8 @@ pub mod test {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tester;
+    use crate::groups::test_support::{EngineTestPeer, EngineTestPeerOps};
+
     use std::collections::BTreeMap;
     use xmtp_db::identity_update::QueryIdentityUpdates;
     use xmtp_mls_group_state::{
@@ -213,14 +214,14 @@ mod tests {
     // verifies: JOIN-053
     #[xmtp_common::test(unwrap_try = true)]
     async fn misattributed_failed_installation_is_rejected() {
-        tester!(alix, disable_workers);
-        tester!(bo, disable_workers);
-        tester!(caro, disable_workers);
-        tester!(bo2, from: bo, disable_workers);
-        for client in [&*alix, &*bo, &*caro] {
+        let alix = EngineTestPeer::new().await;
+        let bo = EngineTestPeer::new().await;
+        let caro = EngineTestPeer::new().await;
+        let bo2 = bo.new_installation().await;
+        for client in [&alix, &bo, &caro] {
             client.inbox_state(true).await?;
         }
-        let sequence = |client: &crate::utils::FullXmtpClient| -> u64 {
+        let sequence = |client: &EngineTestPeer| -> u64 {
             client
                 .context
                 .db()
@@ -228,7 +229,7 @@ mod tests {
                 .unwrap() as u64
         };
         let absent_id = bo2.context.installation_id().to_vec();
-        let members = [&*alix, &*bo, &*caro]
+        let members = [&alix, &bo, &caro]
             .into_iter()
             .map(|client| {
                 (
@@ -239,7 +240,7 @@ mod tests {
             .collect::<Vec<_>>();
         let validator = InitialMembershipValidator::new(caro.context.clone());
         for owner in [alix.inbox_id(), bo.inbox_id()] {
-            let entries = [&*alix, &*bo, &*caro]
+            let entries = [&alix, &bo, &caro]
                 .into_iter()
                 .map(|client| {
                     (

@@ -4,6 +4,7 @@ use crate::groups::intents::{
     ReaddInstallationsIntentData, UpdateAdminListIntentData, UpdateGroupMembershipIntentData,
     UpdatePermissionIntentData,
 };
+use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_no_gce_on_any_intent() {
@@ -15,8 +16,8 @@ async fn test_no_gce_on_any_intent() {
         IntentKind::ReaddInstallations,
         IntentKind::KeyUpdate,
     ] {
-        tester!(alix, disable_workers);
-        tester!(bo, disable_workers);
+        let alix = EngineTestPeer::new().await;
+        let bo = EngineTestPeer::new().await;
         let group = alix
             .create_group_with_members(&[bo.inbox_id()], None, None)
             .await?;

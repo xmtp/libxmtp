@@ -75,7 +75,7 @@ is the client, built from `XMTP_TOXIPROXY_API` so it follows the worktree's
 port. `toxiproxy_test` takes a process-wide lock and resets the proxies first.
 
 ```rust
-// crates/xmtp_mls/src/groups/tests/test_network.rs
+// crates/xmtp_mls/src/client/tests/engine_suites/test_network.rs
 use xmtp_common::toxiproxy_test;
 
 toxiproxy_test(async || {

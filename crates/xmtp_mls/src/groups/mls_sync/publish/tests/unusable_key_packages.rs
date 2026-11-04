@@ -4,7 +4,10 @@
 use super::faults::{FaultyApi, faulty_group};
 use super::*;
 use crate::groups::send_message_opts::SendMessageOpts;
-use crate::utils::{TestXmtpMlsContext, key_package_with_extensions};
+use crate::groups::test_support::key_package_with_extensions;
+use crate::groups::test_support::{
+    EnginePeer, EngineTestContext, EngineTestPeer, EngineTestPeerOps,
+};
 use openmls::prelude::{Ciphersuite, Extension, UnknownExtension};
 use xmtp_configuration::{
     WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID, WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
@@ -55,12 +58,12 @@ fn short_xwing_wrapper_key() -> Extension {
 #[case::other_installation_leaf(|_, bo| key_package_with_extensions(&bo, CIPHERSUITE, vec![]))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn unusable_package_fails_only_its_installation(
-    #[case] package: fn(TestXmtpMlsContext, TestXmtpMlsContext) -> Vec<u8>,
+    #[case] package: fn(EngineTestContext, EngineTestContext) -> Vec<u8>,
 ) {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(bo2, from: bo, disable_workers);
-    tester!(caro, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let bo2 = bo.new_installation().await;
+    let caro = EngineTestPeer::new().await;
     let unusable = bo2.context.installation_id().to_vec();
     let api = FaultyApi::new(&alix, |_| false, []);
     api.served_key_packages.lock().insert(
@@ -106,13 +109,13 @@ async fn unusable_package_fails_only_its_installation(
 // verifies: JOIN-093, JOIN-012
 #[xmtp_common::test(unwrap_try = true)]
 async fn refresh_skips_unusable_package_and_send_succeeds() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group_id = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?
         .group_id;
-    tester!(bo2, from: bo, disable_workers);
+    let bo2 = bo.new_installation().await;
     let unusable = bo2.context.installation_id().to_vec();
     let api = FaultyApi::new(&alix, |_| false, []);
     api.served_key_packages.lock().insert(
@@ -146,9 +149,9 @@ async fn refresh_skips_unusable_package_and_send_succeeds() {
 // verifies: API-245
 #[xmtp_common::test(unwrap_try = true)]
 async fn served_package_of_another_installation_is_absent() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(bo2, from: bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let bo2 = bo.new_installation().await;
     let api = FaultyApi::new(&alix, |_| false, []);
     api.served_key_packages.lock().insert(
         bo2.context.installation_id().to_vec(),
@@ -186,7 +189,7 @@ async fn rotation_settles_unconfirmed_packages_and_discards_refused_ones(#[case]
     use super::faults::Fault;
     use openmls_traits::storage::StorageProvider;
     use xmtp_id::key_package::VerifiedKeyPackageV2;
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group_id = alix.create_group(None, None).unwrap().group_id;
     let key_package = |payload: &Payload| matches!(payload, Payload::KeyPackage(_));
     let unavailable = || std::iter::repeat_n(Fault::Refuse(tonic::Code::Unavailable), 10);

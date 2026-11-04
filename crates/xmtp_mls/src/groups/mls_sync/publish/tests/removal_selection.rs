@@ -5,8 +5,8 @@ use super::membership_recovery::{
 };
 use super::*;
 use crate::groups::send_message_opts::SendMessageOpts;
+use crate::groups::test_support::{EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
 use crate::groups::tests::revoke;
-use crate::utils::{ClientTester, TestMlsGroup};
 use openmls::messages::proposals::AppDataUpdateOperation;
 use tls_codec::{Serialize, VLBytes};
 use xmtp_cryptography::CredentialSign;
@@ -38,12 +38,12 @@ fn entry_update(inbox: &str, sequence: u64, failures: Vec<Vec<u8>>) -> Vec<u8> {
         .unwrap()
 }
 
-async fn associate(member: &ClientTester, installation: &ClientTester) {
+async fn associate(member: &EngineTestPeer, installation: &EngineTestPeer) {
     let key = &installation.context.identity().installation_keys;
     let mut request = SignatureRequestBuilder::new(member.inbox_id())
         .add_association(
             MemberIdentifier::installation(key.public_slice().to_vec()),
-            member.builder.owner.identifier().into(),
+            member.owner.identifier().into(),
         )
         .build();
     let signature = key
@@ -56,7 +56,7 @@ async fn associate(member: &ClientTester, installation: &ClientTester) {
         )
         .await
         .unwrap();
-    add_wallet_signature(&mut request, &member.builder.owner).await;
+    add_wallet_signature(&mut request, &member.owner).await;
     member
         .identity_updates()
         .apply_signature_request(request)
@@ -64,14 +64,14 @@ async fn associate(member: &ClientTester, installation: &ClientTester) {
         .unwrap();
 }
 
-async fn accept_delta(group: &TestMlsGroup, payload: Vec<u8>) -> Result<(), GroupError> {
+async fn accept_delta(group: &EngineTestGroup, payload: Vec<u8>) -> Result<(), GroupError> {
     let proposal = propose_membership_payload(group, payload)?;
     publish_standalone_proposal(group, proposal, &[group]).await
 }
 
 /// Restore a membership state an older receiver accepted, bypassing today's
 /// stricter identity-removal check. This creates the pre-upgrade test state only.
-fn legacy_entry(group: &TestMlsGroup, payload: Vec<u8>) -> Result<(), GroupError> {
+fn legacy_entry(group: &EngineTestGroup, payload: Vec<u8>) -> Result<(), GroupError> {
     crate::state_tx::state_write(group.context.mls_storage(), |tx| {
         tx.with_group(group.group_id, |mls, storage| {
             let provider = XmtpOpenMlsProviderRef::new(storage);
@@ -100,9 +100,9 @@ fn legacy_entry(group: &TestMlsGroup, payload: Vec<u8>) -> Result<(), GroupError
 async fn shared_key_revocation_delta_without_remove_is_omitted(
     #[case] readd: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix, disable_workers);
-    tester!(alix2, from: alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let alix2 = alix.new_installation().await;
+    let bo = EngineTestPeer::new().await;
     associate(&bo, &alix2).await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
@@ -112,7 +112,7 @@ async fn shared_key_revocation_delta_without_remove_is_omitted(
     group
         .update_group_min_version(xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION)
         .await?;
-    let key = alix2.installation_id.to_vec();
+    let key = alix2.context.installation_id().to_vec();
     assert!(has_leaf(&group, &key));
     assert!(group.with_group_snapshot(|mls| Ok(mls.members().any(
         |member| member.signature_key == key
@@ -169,13 +169,13 @@ async fn shared_key_revocation_delta_without_remove_is_omitted(
 #[xmtp_common::test(unwrap_try = true)]
 async fn failed_key_remove_does_not_cover_a_pending_refresh()
 -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(bo2, from: bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let bo2 = bo.new_installation().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let key = bo2.installation_id.to_vec();
+    let key = bo2.context.installation_id().to_vec();
     revoke(&bo, &key).await;
     let stale_sequence = group
         .get_membership_update_intent(&[], &[])
@@ -192,8 +192,8 @@ async fn failed_key_remove_does_not_cover_a_pending_refresh()
             .contains(&key)
     );
     // A new identity update advances Bo without introducing a leaf to add.
-    tester!(temporary, from: bo, disable_workers);
-    revoke(&bo, temporary.installation_id.as_slice()).await;
+    let temporary = bo.new_installation().await;
+    revoke(&bo, temporary.context.installation_id().as_slice()).await;
     let raised = group
         .get_membership_update_intent(&[], &[])
         .await?

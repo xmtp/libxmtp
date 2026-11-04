@@ -1,11 +1,12 @@
 //! Native processes share the production encrypted database, not test tables.
 
+use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
 use crate::prelude::*;
 use std::{
     fs,
     path::{Path, PathBuf},
     process::{Child, Command, ExitStatus, Stdio},
-    sync::{Arc, Mutex},
+    sync::Mutex,
 };
 
 use openmls::group::MlsGroup as OpenMlsGroup;
@@ -13,29 +14,17 @@ use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
 use xmtp_common::wait_for_some;
 use xmtp_db::{
-    StorageOption, TestDb, TransactionalKeyStore, XmtpMlsStorageProvider, XmtpTestDb,
+    StorageOption, TransactionalKeyStore, XmtpMlsStorageProvider,
     incoming_envelope::{QueryIncomingEnvelope, StreamTopic},
 };
-use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
-use xmtp_proto::{
-    api_client::ApiBuilder,
-    prelude::XmtpTestClient,
-    types::{Cursor, GroupId, Topic},
-};
+use xmtp_proto::types::{Cursor, GroupId, Topic};
 
 use crate::{
-    Client,
-    builder::DeviceSyncMode,
     context::XmtpSharedContext,
     core::precommit_test_hook,
-    groups::send_message_opts::SendMessageOpts,
-    identity::IdentityStrategy,
-    tester,
-    utils::{
-        DefaultTestClientCreator, TestMlsGroup,
-        test::{FullXmtpClient, MlsGroupExt},
-    },
+    groups::{send_message_opts::SendMessageOpts, test_support::MlsGroupExt},
 };
+use alloy::signers::local::PrivateKeySigner;
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
 
@@ -51,6 +40,7 @@ enum ChildMode {
 #[derive(Serialize, Deserialize)]
 struct ChildConfig {
     database: String,
+    owner: Vec<u8>,
     group_id: GroupId,
     mode: ChildMode,
     ready: PathBuf,
@@ -80,6 +70,7 @@ impl StateProcess {
         directory: &Path,
         name: &str,
         database: &str,
+        owner: &[u8],
         group_id: GroupId,
         mode: ChildMode,
         start: &Path,
@@ -89,6 +80,7 @@ impl StateProcess {
         let log = directory.join(format!("{name}.log"));
         let config = ChildConfig {
             database: database.into(),
+            owner: owner.into(),
             group_id,
             mode,
             ready: ready.clone(),
@@ -166,22 +158,18 @@ impl Drop for StateProcess {
 }
 
 // A persistent Tester creates the identity. Each child opens that same identity.
-async fn reopen(database: &str) -> TestResult<FullXmtpClient> {
-    let store = TestDb::create_persistent_store(Some(database.into())).await;
-    let api = Arc::new(DefaultTestClientCreator::create().build()?);
-    Ok(Client::builder(IdentityStrategy::CachedOnly)
-        .store(store)
-        .api_client(api)
-        .default_mls_store()?
-        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
-        .with_disable_workers(true)
-        .with_commit_log_worker(false)
-        .with_device_sync_worker_mode(Some(DeviceSyncMode::Disabled))
-        .build()
-        .await?)
+async fn reopen(owner: &[u8], database: &str) -> TestResult<EngineTestPeer> {
+    let owner = PrivateKeySigner::from_slice(owner)?;
+    Ok(EngineTestPeer::open_persistent(
+        owner,
+        database,
+        crate::identity_lifecycle::IdentityStrategy::CachedOnly,
+        |_| {},
+    )
+    .await)
 }
 
-async fn snapshot(group: &TestMlsGroup) -> TestResult<StateReport> {
+async fn snapshot(group: &EngineTestGroup) -> TestResult<StateReport> {
     let topic = StreamTopic::group(group.group_id);
     let db = group.context.db();
     let progress = db.topic_progress(&topic)?;
@@ -198,7 +186,7 @@ async fn snapshot(group: &TestMlsGroup) -> TestResult<StateReport> {
     })
 }
 
-async fn wait_until_idle(client: &FullXmtpClient) {
+async fn wait_until_idle(client: &EngineTestPeer) {
     assert!(
         wait_for_some(|| async {
             client
@@ -215,7 +203,7 @@ async fn wait_until_idle(client: &FullXmtpClient) {
     );
 }
 
-fn database_path(client: &FullXmtpClient) -> String {
+fn database_path(client: &EngineTestPeer) -> String {
     match client.context.store().opts() {
         StorageOption::Persistent(path) => path.clone(),
         StorageOption::Ephemeral => panic!("process tests need a persistent database"),
@@ -229,7 +217,7 @@ async fn state_process_child() {
         return;
     };
     let config: ChildConfig = serde_json::from_str(&config)?;
-    let client = reopen(&config.database).await?;
+    let client = reopen(&config.owner, &config.database).await?;
     let group = client.group(&config.group_id)?;
     fs::write(&config.ready, serde_json::to_vec(&snapshot(&group).await?)?)?;
     assert!(
@@ -286,8 +274,8 @@ async fn state_process_child() {
 /// Independent receivers retain ordered MLS state in one database.
 #[xmtp_common::test(unwrap_try = true)]
 async fn independent_processes_apply_ordered_commits_to_one_database() {
-    tester!(alix, disable_workers);
-    tester!(bo, persistent_db, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::persistent().await;
     let peer = alix.create_group(None, None)?;
     peer.invite(&bo).await?;
     let shared = bo.wait_for_welcomes().await?.pop()?;
@@ -295,6 +283,9 @@ async fn independent_processes_apply_ordered_commits_to_one_database() {
     wait_until_idle(&bo).await;
     let initial = snapshot(&shared).await?;
     let database = database_path(&bo);
+    // zeroize: none, the child process reads this test key from its config file
+    #[allow(clippy::disallowed_methods)]
+    let owner = bo.owner.to_bytes().to_vec();
     let group_id = shared.group_id;
     for name in [
         "first ordered commit",
@@ -314,6 +305,7 @@ async fn independent_processes_apply_ordered_commits_to_one_database() {
         directory.path(),
         "first",
         &database,
+        &owner,
         group_id,
         ChildMode::Receive,
         &start,
@@ -322,6 +314,7 @@ async fn independent_processes_apply_ordered_commits_to_one_database() {
         directory.path(),
         "second",
         &database,
+        &owner,
         group_id,
         ChildMode::Receive,
         &start,
@@ -345,7 +338,7 @@ async fn independent_processes_apply_ordered_commits_to_one_database() {
         assert_eq!(report.pending, 0);
     }
 
-    let reopened = reopen(&database).await?;
+    let reopened = reopen(&owner, &database).await?;
     let recovered = reopened.group(&group_id)?;
     recovered
         .send_message(b"after both processes", SendMessageOpts::default())
@@ -364,8 +357,8 @@ async fn independent_processes_apply_ordered_commits_to_one_database() {
 /// Process death cannot commit part of an incoming MLS state change.
 #[xmtp_common::test(unwrap_try = true)]
 async fn process_death_before_state_commit_preserves_replay_and_convergence() {
-    tester!(alix, disable_workers);
-    tester!(bo, persistent_db, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::persistent().await;
     let peer = alix.create_group(None, None)?;
     peer.invite(&bo).await?;
     let shared = bo.wait_for_welcomes().await?.pop()?;
@@ -373,6 +366,9 @@ async fn process_death_before_state_commit_preserves_replay_and_convergence() {
     wait_until_idle(&bo).await;
     let before = snapshot(&shared).await?;
     let database = database_path(&bo);
+    // zeroize: none, the child process reads this test key from its config file
+    #[allow(clippy::disallowed_methods)]
+    let owner = bo.owner.to_bytes().to_vec();
     let group_id = shared.group_id;
     let topic = StreamTopic::group(group_id);
     peer.update_group_name("commit interrupted before persistence".into())
@@ -407,6 +403,7 @@ async fn process_death_before_state_commit_preserves_replay_and_convergence() {
         directory.path(),
         "crash",
         &database,
+        &owner,
         group_id,
         ChildMode::CrashBeforeCommit {
             target: admitted.received,
@@ -424,7 +421,7 @@ async fn process_death_before_state_commit_preserves_replay_and_convergence() {
     assert_eq!(uncommitted.pending, 0);
     assert!(!child.kill()?.success());
 
-    let reopened = reopen(&database).await?;
+    let reopened = reopen(&owner, &database).await?;
     let recovered = reopened.group(&group_id)?;
     let rolled_back = snapshot(&recovered).await?;
     assert_eq!(rolled_back.epoch, before_commit.epoch);

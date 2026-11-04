@@ -3,14 +3,28 @@
 
 use super::*;
 use crate::context::CoreContext;
+use crate::core::policy::StreamPolicy;
+use crate::groups::test_support::{EngineTestFeatures, EngineTestPeer};
+use crate::identity_lifecycle::test_support::{PeerContext, PeerFeatures, TestPeer};
 use parking_lot::Mutex;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use xmtp_api::ApiClientWrapper;
 use xmtp_proto::types::{Topic, TopicKind};
 use xmtp_proto::{api::ApiClientError, api_client::XmtpBackendClient, backend_v1 as wire};
 
-pub(super) type FaultyContext = crate::utils::TestXmtpMlsContext<FaultyApi>;
+pub(super) type FaultyContext = PeerContext<EngineTestFeatures, FaultyApi>;
+
+impl PeerFeatures<FaultyApi> for EngineTestFeatures {
+    fn new(
+        _: &ApiClientWrapper<FaultyApi>,
+        policy: &StreamPolicy,
+        own_inbox_stored_through: Option<i64>,
+    ) -> Self {
+        Self::query_only(policy, own_inbox_stored_through)
+    }
+}
 
 /// What the backend does with one intercepted publish.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -61,7 +75,7 @@ pub(super) struct FaultyApi {
 
 impl FaultyApi {
     pub(super) fn new(
-        tester: &crate::utils::ClientTester,
+        tester: &EngineTestPeer,
         intercepts: fn(&Payload) -> bool,
         faults: impl IntoIterator<Item = Fault>,
     ) -> Self {
@@ -274,26 +288,19 @@ impl XmtpBackendClient for FaultyApi {
 /// The tester's group in a new client over the same store, behind `api`.
 /// A second call is a restart: only durable state carries over.
 pub(super) async fn faulty_group(
-    tester: &crate::utils::ClientTester,
+    tester: &EngineTestPeer,
     group_id: &GroupId,
     api: FaultyApi,
 ) -> MlsGroup<FaultyContext> {
-    let mut builder = crate::builder::ClientBuilder::from_client(tester.client.clone())
-        .api_client(api)
-        .with_disable_workers(true)
-        .with_allow_offline(Some(true));
-    if let Some(provider) = tester.builder.config_provider.clone() {
-        builder = builder.config_provider(provider);
-    }
-    let client = builder.build().await.unwrap();
-    MlsGroup::new_cached(client.context.clone(), group_id)
+    let peer: TestPeer<EngineTestFeatures, FaultyApi> = tester.with_api(api, None, |_| {}).await;
+    MlsGroup::new_cached(peer.context.clone(), group_id)
         .unwrap()
         .0
 }
 
 /// The tester's group behind an API whose next group publishes fail with `statuses`.
 pub(super) async fn refusing_group(
-    tester: &crate::utils::ClientTester,
+    tester: &EngineTestPeer,
     group_id: &GroupId,
     statuses: impl IntoIterator<Item = tonic::Code>,
 ) -> MlsGroup<FaultyContext> {

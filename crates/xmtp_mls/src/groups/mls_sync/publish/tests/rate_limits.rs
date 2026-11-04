@@ -4,6 +4,7 @@ use super::faults::{Fault, FaultyApi, faulty_group, group_message, welcome};
 use super::send_state_transitions::{UNRESOLVED, intents_in};
 use super::*;
 use crate::groups::send_message_opts::SendMessageOpts;
+use crate::groups::test_support::{EnginePeer, EngineTestPeer};
 use xmtp_common::{RetryableError, time::Duration};
 
 /// The delay outlasts the sync call, so the call returns the rejection after
@@ -11,7 +12,7 @@ use xmtp_common::{RetryableError, time::Duration};
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_rate_limited_publish_is_not_resent_by_the_sync_loop() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let delay = Duration::from_secs(300);
     let api = FaultyApi::new(
@@ -34,22 +35,19 @@ async fn a_rate_limited_publish_is_not_resent_by_the_sync_loop() {
 
 /// The tester's group behind `api`, with a bounded sync of `barrier_timeout`.
 async fn limited_group(
-    tester: &crate::utils::ClientTester,
+    tester: &EngineTestPeer,
     group_id: &xmtp_proto::types::GroupId,
     api: FaultyApi,
     barrier_timeout: Duration,
 ) -> MlsGroup<super::faults::FaultyContext> {
-    let client = crate::builder::ClientBuilder::from_client(tester.client.clone())
-        .api_client(api)
-        .stream_policy(crate::core::policy::StreamPolicy {
-            barrier_timeout,
-            ..Default::default()
+    let client = tester
+        .with_api(api, None, |options| {
+            options.stream_policy = crate::core::policy::StreamPolicy {
+                barrier_timeout,
+                ..Default::default()
+            }
         })
-        .with_disable_workers(true)
-        .with_allow_offline(Some(true))
-        .build()
-        .await
-        .unwrap();
+        .await;
     MlsGroup::new_cached(client.context.clone(), group_id)
         .unwrap()
         .0
@@ -60,7 +58,7 @@ async fn limited_group(
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_rate_limit_past_the_round_timeout_keeps_its_delay() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let delay = Duration::from_secs(3);
     let api = FaultyApi::new(&alix, group_message, [Fault::RateLimit(delay)]);
@@ -79,7 +77,7 @@ async fn a_rate_limit_past_the_round_timeout_keeps_its_delay() {
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_read_error_after_a_rate_limited_publish_keeps_the_delay() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let delay = Duration::from_secs(300);
     let api = FaultyApi::new(
@@ -109,7 +107,7 @@ async fn a_read_error_after_a_rate_limited_publish_keeps_the_delay() {
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_sync_waits_out_a_short_rate_limit_on_its_capture() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let api = FaultyApi::new(&alix, group_message, []);
     let limited = limited_group(&alix, &group.group_id, api.clone(), Duration::from_secs(10)).await;
@@ -130,7 +128,7 @@ async fn a_sync_waits_out_a_short_rate_limit_on_its_capture() {
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_rate_limited_round_resends_the_same_bytes_after_the_delay() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let delay = Duration::from_millis(300);
     // The inner retry spends its five retries, so the loop sees the delay.
@@ -159,7 +157,7 @@ async fn a_rate_limited_round_resends_the_same_bytes_after_the_delay() {
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_rate_limited_target_capture_reports_its_delay() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let delay = Duration::from_secs(90);
     let api = FaultyApi::new(&alix, group_message, []);
@@ -183,7 +181,7 @@ async fn a_rate_limited_target_capture_reports_its_delay() {
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_refused_later_intent_does_not_stop_confirming_the_target() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let api = FaultyApi::new(
@@ -206,8 +204,8 @@ async fn a_refused_later_intent_does_not_stop_confirming_the_target() {
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_published_commit_keeps_its_welcomes_rate_limit_delay() {
-    tester!(alix, disable_workers);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let delay = Duration::from_secs(300);
     let api = FaultyApi::new(&alix, welcome, [Fault::RateLimit(delay)]);
@@ -228,7 +226,7 @@ async fn a_published_commit_keeps_its_welcomes_rate_limit_delay() {
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn syncing_all_groups_keeps_a_rate_limit_delay() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let delay = Duration::from_secs(3);
     let api = FaultyApi::new(&alix, group_message, [Fault::RateLimit(delay)]);

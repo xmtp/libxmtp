@@ -5,6 +5,7 @@ use super::send_state_transitions::{UNRESOLVED, intents_in, status};
 use super::*;
 use crate::groups::DeleteMessageError;
 use crate::groups::send_message_opts::SendMessageOpts;
+use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 use xmtp_content_types::{ContentCodec, encoded_content_to_bytes, text::TextCodec};
 use xmtp_db::group_message::{ContentType, DeliveryStatus, MsgQueryArgs};
 
@@ -58,8 +59,8 @@ enum Unsent {
 #[case::prepared(Unsent::Prepared)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn cancel_unsent(#[case] unsent: Unsent) -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -104,7 +105,7 @@ async fn cancel_unsent(#[case] unsent: Unsent) -> Result<(), Box<dyn std::error:
 // verifies: SEND-026, PROC-037
 #[xmtp_common::test(unwrap_try = true)]
 async fn cancel_unsent_refuses_a_saved_attempt() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let message = group.send_message_optimistic(&text("in flight"), Default::default())?;
@@ -141,8 +142,8 @@ async fn cancel_unsent_refuses_a_saved_attempt() {
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn cancel_unsent_races_the_publisher() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -179,7 +180,7 @@ async fn cancel_unsent_races_the_publisher() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn cancel_unsent_skips_another_installations_row() {
     use xmtp_db::Store;
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let imported = StoredGroupMessage {
         id: vec![0xCA; 32],
@@ -235,7 +236,7 @@ async fn cancel_unsent_skips_another_installations_row() {
 async fn idempotent_resend_of_a_deleted_message_returns_it(
     #[case] optimistic: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let opts = || SendMessageOpts {
         idempotency_key: Some("fixed".into()),
@@ -268,8 +269,8 @@ async fn idempotent_resend_of_a_deleted_message_returns_it(
 // verifies: PROC-037
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_queued_send_for_a_marked_target_is_dropped() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -304,8 +305,8 @@ async fn a_queued_send_for_a_marked_target_is_dropped() {
 async fn topic_deletion_of_a_queued_send_removes_it() {
     use xmtp_content_types::delete_message::DeleteMessageCodec;
     use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;

@@ -1,9 +1,9 @@
 //! Admin and permission enforcement for proposals.
 
+use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 use crate::{
     context::CoreContext,
     groups::intents::{CommitPendingProposalsIntentData, ProposeMemberUpdateIntentData},
-    tester,
 };
 use xmtp_db::{group_intent::IntentKind, prelude::*};
 
@@ -18,9 +18,9 @@ use super::test_proposals::{
 async fn test_non_admin_proposal_rejected_in_admin_only_group() {
     use crate::groups::group_permissions::PreconfiguredPolicies;
 
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
 
     // Alix creates an admin-only group (only admins can add members)
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
@@ -105,9 +105,9 @@ async fn test_non_admin_proposal_rejected_in_admin_only_group() {
 async fn test_admin_proposal_accepted_in_admin_only_group() {
     use crate::groups::group_permissions::PreconfiguredPolicies;
 
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
 
     // Alix creates an admin-only group
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
@@ -167,11 +167,11 @@ async fn test_admin_proposal_accepted_in_admin_only_group() {
 async fn test_non_admin_commits_admin_proposals_in_admin_group() {
     use crate::groups::group_permissions::PreconfiguredPolicies;
 
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
-    tester!(dave);
-    tester!(eve);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
+    let dave = EngineTestPeer::new().await;
+    let eve = EngineTestPeer::new().await;
 
     // Alix creates an admin-only group (only admins can add/remove members)
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
@@ -347,11 +347,11 @@ async fn test_non_admin_commits_admin_proposals_in_admin_group() {
 /// 3. The admin can then perform admin-only operations (group name update)
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_multiple_non_admin_proposers_with_admin_committer() {
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
-    tester!(dave);
-    tester!(eve);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
+    let dave = EngineTestPeer::new().await;
+    let eve = EngineTestPeer::new().await;
 
     // Alix creates a default-permissions group (anyone can add members)
     let alix_group = alix
@@ -477,9 +477,9 @@ async fn test_multiple_non_admin_proposers_with_admin_committer() {
 async fn test_remove_proposal_validation_in_admin_group() {
     use crate::groups::group_permissions::PreconfiguredPolicies;
 
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
 
     // Alix creates an admin-only group and adds Bo and Caro
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
@@ -574,9 +574,9 @@ async fn test_remove_proposal_validation_in_admin_group() {
 async fn test_admin_removing_super_admin_publishes_nothing() {
     use crate::groups::UpdateAdminListType;
 
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
@@ -626,9 +626,9 @@ async fn test_receivers_reject_raw_membership_delete_of_super_admin() {
     };
     use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
 
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
@@ -680,9 +680,9 @@ async fn test_receivers_reject_raw_membership_delete_of_super_admin() {
 async fn test_admin_proposes_remove_committed_by_non_admin() {
     use crate::groups::group_permissions::PreconfiguredPolicies;
 
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
 
     // Alix creates an admin-only group and adds Bo and Caro
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
@@ -785,8 +785,8 @@ async fn test_raw_registry_admin_list_allow_rejected_before_publish() {
         metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
     };
 
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
 
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
@@ -881,8 +881,8 @@ async fn test_registry_alone_controls_action_policy_view() {
         metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
     };
 
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
 
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
@@ -953,8 +953,8 @@ async fn test_commit_removing_all_super_admins_is_rejected() {
     };
     use xmtp_mls_tls_collections::tls_set::TlsSetDelta;
 
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
 
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
@@ -1058,8 +1058,8 @@ async fn test_migrated_action_permission_updates_use_registry() {
         Kind as MetadataPolicyKind, MetadataBasePolicy,
     };
 
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
 
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
@@ -1183,7 +1183,7 @@ async fn test_allow_admin_permission_updates_rejected_before_queueing() {
         intents::{PermissionPolicyOption, PermissionUpdateType},
     };
 
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
 
     let group = alix.create_group(None, None)?;
     let epoch = group.epoch().await?;
@@ -1226,101 +1226,6 @@ async fn test_allow_admin_permission_updates_rejected_before_queueing() {
     }
 }
 
-/// The cases run in a loop instead of `#[rstest]` `#[case]` attributes on
-/// purpose. This test is compiled into the wasm32 test binary, and the wasm
-/// derivation sets `RSTEST_TIMEOUT`. With that variable set, `rstest` routes a
-/// *sync* case through `execute_with_timeout_sync`, which calls
-/// `std::thread::spawn` — unsupported on wasm32, so the binary aborts.
-///
-/// This test is async, so it would take rstest's `execute_with_timeout_async`
-/// path (futures-timer, no thread) and would not abort today. The loop keeps it
-/// that way regardless: making this fn sync later must not be able to wedge the
-/// wasm binary. Prefer a loop over `#[rstest]` in wasm-visible tests.
-///
-/// Each iteration builds its own client so one case's groups and permission
-/// commits cannot leak into the next.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_dictionary_native_permissions_presets() {
-    use crate::groups::{
-        group_permissions::PreconfiguredPolicies, intents::PermissionPolicyOption,
-        intents::PermissionUpdateType,
-    };
-
-    let cases: [(&str, PreconfiguredPolicies, bool, PermissionPolicyOption); 3] = [
-        (
-            "default",
-            PreconfiguredPolicies::Default,
-            false,
-            PermissionPolicyOption::Allow,
-        ),
-        (
-            "admins_only",
-            PreconfiguredPolicies::AdminsOnly,
-            false,
-            PermissionPolicyOption::AdminOnly,
-        ),
-        (
-            "custom_admins",
-            PreconfiguredPolicies::Default,
-            true,
-            PermissionPolicyOption::Allow,
-        ),
-    ];
-
-    for (case_name, preset, custom_admins, add_member_policy) in cases {
-        tester!(alix);
-        let mut expected = preset.to_policy_set();
-        if custom_admins {
-            use crate::groups::group_permissions::PermissionsPolicies;
-            expected.add_admin_policy = PermissionsPolicies::allow_if_actor_admin();
-            expected.remove_admin_policy = PermissionsPolicies::allow_if_actor_admin();
-        }
-        let group = alix.create_group(Some(expected.clone()), None).unwrap();
-        assert_eq!(
-            group.permissions().unwrap().policies,
-            expected,
-            "case {case_name}: created group did not match the requested policy set"
-        );
-
-        group
-            .update_permission_policy(
-                PermissionUpdateType::AddMember,
-                PermissionPolicyOption::Deny,
-                None,
-            )
-            .await
-            .unwrap();
-        assert!(
-            PreconfiguredPolicies::from_policy_set(&group.permissions().unwrap().policies).is_err(),
-            "case {case_name}: a denied add_member policy should not map back to a preset"
-        );
-        // `PermissionPolicyOption` is not `Copy`, and the call below consumes
-        // it, so capture the label for the assertion message first.
-        let policy_label = format!("{add_member_policy:?}");
-        group
-            .update_permission_policy(PermissionUpdateType::AddMember, add_member_policy, None)
-            .await
-            .unwrap();
-        let actual = group.permissions().unwrap().policies;
-        assert_eq!(
-            actual, expected,
-            "case {case_name}: restoring {policy_label} did not return the original policy set"
-        );
-        if custom_admins {
-            assert!(
-                PreconfiguredPolicies::from_policy_set(&actual).is_err(),
-                "case {case_name}: custom admin policies should not map back to a preset"
-            );
-        } else {
-            assert_eq!(
-                PreconfiguredPolicies::from_policy_set(&actual).unwrap(),
-                preset,
-                "case {case_name}: restored policy set did not map back to {preset:?}"
-            );
-        }
-    }
-}
-
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_receiver_rejects_invalid_registry_action_state() {
     use crate::groups::{
@@ -1344,8 +1249,8 @@ async fn test_receiver_rejects_invalid_registry_action_state() {
         (ComponentId::ADMIN_LIST, false),
         (ComponentId::GROUP_MEMBERSHIP, true),
     ] {
-        tester!(alix);
-        tester!(bo);
+        let alix = EngineTestPeer::new().await;
+        let bo = EngineTestPeer::new().await;
         let group = alix
             .create_group_with_members(&[bo.inbox_id()], None, None)
             .await?;

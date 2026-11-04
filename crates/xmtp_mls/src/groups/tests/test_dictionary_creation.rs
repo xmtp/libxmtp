@@ -1,30 +1,22 @@
 //! Dictionary shape at creation, configured field registration, and
 //! registry reconciliation by membership commits.
 
+use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 use std::collections::BTreeSet;
 
 use crate::{
     context::XmtpSharedContext,
     groups::{GroupError, MlsGroup, UpdateAdminListType, app_data::load_component_registry},
-    tester,
 };
-use openmls::{extensions::ExtensionType, messages::proposals::ProposalType};
-use xmtp_configuration::{
-    ApplicationComponentDefinition, ComponentPermissions, MetadataPolicy,
-    PROPOSALS_MIN_PROTOCOL_VERSION,
-};
+use xmtp_configuration::{ApplicationComponentDefinition, ComponentPermissions, MetadataPolicy};
 use xmtp_db::{incoming_envelope::StreamTopic, prelude::*};
 use xmtp_mls_group_state::app_data::{
     component_id::ComponentId, component_registry::ComponentRegistry,
     component_source::read_from_app_data_dict, creation::catalogue_registry_entries,
-    protocol_floor::committed_floor_exceeding,
 };
 use xmtp_proto::{
     types::ConversationType,
-    xmtp::mls::message_contents::{
-        ComponentType,
-        metadata_policy::{Kind, MetadataBasePolicy},
-    },
+    xmtp::mls::message_contents::{ComponentType, metadata_policy::MetadataBasePolicy},
 };
 
 const GROUP_FIELD: u16 = 0xC001;
@@ -96,138 +88,6 @@ fn application_ids<C: XmtpSharedContext>(group: &MlsGroup<C>) -> Result<BTreeSet
         .collect())
 }
 
-// verifies: META-002
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_group_context_shape_at_creation() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    let group = alix.create_group(None, None)?;
-    let dm = crate::groups::MlsGroup::create_dm_and_insert(
-        &alix.context,
-        xmtp_db::group::GroupMembershipState::Allowed,
-        bo.inbox_id().to_string(),
-        Default::default(),
-        None,
-    )?;
-    for conversation in [&group, &dm] {
-        conversation.with_group_snapshot(|mls_group| {
-            let extensions = mls_group.extensions();
-            let mut actual: Vec<_> = extensions.iter().map(|ext| ext.extension_type()).collect();
-            actual.sort();
-            let mut expected = vec![
-                ExtensionType::AppDataDictionary,
-                ExtensionType::RequiredCapabilities,
-            ];
-            expected.sort();
-            assert_eq!(actual, expected);
-            let required = extensions.required_capabilities().unwrap();
-            let mut actual = required.extension_types().to_vec();
-            actual.sort();
-            let mut expected = vec![
-                ExtensionType::AppDataDictionary,
-                ExtensionType::ApplicationId,
-            ];
-            expected.sort();
-            assert_eq!(actual, expected);
-            assert_eq!(required.proposal_types(), &[ProposalType::AppDataUpdate]);
-            // META-002 names the codepoint: `app_data_update` is 0x0008.
-            assert_eq!(u16::from(ProposalType::AppDataUpdate), 0x0008);
-            let dictionary = extensions.app_data_dictionary().unwrap().dictionary();
-            assert_eq!(
-                dictionary.get(&ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16()),
-                Some(PROPOSALS_MIN_PROTOCOL_VERSION.as_bytes()),
-            );
-            assert_eq!(
-                committed_floor_exceeding(
-                    mls_group,
-                    &xmtp_mls_group_state::libxmtp_version::LibXMTPVersion::parse(env!(
-                        "CARGO_PKG_VERSION"
-                    ))?,
-                ),
-                None,
-            );
-            assert_eq!(
-                committed_floor_exceeding(
-                    mls_group,
-                    &xmtp_mls_group_state::libxmtp_version::LibXMTPVersion::parse("999.0.0")?,
-                ),
-                None,
-            );
-            Ok(())
-        })?;
-        assert!(conversation.paused_for_version()?.is_none());
-    }
-}
-
-/// A new group or DM registers the creator's catalogue entries for its kind
-/// with their own type and policies, plus `USER_DISPLAY_NAME` and, in a
-/// group, `GROUP_IMAGE`, and writes none of their values. The registry is
-/// read before any commit, so reconciliation cannot supply it. A joiner
-/// without the catalogue reads the same registry from the group.
-// verifies: META-066, PERM-029
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_creation_registers_configured_fields() {
-    tester!(alix, configured: |c| c.application_components = catalogue());
-    tester!(bo);
-    let group = alix.create_group(None, None)?;
-    let dm = MlsGroup::create_dm_and_insert(
-        &alix.context,
-        xmtp_db::group::GroupMembershipState::Allowed,
-        bo.inbox_id().to_string(),
-        Default::default(),
-        None,
-    )?;
-
-    for (created, kind, fields, image) in [
-        (
-            &group,
-            ConversationType::Group,
-            [GROUP_FIELD, SHARED_FIELD],
-            true,
-        ),
-        (&dm, ConversationType::Dm, [DM_FIELD, SHARED_FIELD], false),
-    ] {
-        assert_eq!(application_ids(created)?, BTreeSet::from(fields));
-        let registry = registry(created)?;
-        for (id, metadata) in catalogue_registry_entries(&catalogue(), kind) {
-            assert_eq!(registry.get(&id)?, Some(metadata));
-        }
-        let permissions = registry
-            .get(&ComponentId::USER_DISPLAY_NAME)??
-            .permissions?;
-        let self_owned = Some(Kind::Base(
-            MetadataBasePolicy::AllowIfSelfOrNonMember as i32,
-        ));
-        for policy in [
-            permissions.insert_policy,
-            permissions.update_policy,
-            permissions.delete_policy,
-        ] {
-            assert_eq!(policy?.kind, self_owned);
-        }
-        let image_entry = registry.get(&ComponentId::GROUP_IMAGE)?;
-        assert_eq!(image_entry.is_some(), image);
-        if let Some(image_entry) = image_entry {
-            assert_eq!(
-                image_entry.permissions,
-                registry.get(&ComponentId::GROUP_IMAGE_URL)??.permissions,
-            );
-        }
-        for id in fields
-            .map(ComponentId::new)
-            .into_iter()
-            .chain([ComponentId::USER_DISPLAY_NAME, ComponentId::GROUP_IMAGE])
-        {
-            assert_eq!(value(created, id)?, None);
-        }
-    }
-
-    let registry = value(&group, ComponentId::COMPONENT_REGISTRY)?;
-    group.add_members(&[bo.inbox_id()]).await?;
-    let joined = bo.wait_for_welcomes().await?.pop()?;
-    assert_eq!(value(&joined, ComponentId::COMPONENT_REGISTRY)?, registry);
-}
-
 /// A super admin's membership commit registers the catalogue entries the
 /// group lacks. A member whose own snapshot has no catalogue accepts it, and
 /// so does one whose snapshot defines the same ID differently, because
@@ -235,16 +95,22 @@ async fn test_creation_registers_configured_fields() {
 // verifies: META-067
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_membership_commit_registers_missing_fields() {
-    tester!(alix);
-    tester!(bo, configured: |c| c.application_components = catalogue());
-    tester!(carol);
-    tester!(dave, configured: |c| c.application_components = vec![definition(
-        GROUP_FIELD,
-        ComponentType::String,
-        MetadataBasePolicy::AllowIfSuperAdmin,
-        true,
-        false,
-    )]);
+    let alix = EngineTestPeer::new().await;
+    let bo =
+        EngineTestPeer::new_with(|o| o.configure(|c| c.application_components = catalogue())).await;
+    let carol = EngineTestPeer::new().await;
+    let dave = EngineTestPeer::new_with(|o| {
+        o.configure(|c| {
+            c.application_components = vec![definition(
+                GROUP_FIELD,
+                ComponentType::String,
+                MetadataBasePolicy::AllowIfSuperAdmin,
+                true,
+                false,
+            )]
+        })
+    })
+    .await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id(), dave.inbox_id()], None, None)
         .await?;
@@ -287,8 +153,9 @@ async fn test_membership_commit_registers_missing_fields() {
 // verifies: META-067
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_metadata_write_registers_missing_fields() {
-    tester!(alix);
-    tester!(bo, configured: |c| c.application_components = catalogue());
+    let alix = EngineTestPeer::new().await;
+    let bo =
+        EngineTestPeer::new_with(|o| o.configure(|c| c.application_components = catalogue())).await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -316,18 +183,40 @@ async fn test_metadata_write_registers_missing_fields() {
 // verifies: META-067
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_reconciliation_never_overwrites_an_entry() {
-    tester!(alix, configured: |c| c.application_components = vec![definition(
-        GROUP_FIELD,
-        ComponentType::Bytes,
-        MetadataBasePolicy::Allow,
-        true,
-        false,
-    )]);
-    tester!(bo, configured: |c| c.application_components = vec![
-        definition(GROUP_FIELD, ComponentType::String, MetadataBasePolicy::AllowIfSuperAdmin, true, false),
-        definition(SHARED_FIELD, ComponentType::Bytes, MetadataBasePolicy::Allow, true, false),
-    ]);
-    tester!(carol);
+    let alix = EngineTestPeer::new_with(|o| {
+        o.configure(|c| {
+            c.application_components = vec![definition(
+                GROUP_FIELD,
+                ComponentType::Bytes,
+                MetadataBasePolicy::Allow,
+                true,
+                false,
+            )]
+        })
+    })
+    .await;
+    let bo = EngineTestPeer::new_with(|o| {
+        o.configure(|c| {
+            c.application_components = vec![
+                definition(
+                    GROUP_FIELD,
+                    ComponentType::String,
+                    MetadataBasePolicy::AllowIfSuperAdmin,
+                    true,
+                    false,
+                ),
+                definition(
+                    SHARED_FIELD,
+                    ComponentType::Bytes,
+                    MetadataBasePolicy::Allow,
+                    true,
+                    false,
+                ),
+            ]
+        })
+    })
+    .await;
+    let carol = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -351,9 +240,10 @@ async fn test_reconciliation_never_overwrites_an_entry() {
 // verifies: META-067
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_membership_commit_without_authority_skips_registration() {
-    tester!(alix);
-    tester!(bo, configured: |c| c.application_components = catalogue());
-    tester!(carol);
+    let alix = EngineTestPeer::new().await;
+    let bo =
+        EngineTestPeer::new_with(|o| o.configure(|c| c.application_components = catalogue())).await;
+    let carol = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -372,12 +262,13 @@ async fn test_membership_commit_without_authority_skips_registration() {
 // verifies: META-067
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_dm_participant_registers_missing_fields() {
-    tester!(alix, configured: |c| c.application_components = catalogue());
-    tester!(bo);
+    let alix =
+        EngineTestPeer::new_with(|o| o.configure(|c| c.application_components = catalogue())).await;
+    let bo = EngineTestPeer::new().await;
     let bo_dm = bo.find_or_create_dm(alix.inbox_id(), None).await?;
     let dm = alix.wait_for_welcomes().await?.pop()?;
     assert!(application_ids(&dm)?.is_empty());
-    tester!(_bo2, from: bo);
+    let _bo2 = bo.new_installation().await;
 
     dm.update_installations().await?;
     bo_dm.sync().await?;
@@ -396,11 +287,13 @@ async fn test_dm_participant_registers_missing_fields() {
 // verifies: META-067
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_racing_membership_commits_register_once() {
-    tester!(alix);
-    tester!(bo, configured: |c| c.application_components = catalogue());
-    tester!(carol, configured: |c| c.application_components = catalogue());
-    tester!(dave);
-    tester!(eve);
+    let alix = EngineTestPeer::new().await;
+    let bo =
+        EngineTestPeer::new_with(|o| o.configure(|c| c.application_components = catalogue())).await;
+    let carol =
+        EngineTestPeer::new_with(|o| o.configure(|c| c.application_components = catalogue())).await;
+    let dave = EngineTestPeer::new().await;
+    let eve = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id(), carol.inbox_id()], None, None)
         .await?;

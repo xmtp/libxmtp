@@ -6,7 +6,7 @@ use xmtp_db::group_message::SortBy;
 use xmtp_db::prelude::QueryGroupMessage;
 
 /// Rows read per page when scanning a DM's group updates for duplicates.
-const PAGE_SIZE: i64 = 100;
+pub(crate) const PAGE_SIZE: i64 = 100;
 
 impl<Context> MlsGroup<Context>
 where
@@ -258,159 +258,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::groups::test_support::group_updates::{add_update, encode, seed_tied_updates};
+    use crate::groups::test_support::{EngineTestPeer, EngineTestPeerOps};
     use crate::prelude::*;
-    use crate::tester;
-    use xmtp_common::{rand_vec, time::now_ns};
-    use xmtp_content_types::{ContentCodec, encryption::sha256, group_updated::GroupUpdatedCodec};
-    use xmtp_db::diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
-    use xmtp_db::group_message::{DeliveryStatus, GroupMessageKind};
-    use xmtp_db::{ConnectionExt, DbConnection, Store};
-    use xmtp_proto::types::GroupId;
-    use xmtp_proto::xmtp::mls::message_contents::group_updated::Inbox;
-
-    /// Marks the rows a test seeds, so they can be pinned to one `inserted_at_ns`.
-    const SEEDED_SENDER: &str = "seeded";
-
-    fn add_update(inbox_id: &str) -> GroupUpdated {
-        GroupUpdated {
-            added_inboxes: vec![Inbox {
-                inbox_id: inbox_id.to_string(),
-            }],
-            ..Default::default()
-        }
-    }
-
-    fn encode(update: &GroupUpdated) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        GroupUpdatedCodec::encode(update.clone())
-            .unwrap()
-            .encode(&mut bytes)
-            .unwrap();
-        bytes
-    }
-
-    /// Store `rows` as group updates of `group_id`, in order, then pin them to
-    /// one `inserted_at_ns` one millisecond above every row the group already
-    /// holds.
-    fn seed_tied_updates<C: ConnectionExt>(
-        db: &DbConnection<C>,
-        group_id: GroupId,
-        rows: Vec<Vec<u8>>,
-    ) {
-        for (i, bytes) in rows.into_iter().enumerate() {
-            StoredGroupMessage {
-                id: sha256(&rand_vec::<12>()),
-                group_id,
-                decrypted_message_bytes: bytes,
-                sent_at_ns: now_ns(),
-                kind: GroupMessageKind::MembershipChange,
-                sender_installation_id: vec![1, 2, 3],
-                sender_inbox_id: SEEDED_SENDER.to_string(),
-                delivery_status: DeliveryStatus::Published,
-                content_type: ContentType::GroupUpdated,
-                version_major: 0,
-                version_minor: 0,
-                authority_id: "unknown".to_string(),
-                reference_id: None,
-                sequence_id: i as i64 + 1,
-                envelope_hash: None,
-                expiry_ns: None,
-                expiry_unknown: false,
-                deleted_by_inbox_id: None,
-                expire_at_ns: None,
-                inserted_at_ns: 0,
-                should_push: true,
-                idempotency_key: String::new(),
-            }
-            .store(db)
-            .unwrap();
-        }
-
-        // The database stamps `inserted_at_ns` at insert time, and its clock
-        // does not agree with `now_ns`. Pin the seeded rows to one value just
-        // above every row the group already holds, rather than rely on how
-        // fast the loop ran or on the wall clock.
-        db.raw_query(|conn| {
-            use xmtp_db::schema::group_messages::dsl;
-            let newest: Option<i64> = dsl::group_messages
-                .filter(dsl::group_id.eq(group_id))
-                .select(xmtp_db::diesel::dsl::max(dsl::inserted_at_ns))
-                .first(conn)?;
-            let shared_inserted_at_ns = newest.unwrap_or_default() + 1_000_000;
-            xmtp_db::diesel::update(dsl::group_messages)
-                .filter(dsl::group_id.eq(group_id))
-                .filter(dsl::sender_inbox_id.eq(SEEDED_SENDER))
-                .set(dsl::inserted_at_ns.eq(shared_inserted_at_ns))
-                .execute(conn)
-        })
-        .unwrap();
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn test_startup_preserves_dm_update_history() {
-        use xmtp_db::user_preferences::StoredUserPreferences;
-        use xmtp_proto::xmtp::mls::message_contents::group_updated::MetadataFieldChange;
-
-        tester!(alix);
-        tester!(bo);
-        let (dm, _) = alix.test_talk_in_dm_with(&bo).await?;
-        let query = MsgQueryArgs {
-            content_types: Some(vec![ContentType::GroupUpdated]),
-            ..Default::default()
-        };
-        let old_count = dm.find_messages_v2(&query)?.len();
-        let metadata = GroupUpdated {
-            metadata_field_changes: vec![MetadataFieldChange {
-                field_name: "expiration_setting".into(),
-                old_value: None,
-                new_value: Some("123".into()),
-            }],
-            ..Default::default()
-        };
-        let mut rows = vec![encode(&metadata); 3];
-        rows.extend(vec![
-            encode(&add_update("repeated"));
-            PAGE_SIZE as usize + 25
-        ]);
-        seed_tied_updates(&alix.db(), dm.group_id, rows);
-        let before = dm.find_messages_v2(&query)?;
-        assert_eq!(before.len(), old_count + PAGE_SIZE as usize + 28);
-        alix.db().raw_query(|conn| {
-            xmtp_db::diesel::update(xmtp_db::schema::user_preferences::table)
-                .set(xmtp_db::schema::user_preferences::dm_group_updates_migrated.eq(false))
-                .execute(conn)
-        })?;
-        let _reopened = crate::builder::ClientBuilder::from_client(alix.client.clone())
-            .with_disable_workers(true)
-            .build()
-            .await?;
-        // Bound the observation: startup must no longer complete this migration.
-        let _ = xmtp_common::time::timeout(
-            std::time::Duration::from_secs(1),
-            xmtp_common::wait_for_eq(
-                || async {
-                    StoredUserPreferences::load(alix.db())
-                        .unwrap()
-                        .dm_group_updates_migrated
-                },
-                true,
-            ),
-        )
-        .await;
-        let after = dm.find_messages_v2(&query)?;
-        assert_eq!(
-            after.len(),
-            before.len(),
-            "startup must preserve all DM update history"
-        );
-        for message in before {
-            assert!(
-                after
-                    .iter()
-                    .any(|row| row.metadata.id == message.metadata.id)
-            );
-        }
-    }
 
     /// Rows written in one millisecond share `inserted_at_ns`, and the cursor
     /// is a strict `>` on that column. A tie group larger than one page must
@@ -418,8 +268,8 @@ mod tests {
     /// duplicate check answers from stale rows.
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_update_already_exists_spans_rows_sharing_one_inserted_at() {
-        tester!(alix);
-        tester!(bo);
+        let alix = EngineTestPeer::new().await;
+        let bo = EngineTestPeer::new().await;
         let (dm, _) = alix.test_talk_in_dm_with(&bo).await?;
 
         let earlier = add_update("earlier");
@@ -445,8 +295,8 @@ mod tests {
     /// scan had ended, and the rows past the page edge are skipped.
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_update_already_exists_counts_undecodable_rows_toward_the_page() {
-        tester!(alix);
-        tester!(bo);
+        let alix = EngineTestPeer::new().await;
+        let bo = EngineTestPeer::new().await;
         let (dm, _) = alix.test_talk_in_dm_with(&bo).await?;
 
         let earlier = add_update("earlier");

@@ -1,114 +1,8 @@
 //! Pause and recovery paths.
 
-use crate::{context::CoreContext, tester};
+use crate::context::CoreContext;
+use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 use xmtp_db::prelude::*;
-
-/// A Welcome with a higher AppData version floor remains pending without
-/// installing the group. An upgraded client can process the same saved input.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_welcome_on_dictionary_group_pauses_below_min_version() {
-    use crate::builder::ClientBuilder;
-    use crate::groups::tests::increment_patch_version;
-    use crate::utils::VersionInfo;
-    use xmtp_cryptography::utils::generate_local_wallet;
-
-    // Alix runs at a newer version. Before migrating, she bumps the
-    // legacy GMM's `MinimumSupportedProtocolVersion` to her pkg_version
-    // so the bootstrap synthesis carries that floor into the AppData
-    // dict (synthesis reads `gmm.attributes` to seed dict entries).
-    let mut alix_version = VersionInfo::default();
-    alix_version.test_update_version(
-        increment_patch_version(alix_version.pkg_version())
-            .unwrap()
-            .as_str(),
-    );
-    let alix_pkg_version = alix_version.pkg_version().to_string();
-    let alix =
-        ClientBuilder::new_test_client_with_version(&generate_local_wallet(), alix_version.clone())
-            .await;
-
-    // Bo joins PRE-migration so alix's bootstrap synthesis has resolved
-    // member identities to work with. He's at the floor version so the
-    // pre-migration min-version bump pauses him via legacy GMM — not
-    // the subject of this test.
-    tester!(bo);
-    let alix_group = alix.create_group(None, None)?;
-    alix_group
-        .add_members(&[bo.context.identity.inbox_id()])
-        .await?;
-
-    // Bump min-version in legacy GMM (the only place to write it
-    // before migration). Bootstrap synthesis will pull this value
-    // forward into the AppData dict.
-    alix_group.update_group_min_version_to_match_self().await?;
-    alix_group.sync().await?;
-
-    // Alix migrates. Post-migration the legacy GMM is stripped and the
-    // floor lives in the AppData dict only.
-
-    // Carol's Welcome carries the version floor only in the AppData dict.
-    tester!(carol, disable_workers);
-    alix_group
-        .add_members(&[carol.context.identity.inbox_id()])
-        .await?;
-
-    let error = carol.sync_welcomes().await.unwrap_err();
-    let crate::groups::GroupError::StreamBarrier(error) = error else {
-        panic!("expected an unsupported Welcome barrier, got {error:?}");
-    };
-    let topic = xmtp_proto::types::Topic::new_welcome_message(carol.context.installation_id());
-    let status = super::assert_blocked_obligation(
-        &error,
-        &topic,
-        xmtp_proto::types::Cursor(0),
-        "welcome_blocked",
-    );
-    let target = status.target?;
-    assert_eq!(status.unresolved_welcomes, vec![target]);
-    let db_topic = xmtp_db::incoming_envelope::StreamTopic {
-        entity_id: carol.context.installation_id().to_vec(),
-        kind: xmtp_db::incoming_envelope::NetworkEntityKind::Welcome,
-    };
-    let pending = carol.context.db().pending_envelope(&db_topic, target)??;
-    assert!(pending.blocked);
-    assert!(
-        carol
-            .context
-            .db()
-            .find_group(&alix_group.group_id)?
-            .is_none()
-    );
-    assert!(carol.context.db().read_last_rejection(&db_topic)?.is_none());
-
-    let carol = ClientBuilder::from_client(carol.client)
-        .version(alix_version)
-        .with_disable_workers(true)
-        .build()
-        .await?;
-    assert_eq!(carol.version_info().pkg_version(), alix_pkg_version);
-    assert_eq!(
-        carol
-            .context
-            .db()
-            .pending_envelope(&db_topic, target)??
-            .envelope,
-        pending.envelope,
-    );
-    carol.sync_welcomes().await?;
-    let carol_group = carol.group(&alix_group.group_id)?;
-    assert!(carol_group.paused_for_version()?.is_none());
-    assert_eq!(
-        carol_group.epoch_authenticator().await?,
-        alix_group.epoch_authenticator().await?
-    );
-    assert!(
-        carol
-            .context
-            .db()
-            .pending_envelope(&db_topic, target)?
-            .is_none()
-    );
-}
 
 /// XIP §3 steady-state pause path: when a dictionary-native client bumps
 /// `MIN_SUPPORTED_PROTOCOL_VERSION` on a dictionary-native group, the
@@ -127,10 +21,8 @@ async fn test_welcome_on_dictionary_group_pauses_below_min_version() {
 /// it is not used to check the protocol floor.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_steady_state_pause_on_min_version_bump_via_app_data_update() {
-    use crate::builder::ClientBuilder;
+    use crate::core::version::VersionInfo;
     use crate::groups::tests::increment_patch_version;
-    use crate::utils::VersionInfo;
-    use xmtp_cryptography::utils::generate_local_wallet;
 
     // Alix runs one patch ahead of the default pkg_version so she can
     // legitimately bump the floor to her own version — the send-side
@@ -141,10 +33,13 @@ async fn test_steady_state_pause_on_min_version_bump_via_app_data_update() {
     let bumped = increment_patch_version(alix_version.pkg_version()).expect("patch bump");
     alix_version.test_update_version(&bumped);
     let alix_pkg_version = alix_version.pkg_version().to_string();
-    let alix =
-        ClientBuilder::new_test_client_with_version(&generate_local_wallet(), alix_version).await;
+    let alix = EngineTestPeer::new_with(|o| {
+        o.version_info = alix_version;
+        o.triggers = true;
+    })
+    .await;
 
-    tester!(bo);
+    let bo = EngineTestPeer::new().await;
 
     let alix_group = alix.create_group(None, None)?;
     alix_group
@@ -261,17 +156,8 @@ async fn test_steady_state_pause_on_min_version_bump_via_app_data_update() {
 /// guard's placement in `process_message_with_app_data`.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_downgraded_client_pauses_on_dictionary_group_with_higher_floor() {
-    use crate::builder::ClientBuilder;
-    use crate::client::Client;
+    use crate::core::version::VersionInfo;
     use crate::groups::tests::increment_patch_version;
-    use crate::identity::IdentityStrategy;
-    use crate::utils::{DefaultTestClientCreator, VersionInfo, test::register_client};
-    use xmtp_common::tmp_path;
-    use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_db::XmtpTestDb;
-    use xmtp_id::InboxOwner;
-    use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
-    use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
 
     // Both clients start one patch above the default version so the
     // floor can be raised to a value the default version doesn't meet.
@@ -279,29 +165,23 @@ async fn test_downgraded_client_pauses_on_dictionary_group_with_higher_floor() {
     let bumped = increment_patch_version(high_version.pkg_version()).expect("patch bump");
     high_version.test_update_version(&bumped);
 
-    let alix =
-        ClientBuilder::new_test_client_with_version(&generate_local_wallet(), high_version.clone())
-            .await;
+    let alix = EngineTestPeer::new_with(|o| {
+        o.version_info = high_version.clone();
+        o.triggers = true;
+    })
+    .await;
 
     // Bo lives on a persistent store so the same identity can be
     // re-opened at a lower version below.
-    let bo_wallet = generate_local_wallet();
-    let bo_db_path = tmp_path();
-    let bo_ident = bo_wallet.get_identifier()?;
-    let bo_nonce = 1;
-    let bo_inbox_id = bo_ident.inbox_id(bo_nonce)?;
-    let bo_strategy = IdentityStrategy::new(bo_inbox_id.clone(), bo_ident.clone(), bo_nonce);
-
-    let bo_store = xmtp_db::TestDb::create_persistent_store(Some(bo_db_path.clone())).await;
-    let bo = Client::builder(bo_strategy.clone())
-        .api_client(DefaultTestClientCreator::create().build()?)
-        .store(bo_store)
-        .default_mls_store()?
-        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
-        .version(high_version.clone())
-        .build()
-        .await?;
-    register_client(&bo, &bo_wallet).await;
+    let bo = EngineTestPeer::persistent_with(|options| {
+        options.version_info = high_version.clone();
+        options.query_only = true;
+    })
+    .await;
+    let bo_db_path = match bo.context.store().opts() {
+        xmtp_db::StorageOption::Persistent(path) => path.clone(),
+        xmtp_db::StorageOption::Ephemeral => panic!("downgrade test needs a persistent database"),
+    };
 
     let alix_group = alix.create_group(None, None)?;
     alix_group
@@ -338,16 +218,14 @@ async fn test_downgraded_client_pauses_on_dictionary_group_with_higher_floor() {
     // The downgrade: re-open bo's store with a client at the DEFAULT
     // (lower) pkg_version.
     let bo_group_id = bo_group.group_id;
+    let bo_owner = bo.owner.clone();
+    let bo_strategy = crate::identity_lifecycle::identity_setup(&bo_owner);
     drop(bo);
-    let bo_store = xmtp_db::TestDb::create_persistent_store(Some(bo_db_path)).await;
-    let bo_downgraded = Client::builder(bo_strategy)
-        .api_client(DefaultTestClientCreator::create().build()?)
-        .store(bo_store)
-        .default_mls_store()?
-        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
-        .version(VersionInfo::default())
-        .build()
-        .await?;
+    let bo_downgraded =
+        EngineTestPeer::open_persistent(bo_owner, &bo_db_path, bo_strategy, |options| {
+            options.version_info = VersionInfo::default()
+        })
+        .await;
 
     let bo_group = bo_downgraded.group(&bo_group_id)?;
     // The sync may surface the pause as a per-message outcome; the
@@ -360,94 +238,6 @@ async fn test_downgraded_client_pauses_on_dictionary_group_with_higher_floor() {
         "a downgraded client below the committed floor must pause the group \
          (deferring all commits for post-upgrade reprocessing), never surface \
          processing errors that would advance past peers"
-    );
-}
-
-/// Pause recovery: a client that's been pinned to `paused_for_version`
-/// gets the flag cleared once their `pkg_version` catches up. Without
-/// this sweep a paused group could stay paused indefinitely on quiet
-/// installations (the per-group `handle_group_paused` re-evaluator only
-/// fires when the group is actively synced, and the sync sweep filters
-/// out groups with no new server messages).
-///
-/// Uses direct `set_group_paused` to install the pause flag rather
-/// than driving a real cross-version migration: the pause-side flows
-/// are pinned by `test_steady_state_pause_on_min_version_bump_via_app_data_update`
-/// and friends, so this test focuses on the sweep logic.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_unstick_paused_groups_recovers_after_upgrade() {
-    use xmtp_db::prelude::*;
-
-    tester!(alix);
-    let alix_pkg = alix.version_info().pkg_version().to_string();
-    let alix_group = alix.create_group(None, None)?;
-    let group_id_typed = &alix_group.group_id;
-
-    // No paused groups initially → sweep is a no-op.
-    assert_eq!(
-        alix.unstick_paused_groups().await?,
-        0,
-        "no paused groups → sweep must return 0"
-    );
-
-    // Pin the floor above the client's own version → sweep stays
-    // hands-off (an installation can't unstick itself by reading a
-    // floor it can't yet satisfy).
-    alix.context
-        .db()
-        .set_group_paused(group_id_typed, "999.0.0")?;
-    assert_eq!(
-        alix.unstick_paused_groups().await?,
-        0,
-        "current pkg_version below floor → sweep must NOT unstick"
-    );
-    assert_eq!(
-        alix_group.paused_for_version()?.as_deref(),
-        Some("999.0.0"),
-        "pause flag must still be set"
-    );
-
-    // Pin the floor at or below the client's own version → sweep
-    // clears the flag.
-    alix.context
-        .db()
-        .set_group_paused(group_id_typed, &alix_pkg)?;
-    assert_eq!(
-        alix.unstick_paused_groups().await?,
-        1,
-        "current pkg_version == floor → sweep must unstick exactly one group"
-    );
-    assert!(
-        alix_group.paused_for_version()?.is_none(),
-        "pause flag must be cleared after the sweep"
-    );
-
-    // Idempotent: a second sweep on a clean state is a no-op.
-    assert_eq!(
-        alix.unstick_paused_groups().await?,
-        0,
-        "second sweep on clean state must be a no-op"
-    );
-
-    // Lenient on malformed stored bytes — skip that row, don't
-    // poison the sweep for everything else.
-    alix.context
-        .db()
-        .set_group_paused(group_id_typed, "not-a-version")?;
-    let result = alix.unstick_paused_groups().await;
-    assert!(
-        result.is_ok(),
-        "sweep must succeed even when a row carries unparseable bytes, got {result:?}",
-    );
-    assert_eq!(
-        result.unwrap(),
-        0,
-        "unparseable rows are skipped, not unstuck"
-    );
-    assert_eq!(
-        alix_group.paused_for_version()?.as_deref(),
-        Some("not-a-version"),
-        "unparseable pause row must be preserved verbatim"
     );
 }
 
@@ -470,102 +260,4 @@ fn extension_type_ids_map_to_mls_extension_types() {
             "{id:#06x}"
         );
     }
-}
-
-/// `membership_capabilities` reports raw per-installation extension support
-/// plus the group context's extension types — generic facts the app filters.
-/// This checks that new groups and their installations advertise
-/// `AppDataDictionary`.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_membership_capabilities() {
-    use crate::groups::{InstallationCapabilities, MlsExtensionType};
-
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
-
-    let alix_group = alix
-        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
-        .await?;
-    bo.sync_welcomes().await?;
-    caro.sync_welcomes().await?;
-
-    // Check that each installation advertises dictionary support.
-    let supports_proposals = |inst: &InstallationCapabilities| {
-        inst.capabilities_known
-            && inst
-                .supported_extensions
-                .contains(&MlsExtensionType::AppDataDictionary)
-    };
-
-    let caps = alix_group.membership_capabilities().await?;
-
-    // A new group is dictionary-native.
-    assert!(
-        caps.context_extensions
-            .contains(&MlsExtensionType::AppDataDictionary),
-        "a new group's context includes AppDataDictionary"
-    );
-
-    assert_eq!(caps.members.len(), 3, "alix, bo, and caro");
-
-    // Every member inbox is represented exactly once.
-    let reported: std::collections::HashSet<&str> =
-        caps.members.iter().map(|m| m.inbox_id.as_str()).collect();
-    assert_eq!(reported.len(), caps.members.len(), "no duplicate inboxes");
-    for inbox in [alix.inbox_id(), bo.inbox_id(), caro.inbox_id()] {
-        assert!(reported.contains(inbox), "capabilities cover {inbox}");
-    }
-
-    // Exactly one installation — the local one (alix's) — is flagged is_own.
-    let own_count = caps
-        .members
-        .iter()
-        .flat_map(|m| &m.installations)
-        .filter(|i| i.is_own)
-        .count();
-    assert_eq!(own_count, 1, "only the local installation is marked is_own");
-
-    // All current-code installations advertise AppDataDictionary.
-    for member in &caps.members {
-        assert!(
-            !member.installations.is_empty(),
-            "{} should have at least one installation",
-            member.inbox_id
-        );
-        for inst in &member.installations {
-            assert!(
-                inst.capabilities_known,
-                "capabilities known for {}",
-                member.inbox_id
-            );
-            assert!(!inst.installation_id.is_empty());
-            assert!(
-                supports_proposals(inst),
-                "{} advertises AppDataDictionary",
-                member.inbox_id
-            );
-        }
-    }
-
-    // All current-code installations advertise dictionary support.
-    let blocking: Vec<&str> = caps
-        .members
-        .iter()
-        .filter(|m| m.installations.iter().any(|i| !supports_proposals(i)))
-        .map(|m| m.inbox_id.as_str())
-        .collect();
-    assert!(
-        blocking.is_empty(),
-        "no inbox lacks dictionary support: {blocking:?}"
-    );
-
-    let current = alix_group.membership_capabilities().await?;
-    assert!(
-        current
-            .context_extensions
-            .contains(&MlsExtensionType::AppDataDictionary),
-        "context advertises AppDataDictionary"
-    );
-    assert_eq!(current.members.len(), 3);
 }

@@ -1,5 +1,5 @@
+use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
 use crate::prelude::*;
-use xmtp_db::consent_record::{ConsentState, ConsentType};
 use xmtp_db::group_message::{ContentType, MsgQueryArgs};
 use xmtp_db::prelude::*;
 
@@ -8,8 +8,6 @@ use crate::groups::{
     GroupError, MlsGroup,
     intents::{QueueIntent, UpdateMetadataIntentData},
 };
-use crate::tester;
-use crate::utils::TestMlsGroup;
 
 fn archived_message(
     group_id: xmtp_proto::types::GroupId,
@@ -53,8 +51,8 @@ async fn restored_dm_placeholder_activates_with_archived_history() {
     };
     use xmtp_mls_group_state::group_metadata::DmMembers;
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
     let db = bo.db();
     assert!(db.find_group(&dm.group_id)?.is_none());
@@ -102,10 +100,10 @@ async fn restored_dm_backup_stub_activates_with_archived_history() {
         group::{GroupMembershipState, QueryGroup},
     };
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
-    TestMlsGroup::create_dm_and_insert(
+    EngineTestGroup::create_dm_and_insert(
         &bo.context,
         GroupMembershipState::Restored,
         alix.inbox_id().to_string(),
@@ -144,15 +142,15 @@ async fn restored_foreign_pair_rejects_different_welcome_pair() {
     use xmtp_db::group::{GroupMembershipState, QueryGroup};
     use xmtp_mls_group_state::group_metadata::DmMembers;
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
     let foreign = hex::encode([0x43; 32]);
     let historical_pair = DmMembers {
         member_one_inbox_id: alix.inbox_id().to_string(),
         member_two_inbox_id: foreign,
     };
-    TestMlsGroup::restore_from_archive(
+    EngineTestGroup::restore_from_archive(
         &bo.context,
         &xmtp_proto::xmtp::device_sync::group_backup::GroupSave {
             id: dm.group_id.to_vec(),
@@ -180,10 +178,10 @@ async fn restored_foreign_pair_rejects_different_welcome_pair() {
 async fn restored_group_rejects_dm_welcome_kind_change() {
     use xmtp_db::group::{ConversationType, GroupMembershipState, QueryGroup};
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
-    TestMlsGroup::insert(
+    EngineTestGroup::insert(
         &bo.context,
         Some(dm.group_id.as_ref()),
         GroupMembershipState::Restored,
@@ -200,67 +198,6 @@ async fn restored_group_rejects_dm_welcome_kind_change() {
     assert_eq!(stored.conversation_type, ConversationType::Group);
 }
 
-/// Test case: If two users are talking in a DM, and one user
-/// creates a new installation and creates a new DM before being
-/// welcomed into the old DM, that new DM group should be consented.
-#[xmtp_common::test(unwrap_try = true)]
-async fn auto_consent_dms_for_new_installations() {
-    tester!(alix);
-    tester!(bo1);
-    // Alix and bo are talking fine in a DM
-    alix.test_talk_in_dm_with(&bo1).await?;
-
-    tester!(bo2, from: bo1);
-
-    // Bo creates a new installation and immediately creates a new DM with alix
-    let bo2_dm = bo2.find_or_create_dm(alix.inbox_id(), None).await?;
-
-    // Alix pulls down the new DM from bo
-    alix.sync_welcomes().await?;
-
-    // That DM should be already consented, since alix consented with bo in another DM
-    let consent = alix
-        .get_consent_state(ConsentType::ConversationId, hex::encode(bo2_dm.group_id))
-        .await?;
-    assert_eq!(consent, ConsentState::Allowed);
-}
-
-/// Test case: If a second installation syncs the consent state for a DM
-/// before processing the welcome, the welcome should succeed rather than
-/// aborting on a unique constraint error.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_dm_welcome_with_preexisting_consent() {
-    tester!(alix);
-    tester!(bo1);
-    // Alix and bo are talking fine in a DM
-    let (a_group, _) = alix.test_talk_in_dm_with(&bo1).await?;
-
-    tester!(bo2, from: bo1);
-
-    // Mock device sync - the DM's record, alix's inbox record, is
-    // processed on Bo2 before the welcome is processed.
-    xmtp_db::consent_record::write_consent(
-        &bo2.context.db(),
-        &xmtp_db::consent_record::ConsentKey::inbox(alix.inbox_id()),
-        xmtp_db::consent_record::ConsentWrite::Decide(xmtp_db::consent_record::Decision::Set(
-            ConsentState::Allowed,
-        )),
-        xmtp_db::consent_record::Owed::Mark,
-    )?;
-    // Now bo2 processes the welcome
-    bo1.find_or_create_dm(alix.inbox_id(), None)
-        .await?
-        .update_installations()
-        .await?;
-    bo2.sync_welcomes().await?;
-
-    // The welcome should succeed
-    assert_eq!(
-        bo2.find_or_create_dm(alix.inbox_id(), None).await?.group_id,
-        a_group.group_id
-    );
-}
-
 async fn queue_disappear_from_ns(
     dm: &MlsGroup<impl XmtpSharedContext>,
     value: i64,
@@ -274,8 +211,8 @@ async fn queue_disappear_from_ns(
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_group_update_dedupes() {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
 
     let (dm, _) = alix.test_talk_in_dm_with(&bo).await?;
 
@@ -410,8 +347,8 @@ fn dictionary_native_dm_with_registry(
 // verifies: DMS-021
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_dictionary_native_dm_accepts_valid_permissions() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
     bo.sync_welcomes().await?;
     let received = bo.group(&dm.group_id)?;
@@ -511,7 +448,7 @@ async fn dm_welcome_rejects_registry_that_blocks_membership_updates() {
         metadata_policy::{Kind, MetadataBasePolicy},
     };
 
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let added_by = hex::encode([0x42; 32]);
     let mut registry = newest_dm_registry_profile();
     let standard = dictionary_native_dm_with_registry(&alix.context, &added_by, registry.clone());
@@ -677,7 +614,7 @@ async fn dm_admission_compares_every_protocol_registry_entry() {
         rejected.push((case.into(), with(id, bytes)));
     }
 
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let added_by = hex::encode([0x42; 32]);
     let validate = |entries: Entries| {
         let group =

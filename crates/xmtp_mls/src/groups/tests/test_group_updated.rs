@@ -1,6 +1,6 @@
 use crate::context::XmtpSharedContext;
+use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
 use crate::groups::{MlsGroup, UpdateAdminListType};
-use crate::tester;
 use prost::Message as ProstMessage;
 use xmtp_content_types::{ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_db::group_message::MsgQueryArgs;
@@ -13,10 +13,7 @@ fn decode_group_updated(encoded_bytes: &[u8]) -> GroupUpdated {
 }
 
 /// Get the first group for a client
-fn get_first_group<C>(client: &crate::Client<C>) -> MlsGroup<C>
-where
-    C: XmtpSharedContext,
-{
+fn get_first_group(client: &EngineTestPeer) -> EngineTestGroup {
     let groups = client.find_groups(Default::default()).unwrap();
     groups
         .into_iter()
@@ -25,10 +22,7 @@ where
 }
 
 /// Sync all welcomes and groups for a client
-async fn sync_client_welcomes<C>(client: &crate::Client<C>)
-where
-    C: XmtpSharedContext,
-{
+async fn sync_client_welcomes(client: &EngineTestPeer) {
     client
         .sync_all_welcomes_and_groups(None)
         .await
@@ -232,11 +226,11 @@ where
 #[xmtp_common::test]
 async fn test_group_updated_admin_changes() {
     // Create 5 test clients
-    tester!(alix);
-    tester!(bola);
-    tester!(caro);
-    tester!(devon);
-    tester!(erin);
+    let alix = EngineTestPeer::new().await;
+    let bola = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
+    let devon = EngineTestPeer::new().await;
+    let erin = EngineTestPeer::new().await;
 
     // Alix creates a group and adds the other 4 members
     let alix_group = alix
@@ -420,7 +414,7 @@ async fn test_group_updated_admin_changes() {
 /// `undefined` instead of `""` for `metadataFieldChanges[0].oldValue`.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_first_metadata_update_reports_empty_old_value() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
 
     // No metadata options: every bounded-string component is absent
     // from the freshly created group's dictionary.
@@ -458,8 +452,8 @@ async fn commit_log_signer_change_is_not_recorded() {
     use xmtp_logging::{Level, test_logging::LogCapture};
     use xmtp_mls_group_state::group_mutable_metadata::MetadataField;
 
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;

@@ -5,7 +5,8 @@ use super::membership_recovery::{
     receive_completed_prefix,
 };
 use super::*;
-use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
+use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
+use crate::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage;
 
 /// A refresh records an installation whose key package it could not fetch.
 /// By publication that installation can have a leaf: the publish-time fetch
@@ -19,9 +20,9 @@ use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
 async fn stale_failure_with_a_leaf_is_not_written(
     #[case] concurrent_refresh: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -30,8 +31,8 @@ async fn stale_failure_with_a_leaf_is_not_written(
     receive_completed_prefix(&group, &bo_group).await?;
 
     // Bo's identity gains bo2, whose key package Alix's refresh cannot fetch.
-    tester!(bo2, from: bo, disable_workers);
-    let bo2_id = bo2.installation_id.to_vec();
+    let bo2 = bo.new_installation().await;
+    let bo2_id = bo2.context.installation_id().to_vec();
     set_test_mode_upload_malformed_keypackage(true, Some(vec![bo2_id.clone()]));
     // With a concurrent refresh, the stale request must still change the
     // group, so it also adds Caro.
@@ -71,7 +72,7 @@ async fn stale_failure_with_a_leaf_is_not_written(
         .identity_updates()
         .revoke_installations(vec![bo2_id.clone()])
         .await?;
-    xmtp_id::associations::test_utils::add_wallet_signature(&mut revoke, &bo.builder.owner).await;
+    xmtp_id::associations::test_utils::add_wallet_signature(&mut revoke, &bo.owner).await;
     bo.identity_updates()
         .apply_signature_request(revoke)
         .await?;
@@ -93,17 +94,17 @@ async fn stale_failure_with_a_leaf_is_not_written(
 // verifies: GMOD-044, GMOD-038
 #[xmtp_common::test(unwrap_try = true)]
 async fn selection_reuses_an_add_for_a_stale_failure() -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
     caro.wait_for_welcomes().await?;
     let caro_group = caro.group(&group.group_id)?;
     receive_completed_prefix(&group, &caro_group).await?;
-    tester!(bo2, from: bo, disable_workers);
-    let bo2_id = bo2.installation_id.to_vec();
+    let bo2 = bo.new_installation().await;
+    let bo2_id = bo2.context.installation_id().to_vec();
     // Publish the Add explicitly: membership refresh commits now carry it
     // inline, so a rejected refresh no longer leaves a standalone Add.
     let proposal = QueueIntent::propose_member_update()
@@ -157,9 +158,9 @@ async fn selection_reuses_an_add_for_a_stale_failure() -> Result<(), Box<dyn std
 // verifies: GMOD-051
 #[xmtp_common::test(unwrap_try = true)]
 async fn stale_refresh_does_not_readd_a_removed_inbox() -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
@@ -168,7 +169,7 @@ async fn stale_refresh_does_not_readd_a_removed_inbox() -> Result<(), Box<dyn st
     receive_completed_prefix(&group, &caro_group).await?;
 
     // The refresh raises Bo's entry for bo2. Then a commit removes Bo.
-    tester!(bo2, from: bo, disable_workers);
+    let bo2 = bo.new_installation().await;
     let stale = group.get_membership_update_intent(&[], &[]).await?;
     assert!(stale.membership_updates.contains_key(bo.inbox_id()));
     group.remove_members(&[bo.inbox_id()]).await?;
@@ -181,8 +182,8 @@ async fn stale_refresh_does_not_readd_a_removed_inbox() -> Result<(), Box<dyn st
     receive_completed_prefix(&group, &caro_group).await?;
     for member in [&group, &caro_group] {
         assert_eq!(committed_membership(member).get(bo.inbox_id()), None);
-        assert!(!has_leaf(member, bo.installation_id.as_slice()));
-        assert!(!has_leaf(member, bo2.installation_id.as_slice()));
+        assert!(!has_leaf(member, bo.context.installation_id().as_slice()));
+        assert!(!has_leaf(member, bo2.context.installation_id().as_slice()));
         assert_eq!(member.epoch().await?, epoch, "the stale refresh is a no-op");
     }
     Ok(())
@@ -195,16 +196,16 @@ async fn stale_refresh_does_not_readd_a_removed_inbox() -> Result<(), Box<dyn st
 #[xmtp_common::test(unwrap_try = true)]
 async fn revocation_removes_a_leaf_that_an_entry_lists_as_failed()
 -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(bo2, from: bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let bo2 = bo.new_installation().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
     bo.wait_for_welcomes().await?;
     let bo_group = bo.group(&group.group_id)?;
     receive_completed_prefix(&group, &bo_group).await?;
-    let bo2_id = bo2.installation_id.to_vec();
+    let bo2_id = bo2.context.installation_id().to_vec();
     assert!(has_leaf(&group, &bo2_id));
 
     // Write Bo's entry with bo2 listed as failed, as an older client could.
@@ -243,7 +244,7 @@ async fn revocation_removes_a_leaf_that_an_entry_lists_as_failed()
         .identity_updates()
         .revoke_installations(vec![bo2_id.clone()])
         .await?;
-    xmtp_id::associations::test_utils::add_wallet_signature(&mut revoke, &bo.builder.owner).await;
+    xmtp_id::associations::test_utils::add_wallet_signature(&mut revoke, &bo.owner).await;
     bo.identity_updates()
         .apply_signature_request(revoke)
         .await?;
@@ -268,10 +269,10 @@ async fn check_false_failure_claim(selection: bool) -> Result<(), Box<dyn std::e
     use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
     use xmtp_proto::xmtp::mls::message_contents::{GroupMembershipEntry, group_membership_entry};
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(bo2, from: bo, disable_workers);
-    tester!(caro, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let bo2 = bo.new_installation().await;
+    let caro = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
@@ -284,14 +285,14 @@ async fn check_false_failure_claim(selection: bool) -> Result<(), Box<dyn std::e
     for peer in [&bo_group, &bo2_group, &caro_group] {
         receive_completed_prefix(&group, peer).await?;
     }
-    let revoked_id = bo2.installation_id.to_vec();
+    let revoked_id = bo2.context.installation_id().to_vec();
     assert!(has_leaf(&group, &revoked_id));
 
     let mut revoke = bo
         .identity_updates()
         .revoke_installations(vec![revoked_id.clone()])
         .await?;
-    xmtp_id::associations::test_utils::add_wallet_signature(&mut revoke, &bo.builder.owner).await;
+    xmtp_id::associations::test_utils::add_wallet_signature(&mut revoke, &bo.owner).await;
     bo.identity_updates()
         .apply_signature_request(revoke)
         .await?;

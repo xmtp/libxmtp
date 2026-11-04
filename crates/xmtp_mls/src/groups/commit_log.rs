@@ -1594,16 +1594,17 @@ mod stored_cursor_tests {
 mod publication_snapshot_tests {
     use super::*;
     use crate::groups::UpdateAdminListType::{AddSuper, RemoveSuper};
+    use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
     use crate::prelude::*;
-    use crate::tester;
+
     use std::sync::{Arc, Mutex, mpsc};
     use xmtp_db::mock::MockDbQuery;
 
     // verifies: FORK-085
     #[xmtp_common::test(unwrap_try = true)]
     async fn publication_excludes_a_demotion_applied_after_its_authority_snapshot() {
-        tester!(alix, disable_workers);
-        tester!(bo, disable_workers);
+        let alix = EngineTestPeer::new().await;
+        let bo = EngineTestPeer::new().await;
         let a = alix
             .create_group_with_members(&[bo.inbox_id()], None, None)
             .await?;

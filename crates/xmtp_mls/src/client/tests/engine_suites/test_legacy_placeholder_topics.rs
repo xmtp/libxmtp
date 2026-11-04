@@ -8,8 +8,9 @@ use crate::{
     client::notifications::{NotificationChannel, NotificationConfig},
     context::CoreContext,
     groups::{
-        MlsGroup, PolicySet,
+        MlsGroup,
         commit_log::{CommitLogTestFunction, CommitLogWorker},
+        group_permissions::PolicySet,
     },
     tester,
     worker::WorkerConfig,

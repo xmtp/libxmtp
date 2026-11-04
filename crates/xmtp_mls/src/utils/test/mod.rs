@@ -21,8 +21,7 @@ pub mod preflight;
 #[cfg(test)]
 pub(crate) mod notifications;
 pub mod test_mocks_helpers;
-mod tester_utils_trait_ext;
-pub use tester_utils_trait_ext::*;
+pub use crate::groups::test_support::MlsGroupExt;
 
 use crate::XmtpApi;
 use crate::{
@@ -80,64 +79,6 @@ pub(crate) fn group_secret_encodings(
             ]
         })
         .collect()
-}
-
-/// A key package for this installation, signed with its installation key and
-/// naming its inbox, whose key package extensions are exactly `extensions`.
-/// Its capabilities advertise both XMTP addressing extensions. Nothing
-/// uploads it.
-#[cfg(test)]
-pub(crate) fn key_package_with_extensions(
-    context: &impl XmtpSharedContext,
-    ciphersuite: openmls::prelude::Ciphersuite,
-    extensions: Vec<openmls::prelude::Extension>,
-) -> Vec<u8> {
-    use openmls::prelude::{
-        ApplicationIdExtension, Capabilities, CredentialWithKey, Extension, ExtensionType,
-        Extensions, KeyPackage, LeafNode, ProposalType, tls_codec::Serialize,
-    };
-    use xmtp_configuration::{
-        WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID, WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
-    };
-    let identity = context.identity();
-    let capabilities = Capabilities::new(
-        None,
-        Some(&[ciphersuite]),
-        Some(&[
-            ExtensionType::ApplicationId,
-            ExtensionType::AppDataDictionary,
-            ExtensionType::Unknown(WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID),
-            ExtensionType::Unknown(WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID),
-        ]),
-        Some(&[
-            ProposalType::GroupContextExtensions,
-            ProposalType::AppDataUpdate,
-        ]),
-        None,
-    );
-    KeyPackage::builder()
-        .leaf_node_capabilities(capabilities)
-        .leaf_node_extensions(
-            Extensions::<LeafNode>::single(Extension::ApplicationId(ApplicationIdExtension::new(
-                context.inbox_id().as_bytes(),
-            )))
-            .unwrap(),
-        )
-        .key_package_extensions(Extensions::from_vec(extensions).unwrap())
-        .mark_as_last_resort()
-        .build(
-            ciphersuite,
-            &context.mls_provider(),
-            &identity.installation_keys,
-            CredentialWithKey {
-                credential: identity.credential(),
-                signature_key: identity.installation_keys.public_slice().into(),
-            },
-        )
-        .unwrap()
-        .key_package()
-        .tls_serialize_detached()
-        .unwrap()
 }
 
 impl<A, S> ClientBuilder<A, S> {

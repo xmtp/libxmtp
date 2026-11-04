@@ -4,11 +4,15 @@
 //! answers reads of chosen commit-log topics from a script. It records the
 //! commit-log ids and topics of every call.
 use crate::context::CoreContext;
+use crate::core::policy::StreamPolicy;
+use crate::groups::test_support::{EngineTestFeatures, EngineTestPeer};
+use crate::identity_lifecycle::test_support::{PeerFeatures, TestPeer};
 use parking_lot::Mutex;
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
 };
+use xmtp_api::ApiClientWrapper;
 use xmtp_proto::{
     api::ApiClientError,
     api_client::XmtpBackendClient,
@@ -16,13 +20,15 @@ use xmtp_proto::{
     types::TopicKind,
 };
 
-pub(super) type Context = Arc<
-    crate::context::XmtpMlsLocalContext<
-        ScriptedApi,
-        xmtp_db::DefaultStore,
-        crate::utils::TestMlsStorage,
-    >,
->;
+impl PeerFeatures<ScriptedApi> for EngineTestFeatures {
+    fn new(
+        _: &ApiClientWrapper<ScriptedApi>,
+        policy: &StreamPolicy,
+        own_inbox_stored_through: Option<i64>,
+    ) -> Self {
+        Self::query_only(policy, own_inbox_stored_through)
+    }
+}
 
 #[derive(Default)]
 pub(super) struct Script {
@@ -293,30 +299,33 @@ impl XmtpBackendClient for ScriptedApi {
 /// The same client, database, and identity as `base`, with its backend
 /// calls going through a script. It runs no background workers.
 pub(super) async fn scripted(
-    base: &crate::utils::FullXmtpClient,
-) -> (crate::Client<Context>, Arc<Mutex<Script>>) {
+    base: &EngineTestPeer,
+) -> (
+    TestPeer<EngineTestFeatures, ScriptedApi>,
+    Arc<Mutex<Script>>,
+) {
     scripted_with_page_size(base, xmtp_configuration::STREAM_BATCH_ROWS).await
 }
 
 pub(super) async fn scripted_with_page_size(
-    base: &crate::utils::FullXmtpClient,
+    base: &EngineTestPeer,
     page_size: u32,
-) -> (crate::Client<Context>, Arc<Mutex<Script>>) {
+) -> (
+    TestPeer<EngineTestFeatures, ScriptedApi>,
+    Arc<Mutex<Script>>,
+) {
     let script = Arc::new(Mutex::new(Script::default()));
     let api = ScriptedApi {
         inner: base.context.api().api_client.raw_for_test().clone(),
         script: script.clone(),
     };
-    let client = crate::builder::ClientBuilder::from_client(base.clone())
-        .api_client(api)
-        .stream_policy(crate::core::policy::StreamPolicy {
-            max_fetched_rows: page_size,
-            ..Default::default()
+    let client = base
+        .with_api(api, None, |options| {
+            options.stream_policy = StreamPolicy {
+                max_fetched_rows: page_size,
+                ..Default::default()
+            }
         })
-        .with_disable_workers(true)
-        .with_allow_offline(Some(true))
-        .build()
-        .await
-        .expect("a scripted client");
+        .await;
     (client, script)
 }

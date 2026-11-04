@@ -1,8 +1,8 @@
 use crate::groups::send_message_opts::SendMessageOpts;
+use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 use std::sync::Arc;
 
 use crate::context::CoreContext;
-use crate::context::XmtpMlsLocalContext;
 use crate::groups::GroupError;
 use crate::groups::MlsGroup;
 use crate::groups::group_permissions::PolicySet;
@@ -10,16 +10,12 @@ use crate::groups::intents::PostCommitAction;
 use crate::groups::mls_sync::decode_staged_commit;
 use crate::groups::mls_sync::update_group_membership::apply_update_group_membership_intent;
 use crate::identity::create_credential;
-use crate::tester;
-use xmtp_db::DbQuery;
 use xmtp_db::XmtpOpenMlsProviderRef;
 use xmtp_db::group::ConversationType;
 use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_db::prelude::QueryRefreshState;
 use xmtp_db::refresh_state::EntityKind;
 use xmtp_mls_group_state::group::GroupMetadataOptions;
-
-use xmtp_proto::types::GroupId;
 
 /// Every key package is last resort: two Welcomes addressed to the one key
 /// package an installation published both open, so the first join does not
@@ -30,9 +26,9 @@ use xmtp_proto::types::GroupId;
 async fn one_key_package_opens_two_welcomes() {
     use openmls_traits::OpenMlsProvider;
 
-    tester!(alix, disable_workers);
-    tester!(bo);
-    tester!(caro);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     let installation = alix.installation_public_key().to_vec();
     let newest_key_package = || async {
         alix.get_key_packages_for_installation_ids(vec![installation.clone()])
@@ -75,8 +71,8 @@ async fn ordinary_welcome_rejects_peer_admin_combinator() {
         metadata_policy::{AndCondition, Kind, MetadataBasePolicy},
     };
 
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let intent = group
         .get_membership_update_intent(&[bo.inbox_id()], &[])
@@ -176,12 +172,12 @@ async fn test_welcome_cursor() {
     // Welcomes now come with a cursor so that clients no longer pull down
     // every message in a group that they cannot decrypt.
     // This tests checks that cursor is being consumed from the welcome.
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
 
     let (group, _msg) = alix.test_talk_in_new_group_with(&bo).await?;
 
-    tester!(alix2, from: alix);
+    let alix2 = alix.new_installation().await;
     group.update_installations().await?;
 
     alix2.sync_welcomes().await?;
@@ -193,100 +189,12 @@ async fn test_welcome_cursor() {
     assert!(alix2_refresh_state.0 > 0);
 }
 
-#[track_caller]
-fn assert_cursors(db: &impl DbQuery, db2: &impl DbQuery, group_id: &GroupId) {
-    let msg = db
-        .get_group_messages(group_id, &Default::default())
-        .unwrap();
-    let msg = msg.last().unwrap();
-    let cursor = db
-        .get_last_cursor_for_ids(&[group_id.as_slice()], &[EntityKind::ApplicationMessage])
-        .unwrap()
-        .values()
-        .next()
-        .copied()
-        .unwrap();
-
-    assert_eq!(
-        msg.cursor(),
-        cursor,
-        "the processed group cursor must match the last message"
-    );
-
-    let other_msg = db2
-        .get_group_messages(group_id, &Default::default())
-        .unwrap();
-    let other_msg = other_msg.last().unwrap();
-    assert_eq!(
-        msg.cursor(),
-        other_msg.cursor(),
-        "GroupMessage must equal group message of db2"
-    );
-    let other_cursor = db2
-        .get_last_cursor_for_ids(&[group_id.as_slice()], &[EntityKind::ApplicationMessage])
-        .unwrap()
-        .values()
-        .next()
-        .copied()
-        .unwrap();
-    assert_eq!(
-        cursor, other_cursor,
-        "the processed group cursors must be equal"
-    );
-}
-
-// All members must derive the same state from the joining commit.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_inviting_members_results_in_consistent_state() {
-    use EntityKind::ApplicationMessage;
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
-
-    let alix_group = alix
-        .create_group_with_members(&[bo.inbox_id()], None, None)
-        .await?;
-    let group_id = &alix_group.group_id;
-    assert_cursors(&alix.db(), &alix.db(), group_id);
-
-    let bo_group = bo.wait_for_welcomes().await?.pop()?;
-    assert_cursors(&alix.db(), &bo.db(), group_id);
-
-    alix_group.add_members(&[caro.inbox_id()]).await?;
-
-    let caro_group = caro.wait_for_welcomes().await?.pop()?;
-    alix_group.sync().await?;
-    assert_cursors(&caro.db(), &caro.db(), group_id);
-    assert_cursors(&caro.db(), &alix.db(), group_id);
-
-    // ensure all groups have the latest
-    bo_group.sync().await?;
-    alix_group.sync().await?;
-    caro_group.sync().await?;
-    assert_cursors(&caro.db(), &caro.db(), group_id);
-    assert_cursors(&caro.db(), &bo.db(), group_id);
-    assert_cursors(&caro.db(), &alix.db(), group_id);
-
-    // alix has the membership commit
-    let alix_commit = alix
-        .db()
-        .get_last_cursor_for_ids(&[group_id], &[ApplicationMessage])?;
-    let bo_commit = bo
-        .db()
-        .get_last_cursor_for_ids(&[group_id], &[ApplicationMessage])?;
-    let caro_commit = caro
-        .db()
-        .get_last_cursor_for_ids(&[group_id], &[ApplicationMessage])?;
-    assert_eq!(bo_commit, caro_commit);
-    assert_eq!(alix_commit, bo_commit);
-}
-
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_spoofed_inbox_id() {
     // In this scenario, Alix is malicious but Bo is not
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
 
     // Our goal is simply to create a group with a credential where the inbox ID (openMLS credential)
     // does not match the installation ID (openMLS signing key)
@@ -294,7 +202,7 @@ async fn test_spoofed_inbox_id() {
     let malicious_credential = create_credential("spoofed_inbox_id").unwrap();
     let mut malicious_identity = alix.context.identity.clone();
     malicious_identity.credential = malicious_credential;
-    let malicious_context = Arc::new(XmtpMlsLocalContext {
+    let malicious_context = Arc::new(xmtp_mls_core::context::LocalContext {
         identity: malicious_identity,
         api_client: alix.context.api_client.clone(),
         store: alix.context.store.clone(),

@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::groups::send_message_opts::SendMessageOpts;
+use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
 use xmtp_db::{
     ConnectionExt, group_message::MsgQueryArgs, key_package_history::QueryKeyPackageHistory,
 };
@@ -9,8 +10,8 @@ use xmtp_mls_validation::commit::CommitRuleError;
 
 // Receive the prefix that the sender processed, including rejected commits.
 pub(super) async fn receive_completed_prefix(
-    sender: &crate::utils::TestMlsGroup,
-    receiver: &crate::utils::TestMlsGroup,
+    sender: &EngineTestGroup,
+    receiver: &EngineTestGroup,
 ) -> Result<(), GroupError> {
     let target = sender
         .context
@@ -31,7 +32,7 @@ pub(super) async fn receive_completed_prefix(
 
 // A publication receipt can precede QueryNewest visibility.
 async fn wait_for_rotated_package(
-    group: &crate::utils::TestMlsGroup,
+    group: &EngineTestGroup,
     installation: xmtp_proto::types::InstallationId,
     previous: &KeyPackage,
 ) -> KeyPackage {
@@ -62,10 +63,10 @@ async fn wait_for_rotated_package(
 async fn requested_add_cannot_succeed_after_its_last_package_becomes_unusable(
     #[case] independent_add: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
-    tester!(dave, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
+    let dave = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -93,12 +94,12 @@ async fn requested_add_cannot_succeed_after_its_last_package_becomes_unusable(
         .context
         .db()
         .raw_query(xmtp_db::sql_key_store::OpenMlsKeyValue::hash_all)?;
-    crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage(
+    crate::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage(
         true,
-        Some(vec![caro.installation_id.to_vec()]),
+        Some(vec![caro.context.installation_id().to_vec()]),
     );
     let result = group.publish_intents().await;
-    crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage(false, None);
+    crate::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage(false, None);
     assert!(
         matches!(result, Err(GroupError::InvalidPublicKeys(_))),
         "{result:?}"
@@ -141,16 +142,14 @@ async fn requested_add_cannot_succeed_after_its_last_package_becomes_unusable(
 #[xmtp_common::test(unwrap_try = true)]
 async fn repeated_membership_proposal_reuses_accepted_references()
 -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await
         .inspect_err(|error| {
-            if let crate::client::ClientError::Group(error) = error
-                && let GroupError::Sync(summary) = error.as_ref()
-            {
+            if let GroupError::Sync(summary) = error {
                 tracing::error!(
                     publish_errors = ?summary.publish_errors,
                     process_errors = ?summary.process.errored,
@@ -230,9 +229,9 @@ async fn guarded_noop_rolls_back_replacement_keys_and_commit_welcomes_selected_a
     #[case] rotate: bool,
     #[case] remove: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -257,7 +256,7 @@ async fn guarded_noop_rolls_back_replacement_keys_and_commit_welcomes_selected_a
     })?;
     let current_package = if rotate {
         caro.rotate_and_upload_key_package().await?;
-        wait_for_rotated_package(&group, caro.installation_id, &original_package).await
+        wait_for_rotated_package(&group, caro.context.installation_id(), &original_package).await
     } else {
         original_package
     };
@@ -332,7 +331,7 @@ async fn guarded_noop_rolls_back_replacement_keys_and_commit_welcomes_selected_a
     assert_eq!(action.installations.len(), 1);
     assert_eq!(
         action.installations[0].installation_key,
-        caro.installation_id
+        caro.context.installation_id()
     );
     group.sync_until_intent_resolved(intent.id).await?;
     let completed: StoredGroupIntent = group.context.db().fetch(&intent.id)?.unwrap();
@@ -417,10 +416,10 @@ async fn guarded_noop_rolls_back_replacement_keys_and_commit_welcomes_selected_a
 async fn revoked_pending_add_does_not_block_publication(
     #[case] refresh_membership: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
-    tester!(eve, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
+    let eve = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(
             &[bo.inbox_id(), caro.inbox_id(), eve.inbox_id()],
@@ -431,12 +430,12 @@ async fn revoked_pending_add_does_not_block_publication(
     caro.sync_welcomes().await?;
     let caro_group = caro.group(&group.group_id)?;
     caro_group.receive().await?;
-    tester!(bo2, from: bo, disable_workers);
+    let bo2 = bo.new_installation().await;
     // Refresh leaf changes are inline. Seed the accepted standalone Add
     // explicitly so this test still exercises pending-proposal recovery.
     publish_installation_add(
         &caro_group,
-        bo2.installation_id.as_slice(),
+        bo2.context.installation_id().as_slice(),
         &[&group, &caro_group],
     )
     .await?;
@@ -447,15 +446,15 @@ async fn revoked_pending_add_does_not_block_publication(
         assert!(mls.pending_proposals().any(|proposal| {
             matches!(proposal.proposal(), Proposal::Add(add)
                 if add.key_package().leaf_node().signature_key().as_slice()
-                    == bo2.installation_id.as_slice())
+                    == bo2.context.installation_id().as_slice())
         }));
         Ok(())
     })?;
     let mut revoke = bo
         .identity_updates()
-        .revoke_installations(vec![bo2.installation_id.to_vec()])
+        .revoke_installations(vec![bo2.context.installation_id().to_vec()])
         .await?;
-    xmtp_id::associations::test_utils::add_wallet_signature(&mut revoke, &bo.builder.owner).await;
+    xmtp_id::associations::test_utils::add_wallet_signature(&mut revoke, &bo.owner).await;
     bo.identity_updates()
         .apply_signature_request(revoke)
         .await?;
@@ -488,7 +487,7 @@ async fn revoked_pending_add_does_not_block_publication(
             .leaf_node()
             .signature_key()
             .as_slice()
-            == bo2.installation_id.as_slice()),
+            == bo2.context.installation_id().as_slice()),
         "prepared commit includes a revoked installation"
     );
     group.publish_intents().await?;
@@ -512,11 +511,11 @@ async fn non_admin_commits_valid_subset_without_resigning_admin_add(
     #[case] fresh_reference: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use crate::groups::group_permissions::PreconfiguredPolicies;
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
-    tester!(dave, disable_workers);
-    tester!(erin, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
+    let dave = EngineTestPeer::new().await;
+    let erin = EngineTestPeer::new().await;
     let group = alix.create_group(
         Some(PreconfiguredPolicies::AdminsOnly.to_policy_set()),
         None,
@@ -539,7 +538,7 @@ async fn non_admin_commits_valid_subset_without_resigning_admin_add(
             .find_map(|proposal| match proposal.proposal() {
                 Proposal::Add(add)
                     if add.key_package().leaf_node().signature_key().as_slice()
-                        == caro.installation_id.as_slice() =>
+                        == caro.context.installation_id().as_slice() =>
                 {
                     Some(add.key_package().clone())
                 }
@@ -549,7 +548,7 @@ async fn non_admin_commits_valid_subset_without_resigning_admin_add(
     })?;
     let current_package = if rotate {
         caro.rotate_and_upload_key_package().await?;
-        wait_for_rotated_package(&group, caro.installation_id, &original_package).await
+        wait_for_rotated_package(&group, caro.context.installation_id(), &original_package).await
     } else {
         original_package.clone()
     };
@@ -580,9 +579,9 @@ async fn non_admin_commits_valid_subset_without_resigning_admin_add(
         Ok(())
     })?;
     if missing {
-        crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage(
+        crate::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage(
             true,
-            Some(vec![caro.installation_id.to_vec()]),
+            Some(vec![caro.context.installation_id().to_vec()]),
         );
     }
     let omitted = (rotate || missing) && !fresh_reference;
@@ -626,7 +625,9 @@ async fn non_admin_commits_valid_subset_without_resigning_admin_add(
         .queue(&bo_group)?;
     let (_, attempt) = prepare_kind(&bo_group, IntentKind::CommitPendingProposals).await?;
     if missing {
-        crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage(false, None);
+        crate::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage(
+            false, None,
+        );
     }
     assert!(
         attempt.proposals.is_empty(),
@@ -718,10 +719,10 @@ async fn non_admin_commits_valid_subset_without_resigning_admin_add(
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn send_after_rejected_membership_refreshes_pending_adds_immediately() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
-    tester!(eve, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
+    let eve = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(
             &[bo.inbox_id(), caro.inbox_id(), eve.inbox_id()],
@@ -733,12 +734,12 @@ async fn send_after_rejected_membership_refreshes_pending_adds_immediately() {
     caro.sync_welcomes().await?;
     let caro_group = caro.group(&group.group_id)?;
     caro_group.receive().await?;
-    tester!(bo2, from: bo, disable_workers);
+    let bo2 = bo.new_installation().await;
     // Refresh leaf changes are inline. Seed the accepted standalone Add
     // explicitly so this test still exercises pending-proposal recovery.
     publish_installation_add(
         &caro_group,
-        bo2.installation_id.as_slice(),
+        bo2.context.installation_id().as_slice(),
         &[&group, &caro_group],
     )
     .await?;
@@ -777,11 +778,11 @@ async fn rejected_removal_with_new_installation_does_not_block_publication(
     #[case] reopen: bool,
     #[case] concurrent_adds: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix, persistent_db, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
-    tester!(dave, disable_workers);
-    tester!(eve, disable_workers);
+    let alix = EngineTestPeer::persistent().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
+    let dave = EngineTestPeer::new().await;
+    let eve = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(
             &[bo.inbox_id(), caro.inbox_id(), eve.inbox_id()],
@@ -800,7 +801,7 @@ async fn rejected_removal_with_new_installation_does_not_block_publication(
 
     // The removal also discovers a valid new installation for another member.
     // Publish and process this attempt before any later installation refresh.
-    tester!(bo2, from: bo, disable_workers);
+    let bo2 = bo.new_installation().await;
     // Caro is not an admin, so receivers reject the removal.
     let result = caro_group.remove_members(&[eve.inbox_id()]).await;
     let Err(GroupError::Sync(summary)) = result else {
@@ -816,7 +817,7 @@ async fn rejected_removal_with_new_installation_does_not_block_publication(
     // explicitly so this test still exercises pending-proposal recovery.
     publish_installation_add(
         &caro_group,
-        bo2.installation_id.as_slice(),
+        bo2.context.installation_id().as_slice(),
         &[&group, &bo_group, &caro_group],
     )
     .await?;
@@ -833,12 +834,12 @@ async fn rejected_removal_with_new_installation_does_not_block_publication(
             };
             assert_eq!(
                 add.key_package().leaf_node().signature_key().as_slice(),
-                bo2.installation_id.as_slice()
+                bo2.context.installation_id().as_slice()
             );
             assert!(
                 !mls_group
                     .members()
-                    .any(|member| member.signature_key == bo2.installation_id.as_slice())
+                    .any(|member| member.signature_key == bo2.context.installation_id().as_slice())
             );
             Ok(())
         })?;
@@ -850,7 +851,7 @@ async fn rejected_removal_with_new_installation_does_not_block_publication(
             .find_map(|proposal| match proposal.proposal() {
                 Proposal::Add(add)
                     if add.key_package().leaf_node().signature_key().as_slice()
-                        == bo2.installation_id.as_slice() =>
+                        == bo2.context.installation_id().as_slice() =>
                 {
                     Some(add.key_package().clone())
                 }
@@ -877,7 +878,7 @@ async fn rejected_removal_with_new_installation_does_not_block_publication(
         retired.post_quantum_public_key,
     )?;
     let current_package =
-        wait_for_rotated_package(&group, bo2.installation_id, &retained_package).await;
+        wait_for_rotated_package(&group, bo2.context.installation_id(), &retained_package).await;
     assert_ne!(retained_package, current_package);
     if concurrent_adds {
         for inbox in [bo.inbox_id(), dave.inbox_id()] {
@@ -904,23 +905,18 @@ async fn rejected_removal_with_new_installation_does_not_block_publication(
                 .collect();
             assert_eq!(
                 adds.iter()
-                    .filter(|key| **key == bo2.installation_id.as_slice())
+                    .filter(|key| **key == bo2.context.installation_id().as_slice())
                     .count(),
                 2
             );
-            assert!(adds.contains(&dave.installation_id.as_slice()));
+            assert!(adds.contains(&dave.context.installation_id().as_slice()));
             Ok(())
         })?;
     }
     let pending_before_reopen = group.with_group_snapshot(PreparedBase::capture)?;
     let group = if reopen {
-        use crate::{
-            Client, builder::DeviceSyncMode, identity::IdentityStrategy,
-            utils::DefaultTestClientCreator,
-        };
-        use xmtp_db::{StorageOption, TestDb, XmtpTestDb};
-        use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
-        use xmtp_proto::{api_client::ApiBuilder, prelude::XmtpTestClient};
+        use xmtp_db::StorageOption;
+
         assert!(
             xmtp_common::wait_for_some(|| async {
                 alix.context
@@ -938,22 +934,16 @@ async fn rejected_removal_with_new_installation_does_not_block_publication(
             StorageOption::Ephemeral => panic!("restart requires a persistent database"),
         };
         let group_id = group.group_id;
+        let owner = alix.owner.clone();
         drop(group);
         drop(alix);
-        let store = TestDb::create_persistent_store(Some(database)).await;
-        let api = std::sync::Arc::new(DefaultTestClientCreator::create().build().unwrap());
-        let restarted = Client::builder(IdentityStrategy::CachedOnly)
-            .store(store)
-            .api_client(api)
-            .default_mls_store()
-            .unwrap()
-            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
-            .with_disable_workers(true)
-            .with_commit_log_worker(false)
-            .with_device_sync_worker_mode(Some(DeviceSyncMode::Disabled))
-            .build()
-            .await
-            .unwrap();
+        let restarted = EngineTestPeer::open_persistent(
+            owner,
+            &database,
+            crate::identity_lifecycle::IdentityStrategy::CachedOnly,
+            |_| {},
+        )
+        .await;
         restarted.group(&group_id)?
     } else {
         group
@@ -1012,7 +1002,7 @@ async fn rejected_removal_with_new_installation_does_not_block_publication(
                 .leaf_node()
                 .signature_key()
                 .as_slice()
-                == bo2.installation_id.as_slice()
+                == bo2.context.installation_id().as_slice()
         })
         .unwrap();
     assert_eq!(selected.add_proposal().key_package(), &current_package);
@@ -1119,16 +1109,15 @@ async fn rejected_removal_with_new_installation_does_not_block_publication(
 async fn accepted_add_that_expires_before_commit_does_not_block_publication()
 -> Result<(), Box<dyn std::error::Error>> {
     const PACKAGE_LIFETIME_SECS: u64 = 10;
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
     let bo_group = xmtp_common::wait_for_ok(|| async {
         bo.sync_welcomes()
             .await
-            .map_err(crate::client::ClientError::from)
             .and_then(|_| bo.group(&group.group_id))
     })
     .await
@@ -1161,11 +1150,11 @@ async fn accepted_add_that_expires_before_commit_does_not_block_publication()
             let fetched = group
                 .context
                 .api()
-                .fetch_key_packages(&[caro.installation_id])
+                .fetch_key_packages(&[caro.context.installation_id()])
                 .await
                 .expect("fetch the short-lived package");
             fetched
-                .get(&caro.installation_id)
+                .get(&caro.context.installation_id())
                 .and_then(Option::as_ref)
                 .map(|entry| entry.key_package_tls_serialized.clone())
         },
@@ -1240,16 +1229,15 @@ async fn accepted_add_that_expires_before_commit_does_not_block_publication()
 async fn own_membership_delta_and_pending_removal_use_the_same_selected_state(
     #[case] already_satisfied: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
     let bo_group = xmtp_common::wait_for_ok(|| async {
         bo.sync_welcomes()
             .await
-            .map_err(crate::client::ClientError::from)
             .and_then(|_| bo.group(&group.group_id))
     })
     .await
@@ -1257,12 +1245,11 @@ async fn own_membership_delta_and_pending_removal_use_the_same_selected_state(
     let caro_group = xmtp_common::wait_for_ok(|| async {
         caro.sync_welcomes()
             .await
-            .map_err(crate::client::ClientError::from)
             .and_then(|_| caro.group(&group.group_id))
     })
     .await
     .expect("Caro must join the initial group");
-    tester!(bo2, from: bo, disable_workers);
+    let bo2 = bo.new_installation().await;
     let own_data = group.get_membership_update_intent(&[], &[]).await?;
     assert!(own_data.membership_updates.contains_key(bo.inbox_id()));
     if already_satisfied {
@@ -1365,10 +1352,10 @@ async fn own_membership_delta_and_pending_removal_use_the_same_selected_state(
 // Create a group of three. Each joiner waits for its Welcome: a lagging
 // replica can return nothing on the first sync.
 async fn group_of_three(
-    alix: &crate::utils::FullXmtpClient,
-    bo: &crate::utils::FullXmtpClient,
-    caro: &crate::utils::FullXmtpClient,
-) -> Result<[crate::utils::TestMlsGroup; 3], Box<dyn std::error::Error>> {
+    alix: &EngineTestPeer,
+    bo: &EngineTestPeer,
+    caro: &EngineTestPeer,
+) -> Result<[EngineTestGroup; 3], Box<dyn std::error::Error>> {
     let group = alix
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
@@ -1381,18 +1368,18 @@ async fn group_of_three(
     Ok([group, bo_group, caro_group])
 }
 
-pub(super) fn committed_membership(group: &crate::utils::TestMlsGroup) -> GroupMembership {
+pub(super) fn committed_membership(group: &EngineTestGroup) -> GroupMembership {
     group
         .with_group_snapshot(|mls| Ok(extract_group_membership(mls.extensions())?))
         .expect("read the committed membership")
 }
 
 // Read one member's committed sequence id for an inbox.
-fn committed_sequence(group: &crate::utils::TestMlsGroup, inbox_id: &str) -> Option<u64> {
+fn committed_sequence(group: &EngineTestGroup, inbox_id: &str) -> Option<u64> {
     committed_membership(group).get(inbox_id).copied()
 }
 
-pub(super) fn has_leaf(group: &crate::utils::TestMlsGroup, installation: &[u8]) -> bool {
+pub(super) fn has_leaf(group: &EngineTestGroup, installation: &[u8]) -> bool {
     group
         .with_group_snapshot(|mls| {
             Ok(mls
@@ -1402,7 +1389,7 @@ pub(super) fn has_leaf(group: &crate::utils::TestMlsGroup, installation: &[u8]) 
         .expect("read the ratchet tree")
 }
 
-fn pending_membership_deltas(group: &crate::utils::TestMlsGroup) -> usize {
+fn pending_membership_deltas(group: &EngineTestGroup) -> usize {
     use xmtp_mls_group_state::app_data::component_id::ComponentId;
     group
         .with_group_snapshot(|mls| {
@@ -1419,10 +1406,7 @@ fn pending_membership_deltas(group: &crate::utils::TestMlsGroup) -> usize {
 
 // Send on each member in turn, then check that every peer converged and
 // received every message.
-async fn send_on_every_member(
-    members: &[&crate::utils::TestMlsGroup],
-    label: &str,
-) -> Result<(), GroupError> {
+async fn send_on_every_member(members: &[&EngineTestGroup], label: &str) -> Result<(), GroupError> {
     let mut bodies = Vec::new();
     for (index, sender) in members.iter().enumerate() {
         let body = format!("{label} {index}").into_bytes();
@@ -1455,23 +1439,23 @@ async fn send_on_every_member(
 #[xmtp_common::test(unwrap_try = true)]
 async fn stale_refresh_does_not_lower_committed_sequence() -> Result<(), Box<dyn std::error::Error>>
 {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     let [group, bo_group, caro_group] = group_of_three(&alix, &bo, &caro).await?;
 
     // The saved refresh names Alix's sequence S2. A later refresh commits S3.
-    tester!(alix2, from: alix, disable_workers);
+    let alix2 = alix.new_installation().await;
     let stale_data = group.get_membership_update_intent(&[], &[]).await?;
     let stale_sequence = stale_data.membership_updates[alix.inbox_id()];
-    tester!(alix3, from: alix, disable_workers);
+    let alix3 = alix.new_installation().await;
     caro_group.add_missing_installations().await?;
     for peer in [&group, &bo_group] {
         receive_completed_prefix(&caro_group, peer).await?;
     }
     let committed = committed_sequence(&group, alix.inbox_id()).unwrap();
     assert!(stale_sequence < committed);
-    assert!(has_leaf(&group, alix3.installation_id.as_slice()));
+    assert!(has_leaf(&group, alix3.context.installation_id().as_slice()));
     let before = group.epoch_authenticator().await?;
 
     // The stale refresh must resolve as a no-op. It must not publish a
@@ -1484,7 +1468,7 @@ async fn stale_refresh_does_not_lower_committed_sequence() -> Result<(), Box<dyn
         receive_completed_prefix(&group, peer).await?;
         assert_eq!(peer.epoch_authenticator().await?, before);
         assert_eq!(committed_sequence(peer, alix.inbox_id()), Some(committed));
-        assert!(has_leaf(peer, alix3.installation_id.as_slice()));
+        assert!(has_leaf(peer, alix3.context.installation_id().as_slice()));
         assert_eq!(
             pending_membership_deltas(peer),
             0,
@@ -1495,7 +1479,7 @@ async fn stale_refresh_does_not_lower_committed_sequence() -> Result<(), Box<dyn
     send_on_every_member(&[&group, &bo_group, &caro_group], "after stale refresh").await?;
     for peer in [&group, &bo_group, &caro_group] {
         assert_eq!(committed_sequence(peer, alix.inbox_id()), Some(committed));
-        assert!(has_leaf(peer, alix3.installation_id.as_slice()));
+        assert!(has_leaf(peer, alix3.context.installation_id().as_slice()));
     }
     drop((alix2, alix3));
     Ok(())
@@ -1504,9 +1488,9 @@ async fn stale_refresh_does_not_lower_committed_sequence() -> Result<(), Box<dyn
 // Seed the standalone Add whose recovery is under test. Membership refreshes
 // carry this leaf change inline, so a rejected refresh no longer leaves it.
 async fn publish_installation_add(
-    author: &crate::utils::TestMlsGroup,
+    author: &EngineTestGroup,
     installation: &[u8],
-    peers: &[&crate::utils::TestMlsGroup],
+    peers: &[&EngineTestGroup],
 ) -> Result<(), GroupError> {
     let package = MlsStore::new(author.context.clone())
         .get_key_packages_for_installation_ids(vec![installation.to_vec()])
@@ -1534,9 +1518,9 @@ async fn publish_installation_add(
 
 // Publish one signed standalone proposal and wait until each peer processed it.
 pub(super) async fn publish_standalone_proposal(
-    author: &crate::utils::TestMlsGroup,
+    author: &EngineTestGroup,
     payload: Vec<u8>,
-    peers: &[&crate::utils::TestMlsGroup],
+    peers: &[&EngineTestGroup],
 ) -> Result<(), GroupError> {
     let messages = author.prepare_group_messages(vec![(payload.as_slice(), false)])?;
     let receipts = author.context.api().send_group_messages(messages).await?;
@@ -1556,7 +1540,7 @@ pub(super) async fn publish_standalone_proposal(
 // Sign a standalone membership proposal without local checks. Each peer's
 // admission decides whether to store it.
 pub(super) fn propose_membership_payload(
-    author: &crate::utils::TestMlsGroup,
+    author: &EngineTestGroup,
     payload: Vec<u8>,
 ) -> Result<Vec<u8>, GroupError> {
     use openmls::messages::proposals::AppDataUpdateOperation;
@@ -1584,19 +1568,19 @@ pub(super) fn propose_membership_payload(
 #[xmtp_common::test(unwrap_try = true)]
 async fn stored_stale_membership_proposal_does_not_block_sends()
 -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     let [group, bo_group, caro_group] = group_of_three(&alix, &bo, &caro).await?;
     let members = [&group, &bo_group, &caro_group];
 
     // Bo's identity reaches S2, then S3. Alix commits S3 with both new leaves.
-    tester!(bo2, from: bo, disable_workers);
+    let bo2 = bo.new_installation().await;
     let stale_sequence = caro_group
         .get_membership_update_intent(&[], &[])
         .await?
         .membership_updates[bo.inbox_id()];
-    tester!(bo3, from: bo, disable_workers);
+    let bo3 = bo.new_installation().await;
     group.add_missing_installations().await?;
     for peer in [&bo_group, &caro_group] {
         receive_completed_prefix(&group, peer).await?;
@@ -1604,7 +1588,7 @@ async fn stored_stale_membership_proposal_does_not_block_sends()
     let committed = committed_sequence(&group, bo.inbox_id()).unwrap();
     assert!(stale_sequence < committed);
     for peer in members {
-        assert!(has_leaf(peer, bo3.installation_id.as_slice()));
+        assert!(has_leaf(peer, bo3.context.installation_id().as_slice()));
     }
     let before = group.epoch_authenticator().await?;
 
@@ -1629,7 +1613,7 @@ async fn stored_stale_membership_proposal_does_not_block_sends()
         tx.with_group(group.group_id, |mls, storage| {
             let leaf = mls
                 .members()
-                .find(|member| member.signature_key == bo3.installation_id.as_slice())
+                .find(|member| member.signature_key == bo3.context.installation_id().as_slice())
                 .map(|member| member.index)
                 .ok_or(GroupError::InvalidGroupMembership)?;
             let provider = XmtpOpenMlsProviderRef::new(storage);
@@ -1661,8 +1645,8 @@ async fn stored_stale_membership_proposal_does_not_block_sends()
     for peer in members {
         assert_ne!(peer.epoch_authenticator().await?, before);
         assert_eq!(committed_sequence(peer, bo.inbox_id()), Some(committed));
-        assert!(has_leaf(peer, bo3.installation_id.as_slice()));
-        assert!(has_leaf(peer, bo2.installation_id.as_slice()));
+        assert!(has_leaf(peer, bo3.context.installation_id().as_slice()));
+        assert!(has_leaf(peer, bo2.context.installation_id().as_slice()));
         assert_eq!(
             peer.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?,
             0,
@@ -1729,9 +1713,9 @@ async fn uncommittable_membership_delta_is_omitted_whole(
     };
     use xmtp_mls_group_state::inbox_id::InboxId;
     use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     // Markers are real absent installations. The second belongs to both
     // inboxes whose entries the uncommittable cases can replace.
     let kept_key = XmtpInstallationCredential::new();
@@ -1744,7 +1728,7 @@ async fn uncommittable_membership_delta_is_omitted_whole(
         let mut request = SignatureRequestBuilder::new(client.inbox_id())
             .add_association(
                 MemberIdentifier::installation(installation.public_slice().to_vec()),
-                client.builder.owner.identifier().into(),
+                client.owner.identifier().into(),
             )
             .build();
         let signature = installation
@@ -1757,7 +1741,7 @@ async fn uncommittable_membership_delta_is_omitted_whole(
             )
             .await
             .unwrap();
-        add_wallet_signature(&mut request, &client.builder.owner).await;
+        add_wallet_signature(&mut request, &client.owner).await;
         client
             .identity_updates()
             .apply_signature_request(request)
@@ -1772,7 +1756,7 @@ async fn uncommittable_membership_delta_is_omitted_whole(
 
     // A commit raises Caro from S1 to S2, so S1 is a real stale sequence.
     let caro_stale = committed_sequence(&group, caro.inbox_id()).unwrap();
-    tester!(caro2, from: caro, disable_workers);
+    let caro2 = caro.new_installation().await;
     group.add_missing_installations().await?;
     for peer in [&bo_group, &caro_group] {
         receive_completed_prefix(&group, peer).await?;
@@ -1780,7 +1764,7 @@ async fn uncommittable_membership_delta_is_omitted_whole(
     let caro_sequence = committed_sequence(&group, caro.inbox_id()).unwrap();
     assert!(caro_stale < caro_sequence);
     // Bo's identity then reaches S2. No commit has raised Bo's entry yet.
-    tester!(bo2, from: bo, disable_workers);
+    let bo2 = bo.new_installation().await;
     let raised = caro_group
         .get_membership_update_intent(&[], &[])
         .await?
@@ -1798,7 +1782,7 @@ async fn uncommittable_membership_delta_is_omitted_whole(
         )
         .update(
             key(bo.inbox_id()),
-            membership_entry(raised, vec![bo2.installation_id.to_vec()]),
+            membership_entry(raised, vec![bo2.context.installation_id().to_vec()]),
         )
         // Clear the second marker here too so the final assertions detect
         // any retained marker write from the uncommittable delta.
@@ -1867,7 +1851,7 @@ async fn uncommittable_membership_delta_is_omitted_whole(
         assert_eq!(membership.members.len(), 3);
         assert!(membership.failed_installations.contains(&kept_marker));
         assert!(!membership.failed_installations.contains(&omitted_marker));
-        assert!(has_leaf(peer, caro2.installation_id.as_slice()));
+        assert!(has_leaf(peer, caro2.context.installation_id().as_slice()));
         assert_eq!(
             peer.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?,
             0
@@ -1886,9 +1870,9 @@ async fn undecodable_membership_delta_does_not_block_own_refresh()
     use tls_codec::VLBytes;
     use xmtp_mls_group_state::inbox_id::InboxId;
     use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     let [group, bo_group, caro_group] = group_of_three(&alix, &bo, &caro).await?;
     let members = [&bo_group, &group, &caro_group];
     let caro_key = InboxId::from_hex(caro.inbox_id()).expect("valid inbox id");
@@ -1898,11 +1882,11 @@ async fn undecodable_membership_delta_does_not_block_own_refresh()
     publish_standalone_proposal(&group, message, &members).await?;
 
     // Bo's new installation gives Bo's refresh its own membership delta.
-    tester!(bo2, from: bo, disable_workers);
+    let bo2 = bo.new_installation().await;
     bo_group.add_missing_installations().await?;
     for peer in members {
         receive_completed_prefix(&bo_group, peer).await?;
-        assert!(has_leaf(peer, bo2.installation_id.as_slice()));
+        assert!(has_leaf(peer, bo2.context.installation_id().as_slice()));
         assert_eq!(
             peer.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?,
             0
@@ -1920,9 +1904,9 @@ async fn membership_delta_with_absent_reference_is_omitted()
 -> Result<(), Box<dyn std::error::Error>> {
     use xmtp_mls_group_state::inbox_id::InboxId;
     use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     let [group, bo_group, caro_group] = group_of_three(&alix, &bo, &caro).await?;
     let members = [&group, &bo_group, &caro_group];
     let absent = InboxId::from_hex(&"ab".repeat(32)).expect("valid inbox id");
@@ -1932,14 +1916,11 @@ async fn membership_delta_with_absent_reference_is_omitted()
     let before = group.epoch_authenticator().await?;
 
     // The default absence wait is 30 seconds. Shorten it for the committer.
-    let mut settings = bo.context.incoming_runtime().policy().clone();
-    settings.identity_reference_wait = std::time::Duration::from_millis(5_500);
-    let committer = crate::builder::ClientBuilder::from_client(bo.client.clone())
-        .with_disable_workers(true)
-        .stream_policy(settings)
-        .build()
-        .await
-        .expect("rebuild Bo's client with a short absence wait");
+    let committer = bo
+        .with_options(|options| {
+            options.stream_policy.identity_reference_wait = std::time::Duration::from_millis(5_500)
+        })
+        .await;
     let committer_group = committer.group(&group.group_id)?;
     let commit = QueueIntent::commit_pending_proposals().queue(&committer_group)?;
     let result = committer_group.sync_until_intent_resolved(commit.id).await;

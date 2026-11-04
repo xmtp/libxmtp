@@ -4,6 +4,7 @@
 //! 1. That proposal-based add/remove member flows work correctly
 //! 2. That proposal-based group operations work on dictionary-native groups
 
+use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 use crate::prelude::*;
 use crate::{
     context::XmtpSharedContext,
@@ -11,7 +12,6 @@ use crate::{
         intents::{CommitPendingProposalsIntentData, ProposeMemberUpdateIntentData},
         send_message_opts::SendMessageOpts,
     },
-    tester,
 };
 use rstest::rstest;
 use xmtp_db::{group_intent::IntentKind, prelude::*};
@@ -82,8 +82,8 @@ async fn test_proposal_intent_serialization(
     #[case] add_inbox_ids: Vec<&str>,
     #[case] remove_inbox_ids: Vec<&str>,
 ) {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
 
     let add_inbox_ids = add_inbox_ids.iter().map(hex::encode).collect::<Vec<_>>();
     let remove_inbox_ids = remove_inbox_ids.iter().map(hex::encode).collect::<Vec<_>>();
@@ -130,9 +130,9 @@ async fn test_proposal_intent_serialization(
 /// 6. All members verify membership
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_e2e_propose_add_member_flow() {
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
 
     // 1. Create group with alix and bo
     let alix_group = alix
@@ -228,9 +228,9 @@ async fn test_e2e_propose_add_member_flow() {
 /// 5. Verify Caro is removed
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_e2e_propose_remove_member_flow() {
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
 
     // 1. Create group with all three members
     let alix_group = alix
@@ -308,8 +308,8 @@ async fn test_e2e_propose_remove_member_flow() {
 /// Test that committing with no pending proposals handles gracefully.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_with_no_pending_proposals() {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
 
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
@@ -355,9 +355,9 @@ async fn test_commit_with_no_pending_proposals() {
 #[case::remove_nonexistent_member(false)]
 #[xmtp_common::test]
 async fn test_propose_invalid_member_operations(#[case] is_add: bool) {
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
 
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
@@ -425,9 +425,9 @@ async fn test_propose_invalid_member_operations(#[case] is_add: bool) {
 /// intent and retries, ensuring seamless messaging even with pending proposals.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_message_auto_commits_pending_proposals() {
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
 
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
@@ -531,10 +531,10 @@ async fn test_message_auto_commits_pending_proposals() {
 /// Pattern: Alix proposes twice, Bo commits both.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_multiple_add_proposals_before_commit() {
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
-    tester!(dave);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
+    let dave = EngineTestPeer::new().await;
 
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
@@ -624,10 +624,10 @@ async fn test_multiple_add_proposals_before_commit() {
 /// Pattern: Alix proposes add+remove, Bo commits both.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_mixed_add_remove_proposals_before_commit() {
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
-    tester!(dave);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
+    let dave = EngineTestPeer::new().await;
 
     // Create group with alix, bo, and caro
     let alix_group = alix
@@ -721,8 +721,8 @@ async fn test_mixed_add_remove_proposals_before_commit() {
 async fn test_propose_group_context_extensions_intent() {
     use crate::groups::intents::ProposeGroupContextExtensionsIntentData;
 
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
 
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
@@ -759,9 +759,9 @@ async fn test_propose_group_context_extensions_intent() {
 /// Previously this was disallowed, but now permissions are checked against the proposer.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_proposer_can_commit_own_proposal() {
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
 
     // Create group with alix and bo
     let alix_group = alix
@@ -869,11 +869,11 @@ async fn test_proposer_can_commit_own_proposal() {
 /// NOTE: Now proposers CAN commit their own proposals too - permissions are checked against proposer.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_concurrent_proposals_from_different_members() {
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
-    tester!(dave);
-    tester!(eve);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
+    let dave = EngineTestPeer::new().await;
+    let eve = EngineTestPeer::new().await;
 
     // Create group with alix, bo, and caro (caro will be the committer)
     let alix_group = alix
@@ -974,10 +974,10 @@ async fn missing_proposal_absent_vs_lost() {
     use xmtp_db::incoming_envelope::{QueryIncomingEnvelope, StreamTopic};
     use xmtp_proto::types::{OrderedEnvelopeBatch, Topic};
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
-    tester!(dan, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
+    let dan = EngineTestPeer::new().await;
     let alix_group = alix.create_group(None, None)?;
     alix_group
         .add_members(&[bo.inbox_id(), caro.inbox_id()])

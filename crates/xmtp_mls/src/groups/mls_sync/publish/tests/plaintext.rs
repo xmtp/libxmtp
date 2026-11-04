@@ -3,6 +3,7 @@
 use super::faults::refusing_group;
 use super::send_state_transitions::{intents_in, status};
 use super::*;
+use crate::groups::test_support::{EnginePeer, EngineTestPeer};
 use xmtp_content_types::{ContentCodec, encoded_content_to_bytes, text::TextCodec};
 use xmtp_db::group_message::DeliveryStatus;
 
@@ -48,7 +49,7 @@ enum Finish {
 #[case::inactive(Finish::Inactive)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn sent_plaintext_is_wiped(#[case] finish: Finish) -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let message = group.send_message_optimistic(&secret(), Default::default())?;
@@ -91,7 +92,7 @@ async fn sent_plaintext_is_wiped(#[case] finish: Finish) -> Result<(), Box<dyn s
 // verifies: PROC-037
 #[xmtp_common::test(unwrap_try = true)]
 async fn deleted_retried_send_keeps_no_plaintext() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let message = group.send_message_optimistic(&secret(), Default::default())?;

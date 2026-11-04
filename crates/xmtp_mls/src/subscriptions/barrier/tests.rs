@@ -1,6 +1,6 @@
 use super::*;
+use crate::groups::test_support::{EnginePeer, EngineTestPeer};
 use crate::prelude::*;
-use crate::tester;
 use prost::Message;
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::incoming_envelope::{IncomingRetry, NewIncomingEnvelope};
@@ -71,7 +71,7 @@ fn admit_pending<C: XmtpSharedContext>(
 // verifies: PROC-015, PROC-016
 #[xmtp_common::test(unwrap_try = true)]
 async fn fixed_welcome_discovery_excludes_later_scope_and_keeps_rejoined_groups() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let initial = alix.create_group(None, None)?;
     let mut groups = HashSet::from([initial.group_id]);
     let welcome_topic = Topic::new_welcome_message(alix.context.installation_id());
@@ -160,7 +160,7 @@ async fn fixed_welcome_discovery_excludes_later_scope_and_keeps_rejoined_groups(
 // verifies: PROC-013, PROC-018
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_stalled_welcome_does_not_hold_known_group_processing() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let uncaptured = alix.create_group(None, None)?;
     let group_topic = Topic::new_group_message(group.group_id);
@@ -236,7 +236,7 @@ async fn a_stalled_welcome_does_not_hold_known_group_processing() {
 // verifies: PROC-018
 #[xmtp_common::test(unwrap_try = true)]
 async fn target_capture_timeout_reports_every_starting_topic() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let first = alix.create_group(None, None)?;
     let second = alix.create_group(None, None)?;
     let topics = vec![
@@ -273,7 +273,7 @@ async fn target_capture_timeout_reports_every_starting_topic() {
 // verifies: PROC-015
 #[xmtp_common::test(unwrap_try = true)]
 async fn welcome_discovery_reads_groups_once_per_generation() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let earlier = alix.create_group(None, None)?;
     let joined = alix.create_group(None, None)?;
     let discovery = WelcomeDiscovery {
@@ -317,7 +317,7 @@ async fn welcome_discovery_reads_groups_once_per_generation() {
 async fn barrier_failure_code_is_stable() {
     use crate::worker::NeedsDbReconnect;
     use xmtp_common::{ErrorCode, RetryableError};
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let topic = Topic::new_group_message(group.group_id);
     let error = wait_through(

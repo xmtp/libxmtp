@@ -50,6 +50,7 @@ async fn get_key_package_init_key<Context: XmtpSharedContext, Id: AsRef<[u8]>>(
 // Client::close coordinated-shutdown tests
 // ============================================================
 
+mod engine_suites;
 mod groups;
 mod identity;
 mod inbox_handles;

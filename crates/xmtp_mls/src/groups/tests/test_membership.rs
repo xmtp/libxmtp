@@ -1,33 +1,12 @@
 //! Adding and removing members.
 
 use super::*;
-
-// verifies: GMOD-056
-#[xmtp_common::test(unwrap_try = true)]
-async fn a_create_whose_add_cannot_resolve_stores_nothing() {
-    use xmtp_db::consent_record::QueryConsentRecord;
-    tester!(alix, disable_workers);
-    let events = alix.context.events().subscribe(
-        xmtp_events::EventFilter::new([xmtp_events::EventKind::ConversationJoined]),
-        Some(10),
-    );
-    let missing_inbox = hex::encode(xmtp_common::rand_vec::<32>());
-    let result = alix
-        .create_group_with_members(&[missing_inbox], None, None)
-        .await;
-    assert!(
-        matches!(result, Err(crate::client::ClientError::Group(error))
-        if matches!(*error, GroupError::MissingSequenceId))
-    );
-    assert!(alix.find_groups(GroupQueryArgs::default())?.is_empty());
-    assert!(alix.context.db().consent_records()?.is_empty());
-    assert!(events.drain().is_empty());
-}
+use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
 
 #[xmtp_common::test]
 async fn test_members_func_from_non_creator() {
-    tester!(amal);
-    tester!(bola);
+    let amal = EngineTestPeer::new().await;
+    let bola = EngineTestPeer::new().await;
 
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
@@ -70,9 +49,9 @@ async fn test_members_func_from_non_creator() {
 
 #[xmtp_common::test]
 async fn test_add_member_conflict() {
-    tester!(amal);
-    tester!(bola);
-    tester!(charlie);
+    let amal = EngineTestPeer::new().await;
+    let bola = EngineTestPeer::new().await;
+    let charlie = EngineTestPeer::new().await;
 
     let amal_group = amal.create_group(None, None).unwrap();
     // Add bola
@@ -167,7 +146,7 @@ async fn test_add_member_conflict() {
 
 #[xmtp_common::test]
 async fn test_add_invalid_member() {
-    tester!(client);
+    let client = EngineTestPeer::new().await;
     let group = client.create_group(None, None).expect("create group");
 
     let result = group.add_members(&["1234".to_string()]).await;
@@ -177,7 +156,7 @@ async fn test_add_invalid_member() {
 
 #[xmtp_common::test]
 async fn test_add_unregistered_member() {
-    tester!(amal);
+    let amal = EngineTestPeer::new().await;
     let unconnected_ident = Identifier::rand_ethereum();
     let group = amal.create_group(None, None).unwrap();
     let result = group.add_members_by_identity(&[unconnected_ident]).await;
@@ -187,8 +166,8 @@ async fn test_add_unregistered_member() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn add_by_identity_lists_each_missing_address() {
-    tester!(amal);
-    tester!(bola);
+    let amal = EngineTestPeer::new().await;
+    let bola = EngineTestPeer::new().await;
     let (first, second) = (Identifier::rand_ethereum(), Identifier::rand_ethereum());
     let group = amal.create_group(None, None)?;
     let epoch = group.epoch().await?;
@@ -205,9 +184,9 @@ async fn add_by_identity_lists_each_missing_address() {
 // verifies: GMOD-034
 #[xmtp_common::test]
 async fn test_remove_by_account_address() {
-    tester!(amal);
-    tester!(bola);
-    tester!(charlie);
+    let amal = EngineTestPeer::new().await;
+    let bola = EngineTestPeer::new().await;
+    let charlie = EngineTestPeer::new().await;
 
     let group = amal.create_group(None, None).unwrap();
     group
@@ -249,9 +228,9 @@ async fn test_remove_by_account_address() {
 
 #[xmtp_common::test]
 async fn test_removed_members_cannot_send_message_to_others() {
-    tester!(amal);
-    tester!(bola);
-    tester!(charlie);
+    let amal = EngineTestPeer::new().await;
+    let bola = EngineTestPeer::new().await;
+    let charlie = EngineTestPeer::new().await;
 
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group
@@ -286,7 +265,7 @@ async fn test_removed_members_cannot_send_message_to_others() {
 
     let message_text = b"hello";
 
-    let bola_group = TestMlsGroup::new(
+    let bola_group = EngineTestGroup::new(
         bola.context.clone(),
         amal_group.group_id,
         amal_group.dm_id.clone(),
@@ -317,9 +296,9 @@ async fn test_removed_members_cannot_send_message_to_others() {
 /// that message. It keeps the message from before its removal.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_removed_member_does_not_receive_later_messages() {
-    tester!(amal);
-    tester!(bola);
-    tester!(charlie);
+    let amal = EngineTestPeer::new().await;
+    let bola = EngineTestPeer::new().await;
+    let charlie = EngineTestPeer::new().await;
 
     let amal_group = amal.create_group(None, None)?;
     amal_group
@@ -332,7 +311,7 @@ async fn test_removed_member_does_not_receive_later_messages() {
         .send_message(b"before removal", SendMessageOpts::default())
         .await?;
     bola_group.sync().await?;
-    let texts = |group: &TestMlsGroup| {
+    let texts = |group: &EngineTestGroup| {
         group
             .find_messages(&MsgQueryArgs {
                 kind: Some(GroupMessageKind::Application),
@@ -365,9 +344,9 @@ async fn test_removed_member_does_not_receive_later_messages() {
 // verifies: JOIN-044
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_rejoin_history_on_every_installation_of_the_inbox() {
-    tester!(amal);
-    tester!(bola);
-    tester!(bola2, from: bola);
+    let amal = EngineTestPeer::new().await;
+    let bola = EngineTestPeer::new().await;
+    let bola2 = bola.new_installation().await;
     assert_eq!(bola.inbox_id(), bola2.inbox_id());
     assert_ne!(
         bola.installation_public_key(),
@@ -394,7 +373,7 @@ async fn test_rejoin_history_on_every_installation_of_the_inbox() {
         .send_message(b"after rejoin", SendMessageOpts::default())
         .await?;
 
-    let texts = |group: &TestMlsGroup| {
+    let texts = |group: &EngineTestGroup| {
         group
             .find_messages(&MsgQueryArgs {
                 kind: Some(GroupMessageKind::Application),
@@ -428,8 +407,8 @@ async fn test_rejoin_history_on_every_installation_of_the_inbox() {
 #[xmtp_common::test]
 async fn test_add_missing_installations() {
     // Setup for test
-    tester!(amal);
-    tester!(bola);
+    let amal = EngineTestPeer::new().await;
+    let bola = EngineTestPeer::new().await;
 
     let group = amal.create_group(None, None).unwrap();
     group.add_members(&[bola.inbox_id()]).await.unwrap();
@@ -438,7 +417,7 @@ async fn test_add_missing_installations() {
     // Finished with setup
 
     // add a second installation for amal using the same wallet
-    tester!(_amal_2nd, from: amal);
+    let _amal_2nd = amal.new_installation().await;
 
     // test if adding the new installation(s) worked
     let new_installations_were_added = group.add_missing_installations().await;
@@ -456,7 +435,7 @@ async fn test_add_missing_installations() {
 
 #[xmtp_common::test]
 async fn test_max_limit_add() {
-    tester!(amal);
+    let amal = EngineTestPeer::new().await;
     let amal_group = amal
         .create_group(
             Some(PreconfiguredPolicies::AdminsOnly.to_policy_set()),
@@ -465,10 +444,10 @@ async fn test_max_limit_add() {
         .unwrap();
     let mut clients = Vec::new();
     for _ in 0..249 {
-        tester!(alix);
+        let alix = EngineTestPeer::new().await;
         clients.push(alix.identifier());
     }
     amal_group.add_members_by_identity(&clients).await.unwrap();
-    tester!(bola);
+    let bola = EngineTestPeer::new().await;
     assert!(amal_group.add_members(&[bola.inbox_id()]).await.is_err(),);
 }

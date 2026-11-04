@@ -1,7 +1,7 @@
 use crate::context::CoreContext;
+use crate::groups::test_support::MlsGroupExt;
+use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 use crate::groups::{MlsGroup, group_permissions::PolicySet, send_message_opts::SendMessageOpts};
-use crate::tester;
-use crate::utils::test::MlsGroupExt;
 use xmtp_db::{
     ConnectionExt,
     diesel::RunQueryDsl,
@@ -13,8 +13,8 @@ use xmtp_mls_group_state::group::GroupMetadataOptions;
 // verifies: ARCH-014
 #[xmtp_common::test(unwrap_try = true)]
 async fn archive_stub_keeps_a_group_joined_by_another_writer() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.invite(&bo).await?;
     let bo_group = bo.wait_for_welcomes().await?.pop()?;
@@ -38,8 +38,8 @@ async fn archive_stub_keeps_a_group_joined_by_another_writer() {
 // verifies: SEND-001
 #[xmtp_common::test(unwrap_try = true)]
 async fn failed_intent_insert_rolls_back_optimistic_message() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.invite(&bo).await?;
     let bo_group = bo.wait_for_welcomes().await?.pop()?;
@@ -91,8 +91,8 @@ async fn welcome_install_queues_rotation_atomically() {
     use xmtp_configuration::KEY_PACKAGE_QUEUE_INTERVAL_NS;
     use xmtp_db::prelude::{QueryGroup, QueryIdentity, QueryIncomingEnvelope};
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let db = bo.context.db();
     let before = db.next_key_package_rotation_ns()?;
     let key = bo.welcome_topic();
@@ -158,8 +158,8 @@ async fn rejected_welcomes_do_not_schedule_key_package_rotation() {
     use xmtp_proto::types::Cursor;
     use xmtp_proto::xmtp::mls::message_contents::WelcomeWrapperAlgorithm;
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let db = bo.context.db();
 
     // A short ciphertext with the advertised wrapper algorithm and key routes
@@ -203,8 +203,8 @@ async fn removal_supersedes_pending_intents_and_a_readd_can_publish() {
     use xmtp_db::group_intent::{IntentKind, IntentState};
     use xmtp_db::prelude::{QueryGroupIntent, QueryPreparedEnvelope};
 
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
 
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
@@ -290,8 +290,8 @@ async fn removal_fails_unconfirmed_message_intents_and_preserves_confirmed_messa
     use xmtp_db::group_message::DeliveryStatus;
     use xmtp_db::prelude::QueryGroupIntent;
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
     bo.sync_welcomes().await?;
@@ -378,8 +378,8 @@ async fn inactive_group_rejects_optimistic_and_prepared_messages_before_storage(
     use xmtp_db::group_intent::{IntentKind, IntentState};
     use xmtp_db::prelude::QueryGroupIntent;
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
     bo.sync_welcomes().await?;
@@ -443,9 +443,10 @@ async fn a_snapshot_tester_can_still_allocate_delivery_sequences() {
     use std::sync::Arc;
     use xmtp_db::delivery::QueryDelivery;
 
-    tester!(alix);
+    use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
+    let alix = EngineTestPeer::new().await;
     let snapshot = Arc::new(alix.db_snapshot());
-    tester!(alix2, snapshot: snapshot);
+    let alix2 = alix.from_snapshot(&snapshot, |_| {}).await;
 
     let group = alix2.create_group(None, None)?;
     group
@@ -472,8 +473,8 @@ async fn an_unreadable_own_intent_kind_holds_the_head() {
     use xmtp_db::incoming_envelope::{QueryIncomingEnvelope, StreamTopic};
     use xmtp_db::prelude::QueryGroupIntent;
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.add_members(&[bo.inbox_id()]).await?;
     bo.sync_welcomes().await?;

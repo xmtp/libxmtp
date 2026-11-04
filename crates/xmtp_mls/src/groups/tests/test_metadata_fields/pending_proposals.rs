@@ -1,14 +1,15 @@
 //! Pending proposal behavior and authorization.
 
 use super::*;
+use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 
 /// A write of the value a pending proposal already sets commits that
 /// proposal, so its success means the value is committed, as reads see it.
 // verifies: META-073
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_writes_carried_out_by_pending_proposals_commit_them() {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -37,8 +38,8 @@ async fn test_writes_carried_out_by_pending_proposals_commit_them() {
 // verifies: META-073
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_queued_writes_carried_out_by_pending_proposals_commit_them() {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -72,8 +73,8 @@ async fn test_queued_writes_carried_out_by_pending_proposals_commit_them() {
 // verifies: META-071
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_map_updates_of_pending_entries_commit_them() {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -103,8 +104,8 @@ async fn test_map_updates_of_pending_entries_commit_them() {
 // verifies: META-073
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_clears_carried_out_by_pending_removals_commit_them() {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -134,8 +135,9 @@ async fn test_clears_carried_out_by_pending_removals_commit_them() {
 // verifies: META-073
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_unchanged_writes_ignore_other_pending_entries() {
-    tester!(alix, configured: |c| c.application_components = catalogue());
-    tester!(bo);
+    let alix =
+        EngineTestPeer::new_with(|o| o.configure(|c| c.application_components = catalogue())).await;
+    let bo = EngineTestPeer::new().await;
 
     // Keep this group separate. Committing a name here could consume Bo's proposal.
     let absent_group = alix
@@ -211,8 +213,8 @@ async fn test_unchanged_writes_ignore_other_pending_entries() {
 // verifies: META-073
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_queued_writes_committed_by_another_member_make_no_commit() {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -252,8 +254,9 @@ async fn test_queued_writes_committed_by_another_member_make_no_commit() {
 // verifies: META-071
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_writes_carried_out_by_pending_proposals_are_authorized() {
-    tester!(alix, configured: |c| c.application_components = catalogue());
-    tester!(bo);
+    let alix =
+        EngineTestPeer::new_with(|o| o.configure(|c| c.application_components = catalogue())).await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -292,8 +295,9 @@ async fn test_writes_carried_out_by_pending_proposals_are_authorized() {
 // verifies: META-071
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_map_updates_of_pending_entries_are_authorized() {
-    tester!(alix, configured: |c| c.application_components = catalogue());
-    tester!(bo);
+    let alix =
+        EngineTestPeer::new_with(|o| o.configure(|c| c.application_components = catalogue())).await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -331,8 +335,9 @@ async fn test_map_updates_of_pending_entries_are_authorized() {
 // verifies: META-071
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_writes_carried_out_by_pending_proposals_are_authorized_beside_other_writes() {
-    tester!(alix, configured: |c| c.application_components = catalogue());
-    tester!(bo);
+    let alix =
+        EngineTestPeer::new_with(|o| o.configure(|c| c.application_components = catalogue())).await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -369,14 +374,19 @@ async fn test_writes_carried_out_by_pending_proposals_are_authorized_beside_othe
 // verifies: META-071
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_user_data_carried_out_by_pending_proposals_is_authorized_beside_other_writes() {
-    tester!(alix, configured: |c| c.application_components = vec![definition(
-        BADGE,
-        ComponentType::TlsMapInboxIdString,
-        MetadataBasePolicy::AllowIfAdmin,
-        true,
-        false,
-    )]);
-    tester!(bo);
+    let alix = EngineTestPeer::new_with(|o| {
+        o.configure(|c| {
+            c.application_components = vec![definition(
+                BADGE,
+                ComponentType::TlsMapInboxIdString,
+                MetadataBasePolicy::AllowIfAdmin,
+                true,
+                false,
+            )]
+        })
+    })
+    .await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -421,8 +431,9 @@ async fn test_user_data_carried_out_by_pending_proposals_is_authorized_beside_ot
 // verifies: META-071
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_map_updates_of_pending_entries_are_authorized_beside_other_writes() {
-    tester!(alix, configured: |c| c.application_components = catalogue());
-    tester!(bo);
+    let alix =
+        EngineTestPeer::new_with(|o| o.configure(|c| c.application_components = catalogue())).await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;

@@ -792,9 +792,11 @@ where
 mod tests {
     use super::*;
     use crate::groups::InitialMembershipValidator;
+    use crate::groups::test_support::MlsGroupExt;
+    use crate::groups::test_support::{
+        EnginePeer, EngineTestContext, EngineTestPeer, EngineTestPeerOps,
+    };
     use crate::prelude::*;
-    use crate::tester;
-    use crate::utils::test::MlsGroupExt;
 
     struct UnavailableValidator;
 
@@ -809,8 +811,8 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn trial_validation_failure_preserves_welcome_keys() {
-        tester!(alix, disable_workers);
-        tester!(bo, disable_workers);
+        let alix = EngineTestPeer::new().await;
+        let bo = EngineTestPeer::new().await;
         let alix_group = alix.create_group(None, None)?;
         alix_group.invite(&bo).await?;
         let welcome = bo
@@ -883,8 +885,8 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn fresh_install_rejects_welcome_after_another_writer_advances_group() {
-        tester!(alix, disable_workers);
-        tester!(bo, disable_workers);
+        let alix = EngineTestPeer::new().await;
+        let bo = EngineTestPeer::new().await;
         let alix_group = alix.create_group(None, None)?;
         alix_group.invite(&bo).await?;
         alix_group
@@ -926,8 +928,8 @@ mod tests {
 
     /// Process `joiner`'s newest Welcome with the production validator.
     async fn process_newest_welcome(
-        joiner: &crate::utils::FullXmtpClient,
-    ) -> Result<Option<MlsGroup<crate::utils::TestXmtpMlsContext>>, GroupError> {
+        joiner: &EngineTestPeer,
+    ) -> Result<Option<MlsGroup<EngineTestContext>>, GroupError> {
         let welcome = joiner
             .context
             .api()
@@ -962,8 +964,8 @@ mod tests {
         use xmtp_mls_group_keys::group_keys::{GroupKeys, GroupRoot};
         use xmtp_mls_group_state::app_data::group_root::GroupRootError;
 
-        tester!(alix, disable_workers);
-        tester!(bo, disable_workers);
+        let alix = EngineTestPeer::new().await;
+        let bo = EngineTestPeer::new().await;
         let keyed_id = |root: &GroupRoot| GroupKeys::derive(root).group_id().to_vec();
         let root = GroupRoot::generate();
         let other_root = GroupRoot::generate();
@@ -1048,18 +1050,18 @@ mod tests {
         use xmtp_id::associations::test_utils::add_wallet_signature;
         use xmtp_mls_group_keys::group_keys::{GroupKeys, GroupRoot};
 
-        tester!(alix1, disable_workers);
-        tester!(alix2, from: alix1, disable_workers);
+        let alix1 = EngineTestPeer::new().await;
+        let alix2 = alix1.new_installation().await;
         let identity = alix1.identity_updates();
         let db = alix1.context.db();
         if revoked {
             let revoked = vec![alix2.context.installation_id().to_vec()];
             let mut revoke = identity.revoke_installations(revoked).await.unwrap();
-            add_wallet_signature(&mut revoke, &alix1.builder.owner).await;
+            add_wallet_signature(&mut revoke, &alix1.owner).await;
             identity.apply_signature_request(revoke).await.unwrap();
         } else {
             // A newer own update is stored, but its state is not cached.
-            tester!(_alix3, from: alix1, disable_workers);
+            let _alix3 = alix1.new_installation().await;
             let inbox_id = alix1.inbox_id();
             identity
                 .get_latest_association_state(&db, inbox_id)
@@ -1111,8 +1113,8 @@ mod tests {
         use xmtp_mls_group_state::app_data::group_root::read_group_root;
         use xmtp_proto::types::Topic;
 
-        tester!(alix, disable_workers);
-        tester!(bo, disable_workers);
+        let alix = EngineTestPeer::new().await;
+        let bo = EngineTestPeer::new().await;
         let alix_group = alix.create_group(None, None)?;
         let root = read_group_root(alix_group.load_group_context()?.extensions())?
             .expect("a new group carries its root");
@@ -1205,9 +1207,9 @@ mod tests {
         };
         use xmtp_mls_group_state::app_data::group_root::read_group_root;
 
-        tester!(alix, disable_workers);
-        tester!(bo, disable_workers);
-        tester!(caro, disable_workers);
+        let alix = EngineTestPeer::new().await;
+        let bo = EngineTestPeer::new().await;
+        let caro = EngineTestPeer::new().await;
 
         let original = alix.create_group(None, None)?;
         original.invite(&caro).await?;
@@ -1292,9 +1294,9 @@ mod tests {
         };
         use xmtp_mls_group_state::app_data::group_root::read_group_root;
 
-        tester!(alix, disable_workers);
-        tester!(bo, disable_workers);
-        tester!(caro, disable_workers);
+        let alix = EngineTestPeer::new().await;
+        let bo = EngineTestPeer::new().await;
+        let caro = EngineTestPeer::new().await;
         let alix_dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
         let bo_dm = bo.sync_welcomes().await?.pop().expect("Bo joined the DM");
         assert!(bo_dm.is_active()?);
@@ -1356,8 +1358,8 @@ mod tests {
             metadata_policy::{Kind, MetadataBasePolicy},
         };
 
-        tester!(alix, disable_workers);
-        tester!(bo, disable_workers);
+        let alix = EngineTestPeer::new().await;
+        let bo = EngineTestPeer::new().await;
         let mut registry = dm_registry_profiles().pop()?;
         let mut membership = registry.get(&ComponentId::GROUP_MEMBERSHIP)?.unwrap();
         membership.permissions.as_mut().unwrap().update_policy = Some(MetadataPolicy {
@@ -1414,8 +1416,8 @@ mod tests {
         use xmtp_db::consent_record::{ConsentKey, ConsentState, ConsentType, StoredConsentRecord};
         use xmtp_mls_group_keys::group_keys::{GroupKeys, GroupRoot};
 
-        tester!(alix, disable_workers);
-        tester!(bo, disable_workers);
+        let alix = EngineTestPeer::new().await;
+        let bo = EngineTestPeer::new().await;
         let root = GroupRoot::generate();
         let group_id = GroupKeys::derive(&root).group_id().to_vec();
         let entity = hex::encode(&group_id);
@@ -1465,9 +1467,9 @@ mod tests {
         use xmtp_db::consent_record::{ConsentKey, ConsentState};
         use xmtp_mls_group_keys::group_keys::{GroupKeys, GroupRoot};
 
-        tester!(alix, disable_workers);
-        tester!(bo1, disable_workers);
-        tester!(bo2, from: bo1, disable_workers);
+        let alix = EngineTestPeer::new().await;
+        let bo1 = EngineTestPeer::new().await;
+        let bo2 = bo1.new_installation().await;
         let root = GroupRoot::generate();
         let group_id = GroupKeys::derive(&root).group_id().to_vec();
         let options = CraftedWelcome {
@@ -1516,8 +1518,8 @@ mod tests {
         use xmtp_db::consent_record::{ConsentKey, ConsentState, ConsentType, StoredConsentRecord};
         use xmtp_mls_group_state::app_data::group_root::read_group_root;
 
-        tester!(alix, disable_workers);
-        tester!(bo2, disable_workers);
+        let alix = EngineTestPeer::new().await;
+        let bo2 = EngineTestPeer::new().await;
         let group = alix.create_group(None, None)?;
         let root = read_group_root(group.load_group_context()?.extensions())?
             .expect("a new group carries its root");
@@ -1563,8 +1565,8 @@ mod tests {
         };
         use xmtp_common::time::{Duration, timeout};
 
-        tester!(alix, disable_workers);
-        tester!(bo, disable_workers);
+        let alix = EngineTestPeer::new().await;
+        let bo = EngineTestPeer::new().await;
         let alix_group = alix.create_group(None, None).unwrap();
         alix_group.invite(&bo).await.unwrap();
         let bo_group = bo.sync_welcomes().await.unwrap().pop().unwrap();

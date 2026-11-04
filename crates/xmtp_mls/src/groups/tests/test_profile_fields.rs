@@ -1,6 +1,7 @@
 //! `USER_DISPLAY_NAME` and `GROUP_IMAGE` values, removed-member cleanup, and
 //! the single write of an application immutable field.
 
+use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 use crate::prelude::*;
 use std::collections::BTreeMap;
 
@@ -49,7 +50,6 @@ use crate::{
         mls_sync::generate_prepared_commit,
     },
     state_tx::state_write,
-    tester,
 };
 
 const MAX_ELEMENT: usize = 8192;
@@ -151,9 +151,9 @@ enum Sweep {
 /// commits. The commit must delete her display name and admin-list entry,
 /// for the committer and for a receiver.
 async fn assert_sweep_cleans_up(sweep: Sweep) -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix);
-    tester!(bo);
-    tester!(carol);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let carol = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id(), carol.inbox_id()], None, None)
         .await?;
@@ -286,8 +286,8 @@ async fn assert_peer_rejects<C: XmtpSharedContext>(
 // verifies: PERM-027
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_display_name_is_self_owned() {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -322,8 +322,8 @@ async fn test_display_name_is_self_owned() {
 // verifies: META-010
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_display_name_must_be_utf8() {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -344,8 +344,8 @@ async fn test_display_name_must_be_utf8() {
 // verifies: META-068
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_profile_values_are_bounded() {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -385,8 +385,8 @@ async fn test_profile_values_are_bounded() {
 // verifies: META-010
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_group_image_is_opaque() {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -403,9 +403,9 @@ async fn test_group_image_is_opaque() {
 // verifies: GMOD-039
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_removal_deletes_removed_member_entries() {
-    tester!(alix);
-    tester!(bo);
-    tester!(carol);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let carol = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id(), carol.inbox_id()], None, None)
         .await?;
@@ -449,9 +449,9 @@ async fn test_removal_deletes_removed_member_entries() {
 // verifies: GMOD-039
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_removal_omits_forbidden_cleanup() {
-    tester!(alix);
-    tester!(bo);
-    tester!(carol);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let carol = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id(), carol.inbox_id()], None, None)
         .await?;
@@ -514,9 +514,9 @@ async fn test_pending_commit_cleans_up_a_swept_removal() {
 // verifies: GMOD-039
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_removal_without_cleanup_is_accepted() {
-    tester!(alix);
-    tester!(bo);
-    tester!(carol);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let carol = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id(), carol.inbox_id()], None, None)
         .await?;
@@ -552,14 +552,23 @@ async fn test_removal_without_cleanup_is_accepted() {
 async fn test_immutable_field_is_written_once() {
     const ONCE: ComponentId = ComponentId::new(0xFD01);
     const PAIR: ComponentId = ComponentId::new(0xFD02);
-    tester!(alix, configured: |c| {
-        c.application_components = [ONCE, PAIR]
-            .map(|id| {
-                definition(id.as_u16(), ComponentType::String, MetadataBasePolicy::Allow, true, false)
-            })
-            .into()
-    });
-    tester!(bo);
+    let alix = EngineTestPeer::new_with(|o| {
+        o.configure(|c| {
+            c.application_components = [ONCE, PAIR]
+                .map(|id| {
+                    definition(
+                        id.as_u16(),
+                        ComponentType::String,
+                        MetadataBasePolicy::Allow,
+                        true,
+                        false,
+                    )
+                })
+                .into()
+        })
+    })
+    .await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -592,14 +601,23 @@ async fn test_large_dictionary_membership_observation() {
     use xmtp_db::{encrypted_store::database::count_sql_queries, sql_key_store::count_kv_reads};
 
     const FIELDS: u16 = 16;
-    tester!(alix, configured: |c| {
-        c.application_components = (0..FIELDS)
-            .map(|n| {
-                definition(0xC110 + n, ComponentType::TlsMapBytesBytes, MetadataBasePolicy::Allow, false, true)
-            })
-            .collect()
-    });
-    tester!(bo);
+    let alix = EngineTestPeer::new_with(|o| {
+        o.configure(|c| {
+            c.application_components = (0..FIELDS)
+                .map(|n| {
+                    definition(
+                        0xC110 + n,
+                        ComponentType::TlsMapBytesBytes,
+                        MetadataBasePolicy::Allow,
+                        false,
+                        true,
+                    )
+                })
+                .collect()
+        })
+    })
+    .await;
+    let bo = EngineTestPeer::new().await;
     let dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
     let bo_dm = bo.wait_for_welcomes().await?.pop()?;
     let fill = ComponentMutation::MapDelta(
@@ -659,14 +677,23 @@ async fn test_large_dictionary_membership_observation() {
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_dictionary_growth_is_bounded() {
     const FIELDS: u16 = 67;
-    tester!(alix, configured: |c| {
-        c.application_components = (0..FIELDS)
-            .map(|n| {
-                definition(0xC110 + n, ComponentType::TlsMapBytesBytes, MetadataBasePolicy::Allow, false, true)
-            })
-            .collect()
-    });
-    tester!(bo);
+    let alix = EngineTestPeer::new_with(|o| {
+        o.configure(|c| {
+            c.application_components = (0..FIELDS)
+                .map(|n| {
+                    definition(
+                        0xC110 + n,
+                        ComponentType::TlsMapBytesBytes,
+                        MetadataBasePolicy::Allow,
+                        false,
+                        true,
+                    )
+                })
+                .collect()
+        })
+    })
+    .await;
+    let bo = EngineTestPeer::new().await;
     let dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
     let bo_dm = bo.wait_for_welcomes().await?.pop()?;
     let total = |dictionary: AppDataDictionary| -> usize {
@@ -830,8 +857,8 @@ async fn test_uncommittable_pending_app_data_does_not_block_the_group(
     #[case] uncommittable: Uncommittable,
     #[values(false, true)] field_write: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -985,9 +1012,9 @@ async fn test_uncommittable_pending_app_data_does_not_block_the_group(
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_membership_delta_stored_twice_does_not_block_the_group()
 -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix);
-    tester!(bo);
-    tester!(carol);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let carol = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id(), carol.inbox_id()], None, None)
         .await?;
@@ -1028,8 +1055,8 @@ async fn test_pending_leaf_update_does_not_block_the_group()
 -> Result<(), Box<dyn std::error::Error>> {
     use openmls::prelude::{CredentialWithKey, LeafNodeParameters, NewSignerBundle};
     use xmtp_cryptography::XmtpInstallationCredential;
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -1086,10 +1113,10 @@ async fn test_pending_leaf_update_does_not_block_the_group()
 // verifies: GMOD-047
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_pending_readd_omits_a_delete_it_forbids() -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix);
-    tester!(bo);
-    tester!(carol);
-    tester!(dave);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let carol = EngineTestPeer::new().await;
+    let dave = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(
             &[bo.inbox_id(), carol.inbox_id(), dave.inbox_id()],
@@ -1164,9 +1191,9 @@ async fn test_orphan_membership_delta_does_not_block_the_group(
         GroupMembershipEntry,
         group_membership_entry::{V1, Version},
     };
-    tester!(alix);
-    tester!(bo);
-    tester!(carol);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let carol = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -1221,8 +1248,8 @@ async fn test_orphan_membership_delta_does_not_block_the_group(
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_omission_does_not_stall_a_conflicting_intent()
 -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;

@@ -132,6 +132,8 @@ mod own_message;
 mod post_commit;
 mod processing;
 mod receive;
+#[cfg(any(test, feature = "test-utils"))]
+pub(crate) use receive::PAGE_SIZE as RECEIVE_PAGE_SIZE;
 mod sync_driver;
 #[cfg(any(test, feature = "test-hooks"))]
 pub mod test_mocks;
@@ -690,19 +692,17 @@ impl ProcessedMessageOutcome {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer};
     use crate::prelude::*;
 
     use super::*;
-    use crate::{builder::ClientBuilder, utils::TestMlsGroup};
     use std::sync::Arc;
-    use xmtp_cryptography::utils::generate_local_wallet;
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn publish_stores_envelope_metadata_without_sync() {
-        use crate::tester;
         use xmtp_proto::types::Topic;
 
-        tester!(alix, disable_workers);
+        let alix = EngineTestPeer::new().await;
         // Rotate the group key before the message exists.
         let group = alix.create_group(None, None)?;
         group.key_update().await?;
@@ -747,10 +747,9 @@ pub(crate) mod tests {
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn partial_envelope_metadata_preserves_stored_fields() {
-        use crate::tester;
         use xmtp_proto::types::Topic;
 
-        tester!(alix, disable_workers);
+        let alix = EngineTestPeer::new().await;
         let group = alix.create_group(None, None)?;
         let id = group
             .send_message(b"partial metadata", Default::default())
@@ -769,14 +768,14 @@ pub(crate) mod tests {
         let mut envelope =
             xmtp_api_backend::envelope::decode_group_message(envelopes.pop().unwrap())?;
         envelope.envelope_hash = None;
-        TestMlsGroup::save_envelope_metadata_with_db(&alix.context.db(), &envelope)?;
+        EngineTestGroup::save_envelope_metadata_with_db(&alix.context.db(), &envelope)?;
         let stored: StoredGroupMessage = alix.context.db().fetch(&id)?.unwrap();
         assert_eq!(stored.envelope_hash, original.envelope_hash);
         assert_eq!(stored.expiry_ns, original.expiry_ns);
 
         envelope.envelope_hash = original.envelope_hash.clone();
         envelope.expiry_ns = None;
-        TestMlsGroup::save_envelope_metadata_with_db(&alix.context.db(), &envelope)?;
+        EngineTestGroup::save_envelope_metadata_with_db(&alix.context.db(), &envelope)?;
         let stored: StoredGroupMessage = alix.context.db().fetch(&id)?.unwrap();
         assert_eq!(stored.envelope_hash, original.envelope_hash);
         assert_eq!(stored.expiry_ns, original.expiry_ns);
@@ -789,9 +788,7 @@ pub(crate) mod tests {
     )]
     #[cfg(not(target_family = "wasm"))]
     async fn publish_intents_worst_case_scenario() {
-        use crate::tester;
-
-        tester!(amal_a, triggers);
+        let amal_a = EngineTestPeer::new_with(|options| options.triggers = true).await;
         let amal_group_a: Arc<MlsGroup<_>> =
             Arc::new(amal_a.create_group(None, Default::default()).unwrap());
 
@@ -833,9 +830,8 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     async fn hmac_keys_work_as_expected() {
-        let wallet = generate_local_wallet();
-        let amal = Arc::new(ClientBuilder::new_test_client(&wallet).await);
-        let amal_group: Arc<TestMlsGroup> =
+        let amal = Arc::new(EngineTestPeer::new_with(|o| o.triggers = true).await);
+        let amal_group: Arc<EngineTestGroup> =
             Arc::new(amal.create_group(None, Default::default()).unwrap());
 
         let hmac_keys = amal_group.hmac_keys(-1..=1).unwrap();
@@ -863,7 +859,6 @@ pub(crate) mod tests {
     // verifies: PUSH-258
     #[xmtp_common::test(unwrap_try = true)]
     async fn hmac_derivation_matches_known_answer() {
-        use crate::tester;
         use xmtp_db::group::ConversationType;
 
         const ROOT_KEY: &str =
@@ -876,7 +871,7 @@ pub(crate) mod tests {
         const SENDER_HMAC: &str =
             "673228bd6e2b8ee58e74e708f4cfebdec70658703cf5a9a782f2acac9354ebf2";
 
-        tester!(alix, disable_workers);
+        let alix = EngineTestPeer::new().await;
         let db = alix.context.db();
         xmtp_db::user_preferences::store_test_root_key(
             &db,
@@ -920,7 +915,6 @@ pub(crate) mod tests {
     /// skipped without failing sync and stores no deletion.
     #[xmtp_common::test(unwrap_try = true)]
     async fn malformed_delete_messages_store_no_deletion() {
-        use crate::tester;
         use xmtp_content_types::{
             ContentCodec, compression::compress, delete_message::DeleteMessageCodec,
             encoded_content_to_bytes,
@@ -932,7 +926,7 @@ pub(crate) mod tests {
         use xmtp_proto::xmtp::mls::message_contents::Compression;
         use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 
-        tester!(alix);
+        let alix = EngineTestPeer::new().await;
         let alix_group = alix.create_group(None, None)?;
         let delete_of = |message_id: &str| {
             DeleteMessageCodec::encode(DeleteMessage {
@@ -966,7 +960,8 @@ pub(crate) mod tests {
         let storage = alix.context.mls_storage();
         for (n, (case, decrypted_message_bytes)) in (1..).zip(rows) {
             // The receive path stores the reference it decodes from the bytes.
-            let fields = TestMlsGroup::extract_queryable_content_fields(&decrypted_message_bytes);
+            let fields =
+                EngineTestGroup::extract_queryable_content_fields(&decrypted_message_bytes);
             let message = StoredGroupMessage {
                 id: vec![n; 32],
                 group_id: alix_group.group_id,

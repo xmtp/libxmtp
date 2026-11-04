@@ -1,4 +1,5 @@
-use crate::context::CoreContext;
+//! The leaves of `groups/tests/test_commit_log_local.rs` that need the client.
+
 use crate::groups::send_message_opts::SendMessageOpts;
 use crate::{
     groups::{
@@ -46,6 +47,58 @@ async fn last_commit_type_matches(
         && log_2.commit_result == CommitResult::Success
         && log_1.commit_type.unwrap() == expected.to_string()
         && log_2.commit_type.unwrap() == expected.to_string()
+}
+
+// TODO(rich): Fix intent publishing on bad network conditions
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_commit_log_retriable_error() {
+    toxiproxy_test(async || {
+        tester!(alix);
+        tester!(bo, proxy);
+        tester!(caro);
+        let a_client: &FullXmtpClient = &alix;
+        let b_client: &FullXmtpClient = &bo;
+
+        let a = a_client
+            .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+            .await?;
+        let b = b_client.wait_for_welcomes().await?.first()?.to_owned();
+        b.sync().await?;
+        assert_eq!(a.local_commit_log().await?.len(), 2); // GroupCreation + UpdateGroupMembership
+        assert_eq!(b.local_commit_log().await?.len(), 1); // Welcome
+
+        bo.for_each_proxy(async |p| p.disable().await.unwrap())
+            .await;
+        // Queues up a KeyUpdate intent followed by a SendMessage intent
+        b.send_message(b"foo", SendMessageOpts::default())
+            .await
+            .unwrap_err();
+        a.sync().await?;
+        // A doesn't receive anything because the payloads failed to send
+        assert_eq!(a.local_commit_log().await?.len(), 2);
+        // B should not log any errors because they are retriable
+        assert_eq!(b.local_commit_log().await?.len(), 1);
+
+        bo.for_each_proxy(async |p| p.enable().await.unwrap()).await;
+        // This currently fails with error SyncFailedToWait, because the intent has been marked as 'published'
+        // despite not being published. We need to fix the intent publishing flow for this test to work.
+        b.sync_until_last_intent_resolved().await?;
+        a.sync().await?;
+        // KeyUpdate should have been added to the commit log (SendMessage is not logged because it is not a commit)
+        assert_eq!(a.local_commit_log().await?.len(), 3);
+        assert_eq!(b.local_commit_log().await?.len(), 2);
+        assert!(last_commit_type_matches(&a, &b, CommitType::KeyUpdate).await);
+    })
+    .await;
+}
+
+fn get_type(logs: &[LocalCommitLog]) -> Vec<&Option<String>> {
+    logs.iter().map(|l| &l.commit_type).collect()
+}
+
+fn get_result(logs: &[LocalCommitLog]) -> Vec<&CommitResult> {
+    logs.iter().map(|l| &l.commit_result).collect()
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -151,92 +204,6 @@ async fn test_failed_application_message_not_added_to_commit_log() {
             &Some(CommitType::UpdateGroupMembership.to_string()),
         ]
     );
-}
-
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_welcome_commit_log() {
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
-
-    let a = alix
-        .create_group_with_members(&[caro.inbox_id()], None, None)
-        .await?;
-    a.add_members(&[bo.inbox_id()]).await?;
-    a.update_group_name("foo".to_string()).await?;
-    assert_eq!(
-        get_type(&a.local_commit_log().await?),
-        &[
-            &Some(CommitType::GroupCreation.to_string()),
-            &Some(CommitType::UpdateGroupMembership.to_string()),
-            &Some(CommitType::UpdateGroupMembership.to_string()),
-            &Some(CommitType::MetadataUpdate.to_string()),
-        ]
-    );
-
-    let b = bo.wait_for_welcomes().await?.first()?.to_owned();
-    b.sync().await?;
-    // Commits before the welcome should not be logged
-    assert_eq!(
-        get_type(&b.local_commit_log().await?),
-        &[
-            &Some(CommitType::Welcome.to_string()),
-            &Some(CommitType::MetadataUpdate.to_string()),
-        ]
-    );
-    // Welcome metadata should be set correctly
-    assert_eq!(
-        b.local_commit_log().await?[0].sender_inbox_id,
-        Some(alix.inbox_id().to_string())
-    );
-    assert_eq!(
-        b.local_commit_log().await?[0].sender_installation_id,
-        Some(alix.installation_public_key().to_vec())
-    );
-}
-
-// TODO(rich): Fix intent publishing on bad network conditions
-#[cfg(not(target_arch = "wasm32"))]
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_commit_log_retriable_error() {
-    toxiproxy_test(async || {
-        tester!(alix);
-        tester!(bo, proxy);
-        tester!(caro);
-        let a_client: &FullXmtpClient = &alix;
-        let b_client: &FullXmtpClient = &bo;
-
-        let a = a_client
-            .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
-            .await?;
-        let b = b_client.wait_for_welcomes().await?.first()?.to_owned();
-        b.sync().await?;
-        assert_eq!(a.local_commit_log().await?.len(), 2); // GroupCreation + UpdateGroupMembership
-        assert_eq!(b.local_commit_log().await?.len(), 1); // Welcome
-
-        bo.for_each_proxy(async |p| p.disable().await.unwrap())
-            .await;
-        // Queues up a KeyUpdate intent followed by a SendMessage intent
-        b.send_message(b"foo", SendMessageOpts::default())
-            .await
-            .unwrap_err();
-        a.sync().await?;
-        // A doesn't receive anything because the payloads failed to send
-        assert_eq!(a.local_commit_log().await?.len(), 2);
-        // B should not log any errors because they are retriable
-        assert_eq!(b.local_commit_log().await?.len(), 1);
-
-        bo.for_each_proxy(async |p| p.enable().await.unwrap()).await;
-        // This currently fails with error SyncFailedToWait, because the intent has been marked as 'published'
-        // despite not being published. We need to fix the intent publishing flow for this test to work.
-        b.sync_until_last_intent_resolved().await?;
-        a.sync().await?;
-        // KeyUpdate should have been added to the commit log (SendMessage is not logged because it is not a commit)
-        assert_eq!(a.local_commit_log().await?.len(), 3);
-        assert_eq!(b.local_commit_log().await?.len(), 2);
-        assert!(last_commit_type_matches(&a, &b, CommitType::KeyUpdate).await);
-    })
-    .await;
 }
 
 // verifies: FORK-002, FORK-073
@@ -403,10 +370,44 @@ async fn test_commit_log_non_retriable_error() {
     );
 }
 
-fn get_type(logs: &[LocalCommitLog]) -> Vec<&Option<String>> {
-    logs.iter().map(|l| &l.commit_type).collect()
-}
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_welcome_commit_log() {
+    tester!(alix);
+    tester!(bo);
+    tester!(caro);
 
-fn get_result(logs: &[LocalCommitLog]) -> Vec<&CommitResult> {
-    logs.iter().map(|l| &l.commit_result).collect()
+    let a = alix
+        .create_group_with_members(&[caro.inbox_id()], None, None)
+        .await?;
+    a.add_members(&[bo.inbox_id()]).await?;
+    a.update_group_name("foo".to_string()).await?;
+    assert_eq!(
+        get_type(&a.local_commit_log().await?),
+        &[
+            &Some(CommitType::GroupCreation.to_string()),
+            &Some(CommitType::UpdateGroupMembership.to_string()),
+            &Some(CommitType::UpdateGroupMembership.to_string()),
+            &Some(CommitType::MetadataUpdate.to_string()),
+        ]
+    );
+
+    let b = bo.wait_for_welcomes().await?.first()?.to_owned();
+    b.sync().await?;
+    // Commits before the welcome should not be logged
+    assert_eq!(
+        get_type(&b.local_commit_log().await?),
+        &[
+            &Some(CommitType::Welcome.to_string()),
+            &Some(CommitType::MetadataUpdate.to_string()),
+        ]
+    );
+    // Welcome metadata should be set correctly
+    assert_eq!(
+        b.local_commit_log().await?[0].sender_inbox_id,
+        Some(alix.inbox_id().to_string())
+    );
+    assert_eq!(
+        b.local_commit_log().await?[0].sender_installation_id,
+        Some(alix.installation_public_key().to_vec())
+    );
 }

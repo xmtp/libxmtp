@@ -1,3 +1,4 @@
+use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 use std::time::Duration;
 
 use xmtp_common::{NS_IN_HOUR, time::now_ns};
@@ -7,13 +8,13 @@ use xmtp_mls_group_state::{
     group::GroupMetadataOptions, group_mutable_metadata::MessageDisappearingSettings,
 };
 
-use crate::{groups::GroupError, messages::decoded_message::MessageBody, tester};
+use crate::{groups::GroupError, messages::decoded_message::MessageBody};
 
 // verifies: META-076
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_disappearing_message_update_message_in_group() {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
 
     let alix_bo_dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
     let _bo_alix_dm = bo.find_or_create_dm(alix.inbox_id(), None).await?;
@@ -50,8 +51,8 @@ async fn test_disappearing_message_update_message_in_group() {
 // verifies: META-050
 #[xmtp_common::test(unwrap_try = true)]
 async fn message_expiry_from_sent_time() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix.create_group(
         None,
         Some(GroupMetadataOptions {
@@ -133,8 +134,8 @@ async fn message_expiry_from_sent_time() {
 // verifies: META-076
 #[xmtp_common::test(unwrap_try = true)]
 async fn disappearing_settings_change_in_one_commit() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.add_members(&[bo.inbox_id()]).await?;
     bo.sync_all_welcomes_and_groups(None).await?;

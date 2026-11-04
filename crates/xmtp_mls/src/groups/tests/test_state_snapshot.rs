@@ -2,9 +2,8 @@ use crate::client::notifications::{
     NotificationChannel, NotificationConfig, NotificationOverride, encode_config,
 };
 use crate::context::CoreContext;
+use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
 use crate::groups::{GroupError, SendMessageOpts, UpdateAdminListType};
-use crate::tester;
-use crate::utils::TestMlsGroup;
 use xmtp_content_types::{
     ContentCodec, encoded_content_to_bytes,
     read_receipt::{ReadReceipt, ReadReceiptCodec},
@@ -17,7 +16,7 @@ use xmtp_db::group_message::{ContentType, GroupMessageKind};
 use xmtp_db::prelude::*;
 use xmtp_db::sql_key_store::count_kv_reads;
 
-fn assert_notifications(group: &TestMlsGroup, expected: bool) -> Result<(), GroupError> {
+fn assert_notifications(group: &EngineTestGroup, expected: bool) -> Result<(), GroupError> {
     assert_eq!(group.state_snapshot()?.notifications_enabled, expected);
     assert_eq!(group.notifications_enabled()?, expected);
     Ok(())
@@ -25,8 +24,8 @@ fn assert_notifications(group: &TestMlsGroup, expected: bool) -> Result<(), Grou
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_state_snapshot_read_count() {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
 
@@ -49,8 +48,8 @@ async fn test_state_snapshot_read_count() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_state_snapshot_matches_getters() {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.add_members(&[bo.inbox_id()]).await?;
     group
@@ -123,8 +122,8 @@ async fn test_state_snapshot_matches_getters() {
 // verifies: CONS-048
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_last_activity_matches_list_order() {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let empty = alix.create_group(None, None)?;
     let text_then_receipt = alix.create_group(None, None)?;
     let member_change = alix.create_group(None, None)?;
@@ -205,7 +204,7 @@ async fn test_last_activity_matches_list_order() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_last_activity_custom_content_types() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let text = encoded_content_to_bytes(TextCodec::encode("typed".into())?);
     let receipt = encoded_content_to_bytes(ReadReceiptCodec::encode(ReadReceipt {})?);

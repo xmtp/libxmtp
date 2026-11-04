@@ -1,6 +1,7 @@
 //! The author migration must keep an existing handover able to publish.
 #![cfg(not(target_arch = "wasm32"))]
 
+use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 use std::sync::Arc;
 
 use diesel::RunQueryDsl;
@@ -9,49 +10,40 @@ use xmtp_db::consent_record::ConsentState;
 use xmtp_db::prelude::*;
 use xmtp_db::refresh_state::EntityKind;
 use xmtp_db::remote_commit_log::RemoteCommitLogOrder;
-use xmtp_db::{ConnectionExt, StorageOption, Store, TestDb, XmtpTestDb};
+use xmtp_db::{ConnectionExt, StorageOption, Store};
 
 use crate::context::CoreContext;
 use crate::groups::UpdateAdminListType::{AddSuper, RemoveSuper};
 use crate::groups::commit_log::{CommitLogTestFunction, CommitLogWorker};
-use crate::{
-    Client,
-    builder::DeviceSyncMode,
-    identity::IdentityStrategy,
-    tester,
-    utils::{DefaultTestClientCreator, FullXmtpClient},
-};
-use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
-use xmtp_proto::{api_client::ApiBuilder, prelude::XmtpTestClient};
+use alloy::signers::local::PrivateKeySigner;
 
 // Snapshot Tester restoration intentionally resets network progress. Reopen the
 // original file and cached identity to preserve the state a real restart keeps.
-pub(super) async fn reopen_commit_log_client(database: &str) -> FullXmtpClient {
-    reopen_commit_log_client_with_logging(database, None).await
+pub(super) async fn reopen_commit_log_client(
+    owner: PrivateKeySigner,
+    database: &str,
+) -> EngineTestPeer {
+    reopen_commit_log_client_with_logging(owner, database, None).await
 }
 
 async fn reopen_commit_log_client_with_logging(
+    owner: PrivateKeySigner,
     database: &str,
     logging: Option<bool>,
-) -> FullXmtpClient {
-    let store = TestDb::create_persistent_store(Some(database.into())).await;
-    let api = Arc::new(DefaultTestClientCreator::create().build().unwrap());
-    let mut builder = Client::builder(IdentityStrategy::CachedOnly)
-        .store(store)
-        .api_client(api)
-        .default_mls_store()
-        .unwrap()
-        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
-        .with_disable_workers(true)
-        .with_commit_log_worker(false)
-        .with_device_sync_worker_mode(Some(DeviceSyncMode::Disabled));
-    if let Some(logging) = logging {
-        builder =
-            builder.config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
-                |configuration| configuration.mls.commit_log_enabled = Some(logging),
-            )));
-    }
-    builder.build().await.unwrap()
+) -> EngineTestPeer {
+    EngineTestPeer::open_persistent(
+        owner,
+        database,
+        crate::identity_lifecycle::IdentityStrategy::CachedOnly,
+        |options| {
+            if let Some(logging) = logging {
+                options.configure(|configuration| {
+                    configuration.mls.commit_log_enabled = Some(logging)
+                });
+            }
+        },
+    )
+    .await
 }
 
 // verifies: FORK-085, FORK-086
@@ -66,9 +58,9 @@ async fn legacy_publisher_recovery_preserves_the_eligible_backlog(
     #[case] clear_history: bool,
     #[case] imported_history: bool,
 ) {
-    tester!(alix, persistent_db, disable_workers);
-    tester!(bo, persistent_db, disable_workers);
-    tester!(caro, persistent_db, disable_workers);
+    let alix = EngineTestPeer::persistent().await;
+    let bo = EngineTestPeer::persistent().await;
+    let caro = EngineTestPeer::persistent().await;
     let a = alix
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await
@@ -191,11 +183,12 @@ async fn legacy_publisher_recovery_preserves_the_eligible_backlog(
         StorageOption::Persistent(path) => path.clone(),
         StorageOption::Ephemeral => panic!("upgrade test needs a persistent database"),
     });
+    let owners = [&alix, &bo, &caro].map(|client| client.owner.clone());
     drop((a, b, c, alix, bo, caro));
 
-    let alix = reopen_commit_log_client(&paths[0]).await;
-    let bo = reopen_commit_log_client(&paths[1]).await;
-    let caro = reopen_commit_log_client(&paths[2]).await;
+    let alix = reopen_commit_log_client(owners[0].clone(), &paths[0]).await;
+    let bo = reopen_commit_log_client(owners[1].clone(), &paths[1]).await;
+    let caro = reopen_commit_log_client(owners[2].clone(), &paths[2]).await;
     assert!(
         alix.context
             .db()
@@ -245,7 +238,7 @@ async fn legacy_publisher_recovery_preserves_the_eligible_backlog(
             .clear_messages(Some(&[group_id]), None)
             .unwrap();
         drop((b, bo));
-        reopen_commit_log_client(&paths[1]).await
+        reopen_commit_log_client(owners[1].clone(), &paths[1]).await
     } else {
         drop(b);
         bo
@@ -329,8 +322,8 @@ async fn legacy_publisher_recovery_preserves_the_eligible_backlog(
 // verifies: FORK-085, FORK-086
 #[xmtp_common::test(unwrap_try = true)]
 async fn legacy_dm_keeps_pending_entries_after_an_ordinary_merge() {
-    tester!(alix, persistent_db, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::persistent().await;
+    let bo = EngineTestPeer::new().await;
     let a = alix.find_or_create_dm(bo.inbox_id(), None).await?;
     bo.sync_welcomes().await?;
     let b = bo.group(&a.group_id)?;
@@ -353,8 +346,9 @@ async fn legacy_dm_keeps_pending_entries_after_an_ordinary_merge() {
         StorageOption::Persistent(path) => path.clone(),
         StorageOption::Ephemeral => panic!("upgrade test needs persistent storage"),
     };
+    let owner = alix.owner.clone();
     drop((a, alix));
-    let alix = reopen_commit_log_client(&path).await;
+    let alix = reopen_commit_log_client(owner, &path).await;
     let a = alix.group(&group_id)?;
     a.key_update().await?;
     b.sync().await?;
@@ -384,9 +378,9 @@ async fn legacy_dm_keeps_pending_entries_after_an_ordinary_merge() {
 #[case::replacement_welcome(true)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn legacy_recovery_excludes_history_before_an_unlogged_transition(#[case] replacement: bool) {
-    tester!(alix, disable_workers);
-    tester!(bo, persistent_db, disable_workers);
-    tester!(caro, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::persistent().await;
+    let caro = EngineTestPeer::new().await;
     let a = alix
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await
@@ -419,8 +413,9 @@ async fn legacy_recovery_excludes_history_before_an_unlogged_transition(#[case] 
         StorageOption::Persistent(path) => path.clone(),
         StorageOption::Ephemeral => panic!("upgrade test needs persistent storage"),
     };
+    let owner = bo.owner.clone();
     drop((b, bo));
-    let bo = reopen_commit_log_client_with_logging(&path, Some(false)).await;
+    let bo = reopen_commit_log_client_with_logging(owner.clone(), &path, Some(false)).await;
     let b = bo.group(&group_id).unwrap();
     if replacement {
         a.readd_installations(vec![bo.context.installation_id().to_vec()])
@@ -442,7 +437,7 @@ async fn legacy_recovery_excludes_history_before_an_unlogged_transition(#[case] 
         "disabled logging must retain only the old membership/role history"
     );
     drop((b, bo));
-    let bo = reopen_commit_log_client_with_logging(&path, Some(true)).await;
+    let bo = reopen_commit_log_client_with_logging(owner, &path, Some(true)).await;
     let b = bo.group(&group_id).unwrap();
     b.key_update().await.unwrap();
     let connected_entry = b
@@ -478,8 +473,9 @@ async fn legacy_recovery_excludes_history_before_an_unlogged_transition(#[case] 
         .db()
         .rollback_to_version("20261025000000")
         .unwrap();
+    let owner = bo.owner.clone();
     drop((b, bo));
-    let bo = reopen_commit_log_client(&path).await;
+    let bo = reopen_commit_log_client(owner, &path).await;
     CommitLogWorker::new(bo.context.clone())
         .run_test(CommitLogTestFunction::PublishCommitLogsToRemote, None)
         .await
@@ -526,13 +522,15 @@ enum LegacyReaderState {
 #[case::inactive(LegacyReaderState::Inactive)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn legacy_readers_admit_returned_publishers_after_upgrade(#[case] state: LegacyReaderState) {
-    tester!(alix, disable_workers);
-    tester!(bo, persistent_db, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::persistent().await;
     let logging = state != LegacyReaderState::MissingHistory;
-    tester!(caro, persistent_db, disable_workers, config_provider:
-    Arc::new(xmtp_configuration::StaticConfigProvider::edited(|configuration| {
-        configuration.mls.commit_log_enabled = Some(logging);
-    })));
+    let caro = EngineTestPeer::persistent_with(|options| {
+        options.configure(|configuration| {
+            configuration.mls.commit_log_enabled = Some(logging);
+        })
+    })
+    .await;
     let a = alix
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await
@@ -642,9 +640,10 @@ async fn legacy_readers_admit_returned_publishers_after_upgrade(#[case] state: L
         StorageOption::Persistent(path) => path.clone(),
         StorageOption::Ephemeral => panic!("upgrade test needs persistent storage"),
     });
+    let owners = [&bo, &caro].map(|client| client.owner.clone());
     drop((b, c, bo, caro));
-    let bo = reopen_commit_log_client(&paths[0]).await;
-    let caro = reopen_commit_log_client(&paths[1]).await;
+    let bo = reopen_commit_log_client(owners[0].clone(), &paths[0]).await;
+    let caro = reopen_commit_log_client(owners[1].clone(), &paths[1]).await;
     let b = bo.group(&group_id).unwrap();
     let c = caro.group(&group_id).unwrap();
     // B still sees its old publisher tenure. Reading must initialize independently
@@ -673,7 +672,7 @@ async fn legacy_readers_admit_returned_publishers_after_upgrade(#[case] state: L
     // A read after a later applied epoch and a real restart must retain the
     // original admission baseline, so the promotion/removal entry remains eligible.
     drop((c, caro));
-    let caro = reopen_commit_log_client(&paths[1]).await;
+    let caro = reopen_commit_log_client(owners[1].clone(), &paths[1]).await;
     b.sync().await.unwrap();
     CommitLogWorker::new(bo.context.clone())
         .run_test(CommitLogTestFunction::PublishCommitLogsToRemote, None)

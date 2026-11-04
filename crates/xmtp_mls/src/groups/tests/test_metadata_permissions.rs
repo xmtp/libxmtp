@@ -1,12 +1,13 @@
 //! Mutable metadata and permission policy updates.
 
 use super::*;
+use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
 
 #[xmtp_common::test]
 async fn test_group_permissions() {
-    tester!(amal);
-    tester!(bola);
-    tester!(charlie);
+    let amal = EngineTestPeer::new().await;
+    let bola = EngineTestPeer::new().await;
+    let charlie = EngineTestPeer::new().await;
 
     let amal_group = amal
         .create_group(
@@ -23,185 +24,14 @@ async fn test_group_permissions() {
 }
 
 #[xmtp_common::test]
-async fn test_group_options() {
-    let expected_group_message_disappearing_settings = MessageDisappearingSettings::new(100, 200);
-
-    tester!(amal);
-
-    let amal_group = amal
-        .create_group(
-            None,
-            Some(GroupMetadataOptions {
-                name: Some("Group Name".to_string()),
-                image_url_square: Some("url".to_string()),
-                description: Some("group description".to_string()),
-                message_disappearing_settings: Some(expected_group_message_disappearing_settings),
-                app_data: None,
-            }),
-        )
-        .unwrap();
-
-    let binding = amal_group.mutable_metadata().expect("msg");
-    let amal_group_name: &String = binding
-        .attributes()
-        .get(&MetadataField::GroupName.to_string())
-        .unwrap();
-    let amal_group_image_url: &String = binding
-        .attributes()
-        .get(&MetadataField::GroupImageUrlSquare.to_string())
-        .unwrap();
-    let amal_group_description: &String = binding
-        .attributes()
-        .get(&MetadataField::Description.to_string())
-        .unwrap();
-    let amal_group_message_disappear_from_ns = binding
-        .attributes()
-        .get(&MetadataField::MessageDisappearFromNS.to_string())
-        .unwrap();
-    let amal_group_message_disappear_in_ns = binding
-        .attributes()
-        .get(&MetadataField::MessageDisappearInNS.to_string())
-        .unwrap();
-    assert_eq!(amal_group_name, "Group Name");
-    assert_eq!(amal_group_image_url, "url");
-    assert_eq!(amal_group_description, "group description");
-    assert_eq!(
-        amal_group_message_disappear_from_ns.clone(),
-        expected_group_message_disappearing_settings
-            .from_ns
-            .to_string()
-    );
-    assert_eq!(
-        amal_group_message_disappear_in_ns.clone(),
-        expected_group_message_disappearing_settings
-            .in_ns
-            .to_string()
-    );
-}
-
-#[xmtp_common::test]
-async fn test_group_mutable_data() {
-    tester!(amal);
-    tester!(bola);
-
-    // Create a group and verify it has the default group name
-    let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-    let amal_group = amal.create_group(policy_set, None).unwrap();
-    amal_group.sync().await.unwrap();
-
-    let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
-    assert_eq!(
-        group_mutable_metadata
-            .attributes()
-            .get(&MetadataField::MinimumSupportedProtocolVersion.to_string()),
-        Some(&xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION.to_string())
-    );
-    // A new group stores no commit-log signer.
-    assert_eq!(
-        group_mutable_metadata
-            .attributes()
-            .get(&MetadataField::CommitLogSigner.to_string()),
-        None
-    );
-    for field in [
-        MetadataField::GroupName,
-        MetadataField::Description,
-        MetadataField::GroupImageUrlSquare,
-        MetadataField::AppData,
-    ] {
-        assert_eq!(
-            group_mutable_metadata
-                .attributes()
-                .get(&field.to_string())
-                .map(String::as_str),
-            Some(""),
-            "an unset bounded-string field reads as an empty string"
-        );
-    }
-
-    // Add bola to the group
-    amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
-    bola.sync_welcomes().await.unwrap();
-
-    let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
-    assert_eq!(bola_groups.len(), 1);
-    let bola_group = bola_groups.first().unwrap();
-    bola_group.sync().await.unwrap();
-    let group_mutable_metadata = bola_group.mutable_metadata().unwrap();
-    for field in [
-        MetadataField::GroupName,
-        MetadataField::Description,
-        MetadataField::GroupImageUrlSquare,
-        MetadataField::AppData,
-    ] {
-        assert_eq!(
-            group_mutable_metadata
-                .attributes()
-                .get(&field.to_string())
-                .map(String::as_str),
-            Some(""),
-            "an unset bounded-string field reads as an empty string"
-        );
-    }
-
-    // Update group name
-    amal_group
-        .update_group_name("New Group Name 1".to_string())
-        .await
-        .unwrap();
-
-    amal_group
-        .send_message("hello".as_bytes(), SendMessageOpts::default())
-        .await
-        .unwrap();
-
-    // Verify amal group sees update
-    amal_group.sync().await.unwrap();
-    let binding = amal_group.mutable_metadata().expect("msg");
-    let amal_group_name: &String = binding
-        .attributes()
-        .get(&MetadataField::GroupName.to_string())
-        .unwrap();
-    assert_eq!(amal_group_name, "New Group Name 1");
-
-    // Verify bola group sees update
-    bola_group.sync().await.unwrap();
-    let binding = bola_group.mutable_metadata().expect("msg");
-    let bola_group_name: &String = binding
-        .attributes()
-        .get(&MetadataField::GroupName.to_string())
-        .unwrap();
-    assert_eq!(bola_group_name, "New Group Name 1");
-
-    // Verify that bola can not update the group name since they are not the creator
-    bola_group
-        .update_group_name("New Group Name 2".to_string())
-        .await
-        .expect_err("expected err");
-
-    // Verify bola group does not see an update
-    bola_group.sync().await.unwrap();
-    let binding = bola_group.mutable_metadata().expect("msg");
-    let bola_group_name: &String = binding
-        .attributes()
-        .get(&MetadataField::GroupName.to_string())
-        .unwrap();
-    assert_eq!(bola_group_name, "New Group Name 1");
-}
-
-#[xmtp_common::test]
 async fn test_update_policies_empty_group() {
-    tester!(amal);
-    tester!(bola);
+    let amal = EngineTestPeer::new().await;
+    let bola = EngineTestPeer::new().await;
 
     // Create a group with amal and bola
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
     let amal_group = amal
-        .create_group_with_identifiers(
-            &[bola.builder.owner.get_identifier().unwrap()],
-            policy_set,
-            None,
-        )
+        .create_group_with_identifiers(&[bola.owner.get_identifier().unwrap()], policy_set, None)
         .await
         .unwrap();
 
@@ -244,7 +74,7 @@ async fn test_update_policies_empty_group() {
 
 #[xmtp_common::test]
 async fn test_update_group_image_url_square() {
-    tester!(amal);
+    let amal = EngineTestPeer::new().await;
 
     // Create a group and verify it has the default group name
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
@@ -279,7 +109,7 @@ async fn test_update_group_image_url_square() {
 
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_update_group_message_expiration_settings() {
-    tester!(amal);
+    let amal = EngineTestPeer::new().await;
 
     // Create a group and verify it has the default group name
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
@@ -333,92 +163,12 @@ async fn test_update_group_message_expiration_settings() {
     );
 }
 
-#[xmtp_common::test(flavor = "current_thread")]
-async fn test_group_mutable_data_group_permissions() {
-    tester!(amal);
-    tester!(bola);
-
-    // Create a group and verify it has the default group name
-    let policy_set = Some(PreconfiguredPolicies::Default.to_policy_set());
-    let amal_group = amal.create_group(policy_set, None).unwrap();
-    amal_group.sync().await.unwrap();
-
-    let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
-    assert_eq!(
-        group_mutable_metadata
-            .attributes()
-            .get(&MetadataField::GroupName.to_string())
-            .map(String::as_str),
-        Some(""),
-        "an unset bounded-string field reads as an empty string"
-    );
-
-    // Add bola to the group
-    amal_group
-        .add_members_by_identity(&[bola.identifier()])
-        .await
-        .unwrap();
-    bola.sync_welcomes().await.unwrap();
-    let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
-    assert_eq!(bola_groups.len(), 1);
-    let bola_group = bola_groups.first().unwrap();
-    bola_group.sync().await.unwrap();
-    let group_mutable_metadata = bola_group.mutable_metadata().unwrap();
-    assert_eq!(
-        group_mutable_metadata
-            .attributes()
-            .get(&MetadataField::GroupName.to_string())
-            .map(String::as_str),
-        Some(""),
-        "an unset bounded-string field reads as an empty string"
-    );
-
-    // Update group name
-    amal_group
-        .update_group_name("New Group Name 1".to_string())
-        .await
-        .unwrap();
-
-    // Verify amal group sees update
-    amal_group.sync().await.unwrap();
-    let binding = amal_group.mutable_metadata().unwrap();
-    let amal_group_name: &String = binding
-        .attributes()
-        .get(&MetadataField::GroupName.to_string())
-        .unwrap();
-    assert_eq!(amal_group_name, "New Group Name 1");
-
-    // Verify bola group sees update
-    bola_group.sync().await.unwrap();
-    let binding = bola_group.mutable_metadata().expect("msg");
-    let bola_group_name: &String = binding
-        .attributes()
-        .get(&MetadataField::GroupName.to_string())
-        .unwrap();
-    assert_eq!(bola_group_name, "New Group Name 1");
-
-    // Verify that bola CAN update the group name since everyone is admin for this group
-    bola_group
-        .update_group_name("New Group Name 2".to_string())
-        .await
-        .expect("non creator failed to update group name");
-
-    // Verify amal group sees an update
-    amal_group.sync().await.unwrap();
-    let binding = amal_group.mutable_metadata().expect("msg");
-    let amal_group_name: &String = binding
-        .attributes()
-        .get(&MetadataField::GroupName.to_string())
-        .unwrap();
-    assert_eq!(amal_group_name, "New Group Name 2");
-}
-
 #[xmtp_common::test]
 async fn test_group_admin_list_update() {
-    tester!(amal);
-    tester!(bola);
-    tester!(caro);
-    tester!(charlie);
+    let amal = EngineTestPeer::new().await;
+    let bola = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
+    let charlie = EngineTestPeer::new().await;
 
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
     let amal_group = amal.create_group(policy_set, None).unwrap();
@@ -446,7 +196,7 @@ async fn test_group_admin_list_update() {
     bola.sync_welcomes().await.unwrap();
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
     assert_eq!(bola_groups.len(), 1);
-    let bola_group: &TestMlsGroup = bola_groups.first().unwrap();
+    let bola_group: &EngineTestGroup = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
     bola_group
         .add_members(&[caro.inbox_id()])
@@ -502,7 +252,7 @@ async fn test_group_admin_list_update() {
     bola.sync_welcomes().await.unwrap();
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
     assert_eq!(bola_groups.len(), 1);
-    let bola_group: &TestMlsGroup = bola_groups.first().unwrap();
+    let bola_group: &EngineTestGroup = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
     bola_group
         .add_members(&[charlie.inbox_id()])
@@ -522,7 +272,7 @@ async fn malformed_admin_inbox_id_is_refused_before_queueing(
 ) -> Result<(), Box<dyn std::error::Error>> {
     use xmtp_mls_group_state::app_data::component_source::ComponentSourceError;
 
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
 
     let result = group.update_admin_list(action, inbox_id).await;
@@ -560,8 +310,8 @@ async fn inapplicable_admin_list_change_does_not_block_later_intents(
     #[case] action: UpdateAdminListType,
     #[case] promote_first: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.add_members(&[bo.inbox_id()]).await?;
     if promote_first {
@@ -582,9 +332,9 @@ async fn inapplicable_admin_list_change_does_not_block_later_intents(
 
 #[xmtp_common::test]
 async fn test_group_super_admin_list_update() {
-    tester!(amal);
-    tester!(bola);
-    tester!(caro);
+    let amal = EngineTestPeer::new().await;
+    let bola = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
 
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
     let amal_group = amal.create_group(policy_set, None).unwrap();
@@ -610,7 +360,7 @@ async fn test_group_super_admin_list_update() {
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
 
     assert_eq!(bola_groups.len(), 1);
-    let bola_group: &TestMlsGroup = bola_groups.first().unwrap();
+    let bola_group: &EngineTestGroup = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
     bola_group
         .update_admin_list(UpdateAdminListType::Add, caro.inbox_id().to_string())
@@ -681,9 +431,9 @@ async fn test_group_super_admin_list_update() {
 
 #[xmtp_common::test]
 async fn test_group_members_permission_level_update() {
-    tester!(amal);
-    tester!(bola);
-    tester!(caro);
+    let amal = EngineTestPeer::new().await;
+    let bola = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
 
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
     let amal_group = amal.create_group(policy_set, None).unwrap();
@@ -777,19 +527,19 @@ async fn test_group_members_permission_level_update() {
 #[xmtp_common::test]
 async fn test_can_update_gce_after_failed_commit() {
     // Step 1: Amal creates a group
-    tester!(amal);
+    let amal = EngineTestPeer::new().await;
     let policy_set = Some(PreconfiguredPolicies::Default.to_policy_set());
     let amal_group = amal.create_group(policy_set, None).unwrap();
     amal_group.sync().await.unwrap();
 
     // Step 2:  Amal adds Bola to the group
-    tester!(bola);
+    let bola = EngineTestPeer::new().await;
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     // Step 3: Verify that Bola can update the group name, and amal sees the update
     bola.sync_welcomes().await.unwrap();
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
-    let bola_group: &TestMlsGroup = bola_groups.first().unwrap();
+    let bola_group: &EngineTestGroup = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
     bola_group
         .update_group_name("Name Update 1".to_string())
@@ -831,20 +581,20 @@ async fn test_can_update_gce_after_failed_commit() {
 
 #[xmtp_common::test]
 async fn test_can_update_permissions_after_group_creation() {
-    tester!(amal);
+    let amal = EngineTestPeer::new().await;
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-    let amal_group: &TestMlsGroup = &amal.create_group(policy_set, None).unwrap();
+    let amal_group: &EngineTestGroup = &amal.create_group(policy_set, None).unwrap();
 
     // Step 2:  Amal adds Bola to the group
-    tester!(bola);
+    let bola = EngineTestPeer::new().await;
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     // Step 3: Bola attempts to add Caro, but fails because group is admin only
-    tester!(caro);
+    let caro = EngineTestPeer::new().await;
     bola.sync_welcomes().await.unwrap();
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
 
-    let bola_group: &TestMlsGroup = bola_groups.first().unwrap();
+    let bola_group: &EngineTestGroup = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
     let result = bola_group.add_members(&[caro.inbox_id()]).await;
     if let Err(e) = &result {
@@ -886,7 +636,7 @@ async fn test_can_update_permissions_after_group_creation() {
 
 #[xmtp_common::test]
 async fn test_respects_character_limits_for_group_metadata() {
-    tester!(amal);
+    let amal = EngineTestPeer::new().await;
 
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
     let amal_group = amal.create_group(policy_set, None).unwrap();

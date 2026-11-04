@@ -2,7 +2,7 @@
 
 use crate::context::CoreContext;
 use crate::core::precommit_test_hook;
-use crate::tester;
+use crate::groups::test_support::{EnginePeer, EngineTestPeer};
 
 #[cfg(not(target_arch = "wasm32"))]
 // verifies: STORE-026, SEND-001, SEND-006
@@ -27,8 +27,8 @@ async fn publication_prepare_points_are_durable(
         #[diesel(sql_type = diesel::sql_types::Integer)]
         value: i32,
     }
-    tester!(alix, persistent_db, disable_workers);
-    tester!(bo, persistent_db, disable_workers);
+    let alix = EngineTestPeer::persistent().await;
+    let bo = EngineTestPeer::persistent().await;
     let group = alix.create_group(None, None)?;
     let count = match site {
         "key_package" => "SELECT COUNT(*) AS value FROM key_package_history",

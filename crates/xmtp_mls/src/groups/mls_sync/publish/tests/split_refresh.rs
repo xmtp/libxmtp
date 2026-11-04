@@ -4,6 +4,7 @@ use super::faults::{Fault, FaultyApi, faulty_group, group_message, welcome};
 use super::send_state_transitions::{UNRESOLVED, intents_in, status};
 use super::*;
 use crate::groups::group_permissions::PreconfiguredPolicies;
+use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 use std::sync::Arc;
 use xmtp_db::group_message::DeliveryStatus;
 
@@ -27,10 +28,10 @@ fn last_refresh_attempt<C: XmtpSharedContext>(
 }
 
 struct SplitRefreshFixture {
-    limited: crate::utils::ClientTester,
-    bo: crate::utils::ClientTester,
-    caro: crate::utils::ClientTester,
-    new_devices: Vec<crate::utils::ClientTester>,
+    limited: EngineTestPeer,
+    bo: EngineTestPeer,
+    caro: EngineTestPeer,
+    new_devices: Vec<EngineTestPeer>,
     group_id: GroupId,
     limit: usize,
 }
@@ -39,9 +40,9 @@ struct SplitRefreshFixture {
 async fn split_refresh_fixture(
     extra_member: Option<&str>,
 ) -> Result<SplitRefreshFixture, Box<dyn std::error::Error>> {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     let mut members = vec![bo.inbox_id(), caro.inbox_id()];
     members.extend(extra_member);
     let policies = || Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
@@ -59,13 +60,13 @@ async fn split_refresh_fixture(
     const NEW_DEVICES_PER_INBOX: usize = 8;
     let mut new_devices = Vec::new();
     for _ in 0..NEW_DEVICES_PER_INBOX {
-        tester!(device, from: bo, disable_workers);
+        let device = bo.new_installation().await;
         new_devices.push(device);
     }
     probe.add_missing_installations().await?;
     let first_size = last_refresh_attempt(&probe).max_envelope_size();
     for _ in 0..NEW_DEVICES_PER_INBOX {
-        tester!(device, from: caro, disable_workers);
+        let device = caro.new_installation().await;
         new_devices.push(device);
     }
     probe.add_missing_installations().await?;
@@ -82,9 +83,11 @@ async fn split_refresh_fixture(
         combined_size > limit,
         "combined={combined_size}, limit={limit}"
     );
-    tester!(limited, from: alix, snapshot: Arc::new(alix.db_snapshot()),
-        configured: |config| config.limits.max_envelope_bytes = limit,
-        disable_workers);
+    let limited = alix
+        .from_snapshot(&Arc::new(alix.db_snapshot()), |o| {
+            o.configure(|config| config.limits.max_envelope_bytes = limit)
+        })
+        .await;
     Ok(SplitRefreshFixture {
         limited,
         bo,
@@ -149,7 +152,7 @@ async fn a_refresh_over_the_envelope_limit_is_split(
     let authenticator = limited_group.epoch_authenticator().await?;
     let added_ids: Vec<_> = new_devices
         .iter()
-        .map(|client| client.installation_id.to_vec())
+        .map(|client| client.context.installation_id().to_vec())
         .collect();
     for client in [&bo, &caro].into_iter().chain(&new_devices) {
         client.sync_welcomes().await?;
@@ -206,13 +209,13 @@ async fn an_inbox_over_the_envelope_limit_keeps_its_removes(
     };
     use xmtp_mls_validation::commit::extract_group_membership;
     use xmtp_proto::xmtp::mls::message_contents::{GroupMembershipEntry, group_membership_entry};
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
-    tester!(caro2, from: caro, disable_workers);
-    crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage(
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
+    let caro2 = caro.new_installation().await;
+    crate::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage(
         true,
-        Some(vec![caro2.installation_id.to_vec()]),
+        Some(vec![caro2.context.installation_id().to_vec()]),
     );
     let group = alix
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
@@ -220,23 +223,23 @@ async fn an_inbox_over_the_envelope_limit_keeps_its_removes(
     let probe = alix
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
-    crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage(false, None);
+    crate::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage(false, None);
     assert!(group.with_group_snapshot(|mls| {
         Ok::<_, GroupError>(
             extract_group_membership(mls.extensions())?
                 .failed_installations
-                .contains(&caro2.installation_id.to_vec()),
+                .contains(&caro2.context.installation_id().to_vec()),
         )
     })?);
     bo.sync_welcomes().await?;
     caro.sync_welcomes().await?;
     let bo_group = bo.group(&group.group_id)?;
-    tester!(bo2, from: bo, disable_workers);
+    let bo2 = bo.new_installation().await;
     let mut revoke = bo
         .identity_updates()
-        .revoke_installations(vec![bo.installation_id.to_vec()])
+        .revoke_installations(vec![bo.context.installation_id().to_vec()])
         .await?;
-    xmtp_id::associations::test_utils::add_wallet_signature(&mut revoke, &bo.builder.owner).await;
+    xmtp_id::associations::test_utils::add_wallet_signature(&mut revoke, &bo.owner).await;
     bo.identity_updates()
         .apply_signature_request(revoke)
         .await?;
@@ -250,9 +253,11 @@ async fn an_inbox_over_the_envelope_limit_keeps_its_removes(
         .max()
         .unwrap();
     let limit = full_size - EXCLUDED_ADD_BYTES;
-    tester!(limited, from: alix, snapshot: Arc::new(alix.db_snapshot()),
-        configured: |config| config.limits.max_envelope_bytes = limit,
-        disable_workers);
+    let limited = alix
+        .from_snapshot(&Arc::new(alix.db_snapshot()), |o| {
+            o.configure(|config| config.limits.max_envelope_bytes = limit)
+        })
+        .await;
     let limited_group = limited.group(&group.group_id)?;
     let before = limited_group.epoch().await?;
     let requested: Vec<&str> = if explicit_existing_add {
@@ -263,7 +268,7 @@ async fn an_inbox_over_the_envelope_limit_keeps_its_removes(
     let result = limited_group.add_members(requested.as_slice()).await?;
     assert_eq!(
         result.failed_installations,
-        vec![bo2.installation_id.to_vec()]
+        vec![bo2.context.installation_id().to_vec()]
     );
     assert_eq!(limited_group.epoch().await?, before + 1);
     assert!(last_refresh_attempt(&limited_group).max_envelope_size() <= limit);
@@ -290,7 +295,7 @@ async fn an_inbox_over_the_envelope_limit_keeps_its_removes(
             };
             assert_eq!(
                 entry.failed_installations,
-                vec![bo2.installation_id.to_vec()]
+                vec![bo2.context.installation_id().to_vec()]
             );
             let caro_inbox =
                 xmtp_mls_group_state::inbox_id::InboxId::from_hex(caro.inbox_id()).unwrap();
@@ -300,15 +305,15 @@ async fn an_inbox_over_the_envelope_limit_keeps_its_removes(
             };
             assert_eq!(
                 entry.failed_installations,
-                vec![caro2.installation_id.to_vec()]
+                vec![caro2.context.installation_id().to_vec()]
             );
             assert!(
                 !mls.members()
-                    .any(|member| member.signature_key == bo.installation_id.as_slice())
+                    .any(|member| member.signature_key == bo.context.installation_id().as_slice())
             );
             assert!(
                 !mls.members()
-                    .any(|member| member.signature_key == bo2.installation_id.as_slice())
+                    .any(|member| member.signature_key == bo2.context.installation_id().as_slice())
             );
             Ok::<_, GroupError>(())
         })?;
@@ -327,8 +332,8 @@ async fn an_inbox_over_the_envelope_limit_keeps_its_removes(
 /// target is then a no-op while its published child still owes Welcomes.
 /// Returns the source group, the original target and the child.
 async fn owe_a_split_child_welcome(
-    limited: &crate::utils::ClientTester,
-    bo: &crate::utils::ClientTester,
+    limited: &EngineTestPeer,
+    bo: &EngineTestPeer,
     group_id: GroupId,
     api: FaultyApi,
 ) -> (
@@ -572,16 +577,18 @@ async fn a_split_parent_keeps_its_published_unconfirmed_outcome() {
 async fn a_split_parent_keeps_its_ordered_rejection(
     #[case] reopened: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    tester!(drew, disable_workers);
+    let drew = EngineTestPeer::new().await;
     let SplitRefreshFixture {
         bo,
         group_id,
         limit,
         ..
     } = split_refresh_fixture(Some(drew.inbox_id())).await?;
-    tester!(ordinary, from: bo, snapshot: Arc::new(bo.db_snapshot()),
-        configured: |config| config.limits.max_envelope_bytes = limit,
-        disable_workers);
+    let ordinary = bo
+        .from_snapshot(&Arc::new(bo.db_snapshot()), |o| {
+            o.configure(|config| config.limits.max_envelope_bytes = limit)
+        })
+        .await;
     let group = ordinary.group(&group_id)?;
     let result = group.remove_members(&[drew.inbox_id()]).await.map(|_| ());
     let (child, attempt) = saved_child(&group, &[IntentState::Error]);
@@ -727,18 +734,18 @@ async fn an_applied_split_child_does_not_hide_an_ambiguous_parent_echo() {
 // verifies: SYNC-034
 #[xmtp_common::test(unwrap_try = true)]
 async fn every_split_part_of_a_removal_only_refresh_adds_no_leaf() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let mut members = Vec::new();
     let mut new_devices = Vec::new();
     // Four refreshed inboxes split into two, then one.
     for _ in 0..4 {
-        tester!(member, disable_workers);
+        let member = EngineTestPeer::new().await;
         members.push(member);
     }
     let inboxes: Vec<_> = members.iter().map(|member| member.inbox_id()).collect();
     let group = alix.create_group_with_members(&inboxes, None, None).await?;
     for member in &members {
-        tester!(device, from: member, disable_workers);
+        let device = member.new_installation().await;
         new_devices.push(device);
     }
     let mut data = group.get_membership_update_intent(&[], &[]).await?;

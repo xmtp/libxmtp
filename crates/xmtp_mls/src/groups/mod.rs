@@ -27,7 +27,6 @@ pub(super) mod mls_sync;
 mod notifications;
 pub mod oneshot;
 pub mod send_message_opts;
-pub(super) mod subscriptions;
 pub mod summary;
 pub mod targets;
 #[cfg(any(test, feature = "test-utils"))]

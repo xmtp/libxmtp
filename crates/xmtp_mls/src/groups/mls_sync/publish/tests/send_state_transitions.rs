@@ -5,6 +5,7 @@ use super::faults::{Fault, FaultyApi, faulty_group, group_message, refusing_grou
 use super::membership_recovery::receive_completed_prefix;
 use super::*;
 use crate::groups::send_message_opts::SendMessageOpts;
+use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
 use crate::messages::decoded_message::MessageBody;
 use std::sync::atomic::Ordering;
 use xmtp_content_types::{
@@ -53,7 +54,7 @@ pub(super) fn status<C: XmtpSharedContext>(
 // verifies: SEND-003
 #[xmtp_common::test(unwrap_try = true)]
 async fn send_state_transitions_same_key_reuses_one_message_and_one_unresolved_intent() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let events = alix.context.events().subscribe(
@@ -133,7 +134,7 @@ async fn send_state_transitions_same_key_reuses_one_message_and_one_unresolved_i
 // verifies: SEND-003
 #[xmtp_common::test(unwrap_try = true)]
 async fn send_state_transitions_publish_stored_message_returns_failed_message_to_unpublished() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let events = alix.context.events().subscribe(
@@ -184,7 +185,7 @@ async fn send_state_transitions_definite_refusal_fails_both_records_and_releases
     #[case] refused: IntentKind,
     #[case] retry_deletion: Option<bool>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let deletion = if retry_deletion.is_some() {
@@ -349,7 +350,7 @@ async fn send_state_transitions_definite_refusal_fails_both_records_and_releases
 async fn send_state_transitions_ambiguous_failure_keeps_the_attempt_pending(
     #[case] code: tonic::Code,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let message_id = group.send_message_optimistic(b"ambiguous", Default::default())?;
@@ -376,7 +377,7 @@ async fn send_state_transitions_ambiguous_failure_keeps_the_attempt_pending(
 // verifies: SEND-022, PROC-015
 #[xmtp_common::test(unwrap_try = true)]
 async fn send_state_transitions_send_behind_a_state_change_waits_for_its_receipt() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let api = FaultyApi::new(&alix, group_message, []);
     api.lag_newest.store(true, Ordering::SeqCst);
@@ -398,9 +399,9 @@ async fn send_state_transitions_send_behind_a_state_change_waits_for_its_receipt
 // verifies: SEND-022
 #[xmtp_common::test(unwrap_try = true)]
 async fn send_state_transitions_pending_proposal_defers_a_queued_send() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -441,10 +442,10 @@ async fn send_state_transitions_pending_proposal_defers_a_queued_send() {
 
 // Alix proposes to add Caro. Bo has received the proposal.
 async fn group_with_pending_proposal(
-    alix: &crate::utils::FullXmtpClient,
-    bo: &crate::utils::FullXmtpClient,
-    caro: &crate::utils::FullXmtpClient,
-) -> Result<[crate::utils::TestMlsGroup; 2], Box<dyn std::error::Error>> {
+    alix: &EngineTestPeer,
+    bo: &EngineTestPeer,
+    caro: &EngineTestPeer,
+) -> Result<[EngineTestGroup; 2], Box<dyn std::error::Error>> {
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -482,9 +483,9 @@ fn published_sequence<C: XmtpSharedContext>(group: &MlsGroup<C>, message_id: &[u
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn send_state_transitions_later_send_never_overtakes_a_deferred_send() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     let [group, bo_group] = group_with_pending_proposal(&alix, &bo, &caro).await?;
     let first = group.send_message_optimistic(b"first", SendMessageOpts::default())?;
     let second = group.send_message_optimistic(b"second", SendMessageOpts::default())?;
@@ -526,9 +527,9 @@ async fn send_state_transitions_later_send_never_overtakes_a_deferred_send() {
 // verifies: SEND-022
 #[xmtp_common::test(unwrap_try = true)]
 async fn send_state_transitions_prepared_send_never_overtakes_a_deferred_send() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -577,9 +578,9 @@ async fn send_state_transitions_prepared_send_never_overtakes_a_deferred_send() 
 async fn send_state_transitions_publish_commits_a_pending_proposal(
     #[case] lag_newest: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     let [group, _bo_group] = group_with_pending_proposal(&alix, &bo, &caro).await?;
     let api = FaultyApi::new(&alix, group_message, []);
     api.lag_newest.store(lag_newest, Ordering::SeqCst);
@@ -615,10 +616,10 @@ async fn send_state_transitions_publish_commits_a_pending_proposal(
 // verifies: SEND-022
 #[xmtp_common::test(unwrap_try = true)]
 async fn send_state_transitions_deferred_send_waits_for_the_published_commit() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
-    tester!(dave, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
+    let dave = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -678,9 +679,9 @@ async fn send_state_transitions_deferred_send_waits_for_the_published_commit() {
 // verifies: SEND-022
 #[xmtp_common::test(unwrap_try = true)]
 async fn send_state_transitions_send_commits_a_proposal_that_lands_during_the_send() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -710,8 +711,8 @@ async fn send_state_transitions_send_commits_a_proposal_that_lands_during_the_se
 // verifies: DMS-020
 #[xmtp_common::test(unwrap_try = true)]
 async fn send_state_transitions_dm_repair_without_a_receipt_fails_before_the_send() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let orphan = MlsGroup::create_dm_without_peer(&alix.context, bo.inbox_id().to_string())?;
     let refusing = refusing_group(
         &alix,

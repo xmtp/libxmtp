@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::groups::send_message_opts::SendMessageOpts;
+use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 use openmls::messages::proposals::AppDataUpdateOperation;
 use xmtp_db::{group_message::MsgQueryArgs, incoming_envelope::StreamTopic};
 use xmtp_mls_group_state::app_data::component_id::ComponentId;
@@ -14,15 +15,14 @@ use xmtp_mls_group_state::app_data::component_id::ComponentId;
 async fn accepted_membership_component_remove_does_not_block_publication(
     #[case] kind: IntentKind,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
     let bo_group = xmtp_common::wait_for_ok(|| async {
         bo.sync_welcomes()
             .await
-            .map_err(crate::client::ClientError::from)
             .and_then(|_| bo.group(&group.group_id))
     })
     .await

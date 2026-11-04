@@ -1031,6 +1031,7 @@ impl FromWith<ValidatedCommit> for GroupUpdatedProto {
 mod committed_proposal_outcomes {
     use super::*;
     use crate::groups::app_data::accumulate_app_data_updates;
+    use crate::groups::test_support::{EnginePeer, EngineTestPeer};
     use crate::prelude::*;
     use openmls::messages::proposals::{
         AppDataUpdateOperation, AppDataUpdateProposal, ProposalType,
@@ -1046,8 +1047,7 @@ mod committed_proposal_outcomes {
     /// own list check returns early at the first Remove and stages them.
     #[xmtp_common::test(unwrap_try = true)]
     async fn committed_proposal_outcomes_reject_conflicting_component_operations() {
-        use crate::tester;
-        tester!(alix, disable_workers);
+        let alix = EngineTestPeer::new().await;
         let conversation = alix.create_group(None, None)?;
         conversation
             .update_group_description("described".to_string())
@@ -1141,8 +1141,7 @@ mod committed_proposal_outcomes {
     // A test drives an OpenMLS convenience commit; its GroupInfo never leaves the test.
     #[allow(clippy::disallowed_methods)]
     async fn committed_proposal_outcomes_hold_gce_proposal_and_commit() {
-        use crate::tester;
-        tester!(alix, disable_workers);
+        let alix = EngineTestPeer::new().await;
         let conversation = alix.create_group(None, None)?;
         let provider = alix.context.mls_provider();
         let mut group = OpenMlsGroup::load(

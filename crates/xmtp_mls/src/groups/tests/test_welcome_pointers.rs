@@ -1,10 +1,11 @@
 use crate::context::CoreContext;
 use crate::groups::mls_ext::WelcomePointersExtension;
+use crate::groups::test_support::welcome_pointers::{
+    publish_commit_without_welcome, publish_pointer, random_pointer, sealed_pointee,
+};
+use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
 use crate::groups::welcome_pointer::resolve_welcome_pointer;
 use crate::identity::{ENABLE_WELCOME_POINTERS, WelcomePointersHook};
-use crate::tester;
-use crate::utils::test::{ClientTester, TestMlsGroup};
-use futures::StreamExt;
 use prost::Message;
 use std::time::Duration;
 use xmtp_configuration::WELCOME_HPKE_LABEL;
@@ -19,7 +20,7 @@ use xmtp_proto::xmtp::mls::message_contents::WelcomeMetadata;
 use xmtp_proto::xmtp::mls::message_contents::welcome_pointer::WelcomeV1Pointer;
 use xmtp_proto::xmtp::mls::message_contents::{
     WelcomePointeeEncryptionAeadType, WelcomePointer as WelcomePointerProto,
-    WelcomePointerWrapperAlgorithm, WelcomeWrapperAlgorithm,
+    WelcomeWrapperAlgorithm,
 };
 
 #[xmtp_common::timeout(Duration::from_secs(40))]
@@ -135,9 +136,9 @@ async fn test_welcome_pointer_round_trip(
     mut assertion: impl AsyncFnMut(&[WelcomeMessage]) -> Result<(), String>,
 ) {
     // Create two test clients
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     // Have to skip managing the extension for bola, because this installations is always added to the group with a V1 welcome message.
-    tester!(bola);
+    let bola = EngineTestPeer::new().await;
 
     // Create a group with alix as the creator
     let alix_group = alix.create_group(None, None).unwrap();
@@ -159,7 +160,7 @@ async fn test_welcome_pointer_round_trip(
         .unwrap();
     assert_eq!(bola_groups.len(), 1);
 
-    let bola_group: &TestMlsGroup = bola_groups.first().unwrap();
+    let bola_group: &EngineTestGroup = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
 
     // Create additional installations for both clients to simulate the scenario
@@ -201,7 +202,7 @@ async fn test_welcome_pointer_round_trip(
         let hook = WelcomePointersHook::new(enable_extension());
         ENABLE_WELCOME_POINTERS
             .scope(hook.clone(), async {
-                tester!(charlie);
+                let charlie = EngineTestPeer::new().await;
                 testers.push(charlie);
             })
             .await;
@@ -278,8 +279,8 @@ async fn test_welcome_pointer_round_trip(
 #[case::above_threshold(3)]
 #[xmtp_common::test]
 async fn classical_pointee_recipient_gets_an_inline_welcome(#[case] pq_recipients: usize) {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     crate::identity_lifecycle::rotate_and_upload_key_package(
         bo.identity(),
         bo.context.api(),
@@ -290,7 +291,7 @@ async fn classical_pointee_recipient_gets_an_inline_welcome(#[case] pq_recipient
     .unwrap();
     let mut pq = Vec::new();
     for _ in 0..pq_recipients {
-        tester!(recipient, disable_workers);
+        let recipient = EngineTestPeer::new().await;
         pq.push(recipient);
     }
 
@@ -468,8 +469,8 @@ fn test_welcome_pointer_proto_round_trip() {
 async fn malformed_welcome_pointer_is_rejected_before_retrieval() {
     use crate::groups::welcome_sync::{WelcomeHeadOutcome, WelcomeService};
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let pointer = WelcomeV1Pointer {
         encryption_key: vec![0x42; 64 * 1024],
         ..random_pointer()
@@ -479,15 +480,13 @@ async fn malformed_welcome_pointer_is_rejected_before_retrieval() {
     // Resolve through a backend that fails the test on any query.
     let mut api = xmtp_api_backend::MockBackendClient::new();
     api.expect_query_raw_envelopes().never();
-    let offline = crate::builder::ClientBuilder::from_client(bo.client.clone())
-        .api_client(std::sync::Arc::new(api))
-        .config_provider(std::sync::Arc::new(
-            xmtp_configuration::StaticConfigProvider::default(),
-        ))
-        .with_allow_offline(Some(true))
-        .with_disable_workers(true)
-        .build()
-        .await?;
+    let offline: EngineTestPeer<_> = bo
+        .with_api(std::sync::Arc::new(api), None, |options| {
+            options.config_provider = Some(std::sync::Arc::new(
+                xmtp_configuration::StaticConfigProvider::default(),
+            ))
+        })
+        .await;
     let outcome = WelcomeService::new(offline.context.clone())
         .resolve_pending_welcome(welcome.cursor)
         .await?;
@@ -508,7 +507,7 @@ async fn test_welcome_pointer_resolution_for_no_destination() {
     // This test would require mocking the API client to test the resolution logic
     // For now, we'll test the basic structure and error handling
 
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
 
     // Test with valid structure but invalid destination (would fail at API level)
     let valid_pointer = DecryptedWelcomePointer {
@@ -527,7 +526,7 @@ async fn test_welcome_pointer_resolution_for_no_destination() {
 // verifies: JOIN-033
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_welcome_pointer_resolution_to_another_welcome_pointer() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
 
     let welcome_pointer = DecryptedWelcomePointer {
         destination: xmtp_common::rand_array::<32>().into(),
@@ -577,8 +576,8 @@ async fn only_the_first_pointee_row_counts(#[case] junk_first: bool) {
     use crate::groups::welcome_sync::{WelcomeHeadOutcome, WelcomeService};
     use xmtp_proto::backend_v1::welcome_message::{V1, Version};
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = crate::groups::MlsGroup::create_and_insert(
         alix.context.clone(),
         xmtp_db::group::ConversationType::Group,
@@ -645,444 +644,6 @@ async fn only_the_first_pointee_row_counts(#[case] junk_first: bool) {
         );
         assert!(db.find_group(&group.group_id).unwrap().is_some());
     }
-}
-
-/// Missing pointees retain their fixed fetch deadline and can later join. If a
-/// fetched pointee has an unsupported MLS version, it receives a separate full
-/// day of retention whose deadline survives retries past the fetch deadline.
-/// Transiently missing pointees and legacy retry states cannot shorten that hold;
-/// if the pointee remains missing after the hold expires, it is rejected.
-// verifies: JOIN-094, JOIN-087, JOIN-063
-#[xmtp_common::timeout(Duration::from_secs(40))]
-#[rstest::rstest]
-#[case::supported(false)]
-#[case::unsupported_mls_version(true)]
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_welcome_pointer_pending_retry_resolution(#[case] unsupported: bool) {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-
-    let group = crate::groups::MlsGroup::create_and_insert(
-        alix.context.clone(),
-        xmtp_db::group::ConversationType::Group,
-        crate::groups::group_permissions::PolicySet::default(),
-        xmtp_mls_group_state::group::GroupMetadataOptions::default(),
-        None,
-    )
-    .unwrap();
-
-    // Have to sync the group otherwise bo won't find it and it won't get created
-    group.sync().await.unwrap();
-
-    tracing::info!("Creating welcome for group");
-    // Publish the commit but not its Welcome, so the test controls delivery.
-    let (welcome_message, join_anchor) =
-        publish_commit_without_welcome(&group, bo.inbox_id()).await;
-
-    let welcome_pointer_v1 = random_pointer();
-    let welcome_from_api = publish_pointer(&alix, &bo, &welcome_pointer_v1).await;
-    let service = crate::groups::welcome_sync::WelcomeService::new(bo.context.clone());
-    assert!(matches!(
-        service
-            .resolve_pending_welcome(welcome_from_api.cursor)
-            .await
-            .unwrap(),
-        crate::groups::welcome_sync::WelcomeHeadOutcome::Waiting { blocked: false, .. }
-    ));
-
-    let topic = bo.welcome_topic();
-    let pending = bo
-        .context
-        .db()
-        .pending_envelope(&topic, welcome_from_api.cursor)
-        .unwrap()
-        .unwrap();
-    assert_eq!(pending.error_code.as_deref(), Some("welcome_pointee"));
-    let first_expiry = pending.retry_expires_at_ns.unwrap();
-    assert_eq!(
-        first_expiry,
-        welcome_from_api.timestamp() + 3 * xmtp_common::NS_IN_DAY
-    );
-
-    let welcome_data = sealed_pointee(
-        &welcome_pointer_v1,
-        if unsupported {
-            &[0, 2]
-        } else {
-            &welcome_message
-        },
-        join_anchor,
-    );
-
-    // A second attempt must keep the first pointer deadline.
-    let _ = service
-        .resolve_pending_welcome(welcome_from_api.cursor)
-        .await
-        .unwrap();
-    assert_eq!(
-        bo.context
-            .db()
-            .pending_envelope(&topic, welcome_from_api.cursor)
-            .unwrap()
-            .unwrap()
-            .retry_expires_at_ns,
-        Some(first_expiry)
-    );
-
-    tracing::info!("Sending welcome to where welcome pointer resolves to");
-    alix.context
-        .api()
-        .send_welcome_messages(&[welcome_data])
-        .await
-        .unwrap();
-    if unsupported {
-        use crate::groups::welcome_sync::WelcomeHeadOutcome;
-        use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
-        use xmtp_db::{ConnectionExt, schema::incoming_envelopes};
-
-        let db = bo.context.db();
-        let row = || {
-            incoming_envelopes::table.find((
-                bo.context.installation_id().to_vec(),
-                xmtp_db::refresh_state::EntityKind::Welcome,
-                welcome_from_api.cursor.0 as i64,
-            ))
-        };
-        // Simulate resolving the pointee in the final hour of its fetch window.
-        let before = xmtp_common::time::now_ns();
-        let pointer_deadline = before + xmtp_common::NS_IN_HOUR;
-        db.raw_query(|conn| {
-            diesel::update(row())
-                .set(incoming_envelopes::retry_expires_at_ns.eq(Some(pointer_deadline)))
-                .execute(conn)
-        })
-        .unwrap();
-        assert!(matches!(
-            service
-                .resolve_pending_welcome(welcome_from_api.cursor)
-                .await
-                .unwrap(),
-            WelcomeHeadOutcome::Waiting { blocked: true, .. }
-        ));
-        let pending = db
-            .pending_envelope(&topic, welcome_from_api.cursor)
-            .unwrap()
-            .unwrap();
-        let deadline = pending.unreadable_expires_at_ns.unwrap();
-        assert!(deadline >= before + xmtp_common::NS_IN_DAY);
-        assert!(deadline <= xmtp_common::time::now_ns() + xmtp_common::NS_IN_DAY);
-        assert_eq!(pending.retry_expires_at_ns, Some(pointer_deadline));
-
-        // Keep the real Welcome and keys, but make pointee queries temporarily
-        // return no data, as a lagging replica can after a previously good read.
-        let mut api = xmtp_api_backend::MockBackendClient::new();
-        api.expect_query_raw_envelopes().returning(|_| {
-            Ok(xmtp_proto::backend_v1::QueryResponse {
-                envelopes: vec![],
-                continuation: Some(xmtp_proto::backend_v1::Continuation { has_more: false }),
-            }
-            .into())
-        });
-        let missing_client = crate::builder::ClientBuilder::from_client(bo.client.clone())
-            .api_client(std::sync::Arc::new(api))
-            .config_provider(std::sync::Arc::new(
-                xmtp_configuration::StaticConfigProvider::default(),
-            ))
-            .with_allow_offline(Some(true))
-            .with_disable_workers(true)
-            .build()
-            .await
-            .unwrap();
-        let missing_service =
-            crate::groups::welcome_sync::WelcomeService::new(missing_client.context.clone());
-        assert!(matches!(
-            missing_service
-                .resolve_pending_welcome(welcome_from_api.cursor)
-                .await
-                .unwrap(),
-            WelcomeHeadOutcome::Waiting { blocked: true, .. }
-        ));
-
-        // Passing the fetch deadline cannot shorten the unreadable hold, and
-        // a previously persisted pointee retry must not skip its next attempt.
-        db.raw_query(|conn| {
-            diesel::update(row())
-                .set((
-                    incoming_envelopes::retry_expires_at_ns.eq(Some(1i64)),
-                    incoming_envelopes::error_code.eq(Some("welcome_pointee")),
-                ))
-                .execute(conn)
-        })
-        .unwrap();
-        assert!(matches!(
-            service
-                .retry_pending_welcome(welcome_from_api.cursor, None)
-                .unwrap(),
-            WelcomeHeadOutcome::Need { .. }
-        ));
-        assert!(matches!(
-            missing_service
-                .resolve_pending_welcome(welcome_from_api.cursor)
-                .await
-                .unwrap(),
-            WelcomeHeadOutcome::Waiting { blocked: true, .. }
-        ));
-        // The real backend recovers. Rechecking the MLS payload still keeps the
-        // original unreadable deadline, including across service recreation.
-        let service = crate::groups::welcome_sync::WelcomeService::new(bo.context.clone());
-        assert!(matches!(
-            service
-                .resolve_pending_welcome(welcome_from_api.cursor)
-                .await
-                .unwrap(),
-            WelcomeHeadOutcome::Waiting { blocked: true, .. }
-        ));
-        assert_eq!(
-            db.pending_envelope(&topic, welcome_from_api.cursor)
-                .unwrap()
-                .unwrap()
-                .unreadable_expires_at_ns,
-            Some(deadline)
-        );
-        db.raw_query(|conn| {
-            diesel::update(row())
-                .set(incoming_envelopes::unreadable_expires_at_ns.eq(Some(1i64)))
-                .execute(conn)
-        })
-        .unwrap();
-        assert!(matches!(
-            missing_service
-                .resolve_pending_welcome(welcome_from_api.cursor)
-                .await
-                .unwrap(),
-            WelcomeHeadOutcome::Progress {
-                result: Err(crate::groups::GroupError::WelcomeDataNotFound(_)),
-                ..
-            }
-        ));
-        assert!(!db.has_pending_welcomes().unwrap());
-        assert!(db.find_group(&group.group_id).unwrap().is_none());
-        assert_eq!(
-            db.read_last_rejection(&topic).unwrap().unwrap().code,
-            "unsupported_welcome_expired"
-        );
-        return;
-    }
-
-    let events = bo.context.events().subscribe(
-        xmtp_events::EventFilter::new([xmtp_events::EventKind::ConversationJoined]),
-        Some(10),
-    );
-    let conversations = bo.stream_conversations(None, true).await.unwrap();
-    tokio::pin!(conversations);
-
-    bo.sync_welcomes().await.unwrap();
-
-    // TODO subscribe to all messages and then assert that group is received.
-
-    tracing::info!("Receiving event for new group");
-    let event = xmtp_common::time::timeout(std::time::Duration::from_secs(10), events.next())
-        .await
-        .unwrap()
-        .unwrap();
-    match event.client {
-        Some(xmtp_events::ClientEvent::ConversationJoined(joined)) => {
-            assert_eq!(joined.group_id, group.group_id.to_vec());
-        }
-        e => panic!("Expected NewGroup event, got {:?}", e),
-    }
-
-    tracing::info!("Finding group for bo");
-    let bo_group = bo
-        .find_groups(xmtp_db::group::GroupQueryArgs::default())
-        .unwrap()
-        .into_iter()
-        .next()
-        .unwrap();
-    assert_eq!(bo_group.group_id, group.group_id);
-
-    let stored_group = bo
-        .context
-        .db()
-        .find_group_by_sequence_id(welcome_from_api.cursor)
-        .unwrap()
-        .unwrap();
-    assert_eq!(stored_group.id.as_slice(), bo_group.group_id.as_slice());
-
-    tracing::info!("Verifying message is received in conversation stream");
-    let conversation_group =
-        xmtp_common::time::timeout(std::time::Duration::from_secs(10), conversations.next())
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap();
-    assert_eq!(conversation_group.group_id, bo_group.group_id);
-}
-
-/// Publish a commit adding `inbox_id` and return its plaintext Welcome and join
-/// anchor without sending the Welcome.
-async fn publish_commit_without_welcome(group: &TestMlsGroup, inbox_id: &str) -> (Vec<u8>, u64) {
-    let intent = group
-        .get_membership_update_intent(&[inbox_id], &[])
-        .await
-        .unwrap();
-    let signer = &group.context.identity().installation_keys;
-    let context = &group.context;
-    let old_membership = group
-        .with_group_snapshot(|openmls_group| {
-            Ok(xmtp_mls_validation::commit::extract_group_membership(
-                openmls_group.extensions(),
-            )?)
-        })
-        .unwrap();
-    let new_membership = intent.apply_to_group_membership(&old_membership);
-    let changes = crate::groups::mls_sync::calculate_membership_changes_with_keypackages(
-        context,
-        &group.group_id,
-        &new_membership,
-        &old_membership,
-        None,
-    )
-    .await
-    .unwrap();
-    let (action, payloads) = crate::state_tx::state_write(context.mls_storage(), |tx| {
-        tx.with_group(group.group_id, |openmls_group, storage| {
-            let publish_intent_data =
-                crate::groups::mls_sync::update_group_membership::apply_update_group_membership_intent(storage, openmls_group, intent, changes, &[], signer)?
-                    .unwrap();
-            let post_commit_action = crate::groups::intents::PostCommitAction::from_bytes(
-                publish_intent_data.post_commit_data().unwrap().as_slice(),
-            )?;
-            let crate::groups::intents::PostCommitAction::SendWelcomes(action) = post_commit_action;
-            let staged_commit = publish_intent_data.staged_commit().unwrap();
-            openmls_group.merge_staged_commit(
-                &xmtp_db::XmtpOpenMlsProviderRef::new(storage),
-                crate::groups::mls_sync::decode_staged_commit(staged_commit.as_slice())?,
-            ).unwrap();
-
-            Ok::<_, crate::groups::GroupError>(xmtp_db::TransactionOutcome::Continue((action, publish_intent_data.payloads_to_publish)))
-        })
-    })
-    .unwrap()
-    .into_continued();
-    let commit_units = group
-        .prepare_group_messages(
-            payloads
-                .iter()
-                .map(|payload| (payload.as_slice(), false))
-                .collect(),
-        )
-        .unwrap();
-    let commit_receipt = context
-        .api()
-        .send_group_messages(commit_units)
-        .await
-        .unwrap()
-        .pop()
-        .unwrap();
-    (
-        action.welcome_message,
-        commit_receipt.cursor.unwrap().sequence_id,
-    )
-}
-
-/// A well-formed welcome pointer to a fresh destination.
-fn random_pointer() -> WelcomeV1Pointer {
-    WelcomeV1Pointer {
-        destination: xmtp_common::rand_vec::<32>(),
-        aead_type: WelcomePointeeEncryptionAeadType::Chacha20Poly1305.into(),
-        encryption_key: xmtp_common::rand_vec::<32>(),
-        data_nonce: xmtp_common::rand_vec::<12>(),
-        welcome_metadata_nonce: xmtp_common::rand_vec::<12>(),
-    }
-}
-
-/// The pointee that `pointer` opens: `welcome` and a Welcome metadata naming
-/// `message_cursor`, both sealed under the pointer's key.
-fn sealed_pointee(
-    pointer: &WelcomeV1Pointer,
-    welcome: &[u8],
-    message_cursor: u64,
-) -> xmtp_proto::backend_v1::WelcomeMessage {
-    use xmtp_proto::backend_v1::welcome_message::{V1, Version};
-    let seal = |plaintext: &[u8], nonce: &[u8]| {
-        wrap_payload_symmetric(
-            plaintext,
-            WelcomePointersExtension::preferred_type(),
-            &pointer.encryption_key,
-            nonce,
-        )
-        .unwrap()
-    };
-    xmtp_proto::backend_v1::WelcomeMessage {
-        version: Some(Version::V1(V1 {
-            installation_key: pointer.destination.clone(),
-            data: seal(welcome, &pointer.data_nonce),
-            hpke_public_key: vec![],
-            wrapper_algorithm: WelcomeWrapperAlgorithm::SymmetricKey.into(),
-            welcome_metadata: seal(
-                &WelcomeMetadata { message_cursor }.encode_to_vec(),
-                &pointer.welcome_metadata_nonce,
-            ),
-        })),
-    }
-}
-
-/// Wrap `pointer` for a new post-quantum key package of `recipient`, publish
-/// it from `sender`, and store it as the recipient's pending Welcome.
-async fn publish_pointer(
-    sender: &ClientTester,
-    recipient: &ClientTester,
-    pointer: &WelcomeV1Pointer,
-) -> WelcomeMessage {
-    use xmtp_proto::backend_v1::welcome_message::{Version, WelcomePointer};
-    use xmtp_proto::xmtp::mls::message_contents::welcome_pointer::Version as PointerVersion;
-
-    let package = crate::identity_lifecycle::new_key_package(
-        recipient.context.identity(),
-        &recipient.context.mls_provider(),
-        true,
-    )
-    .unwrap();
-    let public_key = package.pq_pub_key.as_deref().unwrap();
-    let plaintext = WelcomePointerProto {
-        version: Some(PointerVersion::WelcomeV1Pointer(pointer.clone())),
-    }
-    .encode_to_vec();
-    let encrypted = wrap_payload_hpke(
-        &plaintext,
-        &[],
-        public_key,
-        WrapperAlgorithm::XWingMLKEM768Draft6,
-        WELCOME_HPKE_LABEL,
-    )
-    .unwrap()
-    .0;
-    sender
-        .context
-        .api()
-        .send_welcome_messages(&[xmtp_proto::backend_v1::WelcomeMessage {
-            version: Some(Version::WelcomePointer(WelcomePointer {
-                installation_key: recipient.context.installation_id().to_vec(),
-                welcome_pointer: encrypted,
-                hpke_public_key: public_key.to_vec(),
-                wrapper_algorithm: WelcomePointerWrapperAlgorithm::XwingMlkem768Draft6.into(),
-            })),
-        }])
-        .await
-        .unwrap();
-    let welcome = sender
-        .context
-        .api()
-        .query_welcome_messages(recipient.context.installation_id())
-        .await
-        .unwrap()
-        .pop()
-        .expect("published pointer");
-    crate::groups::welcome_sync::pending_welcome_for_test(&recipient.context, &welcome)
-        .await
-        .unwrap();
-    welcome
 }
 
 /// One of the two public keys a post-quantum key package is reachable through.
@@ -1167,8 +728,8 @@ async fn welcome_wrapper_matches_advertisement(
     };
     use xmtp_proto::backend_v1::welcome_message::{V1, Version, WelcomePointer};
 
-    tester!(alix);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix.create_group(None, None).unwrap();
     let (welcome_message, join_anchor) =
         publish_commit_without_welcome(&group, bo.inbox_id()).await;

@@ -4,12 +4,12 @@
 //! `identity_updates::tests::get_installation_diff_rejects_added_inbox_at_sequence_zero`
 //! in the `identity` test target.
 
-use crate::tester;
+use crate::groups::test_support::{EnginePeer, EngineTestPeer};
 
 /// The GCE proposal carries `{alix: 0}` directly.
 #[xmtp_common::test(unwrap_try = true)]
 async fn metadata_update_on_freshly_created_group_succeeds() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
 
     let group = alix.create_group(None, None)?;
     group.update_group_name("hello".to_string()).await?;
@@ -21,7 +21,7 @@ async fn metadata_update_on_freshly_created_group_succeeds() {
 /// the staged commit group context. That context still holds `{alix: 0}`.
 #[xmtp_common::test(unwrap_try = true)]
 async fn key_update_on_freshly_created_group_succeeds() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
 
     let group = alix.create_group(None, None)?;
 

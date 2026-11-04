@@ -1,5 +1,6 @@
 //! Typed metadata fields and user data through the group API.
 
+use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 use std::collections::BTreeMap;
 
 use prost::Message as _;
@@ -16,8 +17,8 @@ use xmtp_mls_group_state::{
         components::tls_map_components::ComponentRegistryComponent,
         fields::{
             ComponentMutation, FieldError, FieldKey, FieldValue, FieldWrite, MapEntry, MapMutation,
-            MetadataComponentType, MetadataFieldRef, MetadataKeyType, MetadataScalarType,
-            MetadataValue, UserFieldUpdate, UserFieldValue, WriteOperation,
+            MetadataComponentType, MetadataFieldRef, MetadataValue, UserFieldUpdate,
+            UserFieldValue, WriteOperation,
         },
         typed::Component,
     },
@@ -38,7 +39,6 @@ use crate::{
         intents::{AppDataUpdateIntentData, QueueIntent},
     },
     state_tx::state_write,
-    tester,
 };
 
 /// A string field in groups and DMs.
@@ -102,7 +102,7 @@ fn renamed(component_type: ComponentType, name: &str) -> ApplicationComponentDef
     }
 }
 
-fn inbox<C: XmtpSharedContext>(client: &crate::Client<C>) -> InboxId {
+fn inbox(client: &EngineTestPeer) -> InboxId {
     InboxId::from_hex(client.inbox_id()).unwrap()
 }
 
@@ -135,134 +135,18 @@ fn field_error(error: GroupError) -> FieldError {
     }
 }
 
-/// A group lists its public well-known fields with their protocol types and its
-/// registered application fields named by the reader's catalogue; a DM
-/// lists only the fields registered for DMs. Internal components are never
-/// fields, and a name lookup prefers the well-known field.
-// verifies: META-069
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_fields_describe_the_group_registry() {
-    tester!(alix, configured: |c| c.application_components = catalogue());
-    tester!(bo, configured: |c| c.application_components = vec![renamed(
-        ComponentType::String,
-        "GROUP_NAME"
-    )]);
-    let group = alix
-        .create_group_with_members(&[bo.inbox_id()], None, None)
-        .await?;
-    let bo_group = bo.wait_for_welcomes().await?.pop()?;
-    let described = |group: &MlsGroup<_>| -> Result<Vec<_>, GroupError> {
-        Ok(group
-            .metadata_fields()?
-            .into_iter()
-            .map(|f| (f.field, f.component_type))
-            .collect())
-    };
-    let string_map = MetadataComponentType::Map {
-        key_type: MetadataKeyType::InboxId,
-        value_type: MetadataScalarType::String,
-    };
-    let well_known = [
-        (MetadataFieldRef::GROUP_NAME, MetadataComponentType::String),
-        (
-            MetadataFieldRef::GROUP_DESCRIPTION,
-            MetadataComponentType::String,
-        ),
-        (
-            MetadataFieldRef::GROUP_IMAGE_URL,
-            MetadataComponentType::String,
-        ),
-        (
-            MetadataFieldRef::MESSAGE_DISAPPEAR_FROM_NS,
-            MetadataComponentType::Bytes,
-        ),
-        (
-            MetadataFieldRef::MESSAGE_DISAPPEAR_IN_NS,
-            MetadataComponentType::Bytes,
-        ),
-        (MetadataFieldRef::APP_DATA, MetadataComponentType::String),
-        (MetadataFieldRef::USER_DISPLAY_NAME, string_map),
-        (MetadataFieldRef::GROUP_IMAGE, MetadataComponentType::Bytes),
-    ];
-    let named = |id: u16| MetadataFieldRef {
-        component_id: ComponentId::new(id),
-        name: Some(format!("app.{id:x}").into()),
-    };
-    let expected: Vec<_> = well_known
-        .iter()
-        .cloned()
-        .chain([
-            (named(STATUS), MetadataComponentType::String),
-            (nickname(), string_map),
-            (named(TOPIC), MetadataComponentType::String),
-        ])
-        .collect();
-    assert_eq!(described(&group)?, expected);
-    assert_eq!(
-        group.metadata_field("app.c002")?.map(|f| f.is_user_field()),
-        Some(true)
-    );
-
-    // Bo's catalogue names STATUS after a well-known field and lists
-    // nothing else, so the other application fields are unnamed.
-    let bo_named = MetadataFieldRef {
-        component_id: ComponentId::new(STATUS),
-        name: Some("GROUP_NAME".into()),
-    };
-    let bo_expected: Vec<_> = well_known
-        .iter()
-        .cloned()
-        .chain([
-            (bo_named, MetadataComponentType::String),
-            (
-                MetadataFieldRef::new(ComponentId::new(NICKNAME)),
-                string_map,
-            ),
-            (
-                MetadataFieldRef::new(ComponentId::new(TOPIC)),
-                MetadataComponentType::String,
-            ),
-        ])
-        .collect();
-    assert_eq!(described(&bo_group)?, bo_expected);
-    assert_eq!(
-        bo_group.metadata_field("GROUP_NAME")?.map(|f| f.field),
-        Some(MetadataFieldRef::GROUP_NAME)
-    );
-    assert!(bo_group.metadata_field("app.c001")?.is_none());
-
-    let dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
-    let dm_ids: Vec<_> = dm
-        .metadata_fields()?
-        .into_iter()
-        .map(|f| f.field.component_id.as_u16())
-        .collect();
-    assert!(dm_ids.contains(&STATUS) && dm_ids.contains(&TOPIC));
-    assert!(!dm_ids.contains(&NICKNAME));
-    assert!(dm_ids.iter().all(|id| {
-        ![
-            ComponentId::COMPONENT_REGISTRY,
-            ComponentId::SUPER_ADMIN_LIST,
-            ComponentId::ADMIN_LIST,
-            ComponentId::GROUP_MEMBERSHIP,
-            ComponentId::DM_MEMBERS,
-            ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION,
-        ]
-        .contains(&ComponentId::new(*id))
-    }));
-}
-
 /// A member whose backend snapshot types an application field differently
 /// from the group writes it under the group's type: the snapshot only
 /// names the field.
 // verifies: META-069, META-071
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_stale_snapshot_uses_the_group_type() {
-    tester!(alix, configured: |c| c.application_components = catalogue());
-    tester!(bo, configured: |c| c.application_components = vec![renamed(
-        ComponentType::Bytes,
-        "mood"
-    )]);
+    let alix =
+        EngineTestPeer::new_with(|o| o.configure(|c| c.application_components = catalogue())).await;
+    let bo = EngineTestPeer::new_with(|o| {
+        o.configure(|c| c.application_components = vec![renamed(ComponentType::Bytes, "mood")])
+    })
+    .await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -297,8 +181,9 @@ async fn test_stale_snapshot_uses_the_group_type() {
 // verifies: META-071
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_unchanged_write_against_stale_state_lands() {
-    tester!(alix, configured: |c| c.application_components = catalogue());
-    tester!(bo);
+    let alix =
+        EngineTestPeer::new_with(|o| o.configure(|c| c.application_components = catalogue())).await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -324,8 +209,9 @@ async fn test_unchanged_write_against_stale_state_lands() {
 // verifies: META-070, META-071
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_update_metadata_field() {
-    tester!(alix, configured: |c| c.application_components = catalogue());
-    tester!(bo);
+    let alix =
+        EngineTestPeer::new_with(|o| o.configure(|c| c.application_components = catalogue())).await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -413,8 +299,9 @@ async fn test_update_metadata_field() {
 // verifies: META-073
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_update_user_data_is_atomic() {
-    tester!(alix, configured: |c| c.application_components = catalogue());
-    tester!(bo);
+    let alix =
+        EngineTestPeer::new_with(|o| o.configure(|c| c.application_components = catalogue())).await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -483,9 +370,10 @@ async fn test_update_user_data_is_atomic() {
 // verifies: META-072
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_user_data_selection() {
-    tester!(alix, configured: |c| c.application_components = catalogue());
-    tester!(bo);
-    tester!(carol);
+    let alix =
+        EngineTestPeer::new_with(|o| o.configure(|c| c.application_components = catalogue())).await;
+    let bo = EngineTestPeer::new().await;
+    let carol = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id(), carol.inbox_id()], None, None)
         .await?;
@@ -548,8 +436,8 @@ async fn test_user_data_selection() {
 // verifies: META-070, META-073
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_reads_are_committed_and_writes_see_pending_proposals() {
-    tester!(alix);
-    tester!(bo);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;

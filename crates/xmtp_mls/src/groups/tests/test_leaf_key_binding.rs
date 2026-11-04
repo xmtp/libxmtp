@@ -3,8 +3,8 @@
 //! place a leaf under another member's inbox and then send messages and
 //! proposals as that member.
 
+use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
 use crate::{
-    builder::ClientBuilder,
     context::CoreContext,
     groups::{
         GroupError,
@@ -17,7 +17,6 @@ use crate::{
     },
     identity::{XmtpKeyPackage, create_credential},
     state_tx::state_write,
-    utils::{FullXmtpClient, TestMlsGroup},
 };
 use openmls::{
     messages::proposals::AppDataUpdateOperation,
@@ -26,7 +25,7 @@ use openmls::{
     },
 };
 use openmls_traits::OpenMlsProvider;
-use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential, utils::generate_local_wallet};
+use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_db::{
     TransactionOutcome::Continue,
     XmtpMlsStorageProvider as _, XmtpOpenMlsProviderRef,
@@ -96,18 +95,18 @@ macro_rules! publish_raw {
 }
 
 struct Member {
-    client: FullXmtpClient,
+    client: EngineTestPeer,
     wallet: LocalWallet,
 }
 
 async fn member() -> Member {
-    let wallet = generate_local_wallet();
-    let client = ClientBuilder::new_test_client(&wallet).await;
+    let client = EngineTestPeer::new_with(|o| o.triggers = true).await;
+    let wallet = client.owner.clone();
     Member { client, wallet }
 }
 
 /// Alix creates a group with Bo, and Bo joins it.
-async fn group(alix: &FullXmtpClient, bo: &FullXmtpClient) -> (TestMlsGroup, TestMlsGroup) {
+async fn group(alix: &EngineTestPeer, bo: &EngineTestPeer) -> (EngineTestGroup, EngineTestGroup) {
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await
@@ -157,7 +156,7 @@ async fn associate(member: &Member, installation: &XmtpInstallationCredential) {
 }
 
 /// The group's committed membership component.
-async fn membership(group: &TestMlsGroup) -> GroupMembership {
+async fn membership(group: &EngineTestGroup) -> GroupMembership {
     group
         .load_mls_group_with_lock_async(async |mls_group| {
             Ok::<_, GroupError>(extract_group_membership(mls_group.extensions()).unwrap())
@@ -167,7 +166,7 @@ async fn membership(group: &TestMlsGroup) -> GroupMembership {
 }
 
 /// Whether the group's tree holds a leaf with `key` whose credential names `inbox_id`.
-async fn has_leaf(group: &TestMlsGroup, key: &[u8], inbox_id: &str) -> bool {
+async fn has_leaf(group: &EngineTestGroup, key: &[u8], inbox_id: &str) -> bool {
     group
         .load_mls_group_with_lock_async(async |mls_group| {
             Ok::<_, GroupError>(mls_group.members().any(|member| {
@@ -182,8 +181,8 @@ async fn has_leaf(group: &TestMlsGroup, key: &[u8], inbox_id: &str) -> bool {
 /// Assert that the receiver rejected the forged commit, kept no forged leaf,
 /// and can still commit afterwards.
 async fn assert_rejected(
-    receiver: &FullXmtpClient,
-    group: &TestMlsGroup,
+    receiver: &EngineTestPeer,
+    group: &EngineTestGroup,
     key: &[u8],
     inbox_id: &str,
 ) {
@@ -210,8 +209,8 @@ async fn assert_rejected(
 /// Publish a commit whose update path leaf keeps Alix's key but names `inbox_id`.
 /// With `raise`, the commit also sets that inbox's membership entry to that sequence id.
 async fn publish_path_credential(
-    alix: &FullXmtpClient,
-    group: &TestMlsGroup,
+    alix: &EngineTestPeer,
+    group: &EngineTestGroup,
     inbox_id: &str,
     raise: Option<u64>,
 ) {
@@ -383,7 +382,7 @@ async fn add_outside_identity_diff(
 }
 
 /// `client`'s copy of `group`, once its Welcome is imported.
-async fn joined(client: &FullXmtpClient, group: &TestMlsGroup) -> TestMlsGroup {
+async fn joined(client: &EngineTestPeer, group: &EngineTestGroup) -> EngineTestGroup {
     // A fixed-target sync can return no new groups after the Welcome was imported.
     xmtp_common::wait_for_eq(
         || async {
@@ -422,15 +421,15 @@ enum Leafless {
 async fn own_inbox_retries_leafless_key(
     #[case] row: Leafless,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use crate::{tester, utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage};
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
+    use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
     let bo_group = joined(&bo, &alix_group).await;
-    tester!(bo2, from: bo, disable_workers);
+    let bo2 = bo.new_installation().await;
     let bo2_id = bo2.context.installation_id().to_vec();
     let bo_inbox_id = bo.inbox_id().to_string();
 
@@ -442,7 +441,7 @@ async fn own_inbox_retries_leafless_key(
             .db()
             .get_latest_sequence_id_for_inbox(&bo_inbox_id)? as u64;
         let signer = caro.context.identity().installation_keys.clone();
-        let caro_client = &caro.client;
+        let caro_client = &caro;
         publish_raw!(caro_client, caro_group, |mls, provider| {
             let db = provider.storage().db();
             let old = extract_group_membership(mls.extensions()).unwrap();
@@ -591,7 +590,7 @@ async fn update_proposal_must_keep_its_leaf_key(
     let alix = member().await;
     let bo = member().await;
     let new_key = if sibling {
-        let bo2 = ClientBuilder::new_test_client(&bo.wallet).await;
+        let bo2 = bo.client.new_installation_with(|o| o.triggers = true).await;
         bo2.context.identity().installation_keys.clone()
     } else {
         let key = XmtpInstallationCredential::new();
@@ -790,7 +789,7 @@ async fn refresh_omits_pending_add_under_another_owner() {
 
 /// Check the receiver's exact rule error, then its durable network rejection.
 async fn assert_rule_rejection(
-    group: &TestMlsGroup,
+    group: &EngineTestGroup,
     before: &openmls::group::MlsGroup,
     raw: (
         Option<Vec<u8>>,

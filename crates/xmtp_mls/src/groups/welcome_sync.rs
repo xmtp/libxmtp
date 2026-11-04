@@ -17,9 +17,9 @@ use crate::identity_updates::{
     IdentityDependencyError, IdentityRequirement, InstallationDiffError,
     resolve_identity_requirements,
 };
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 use crate::intents::ProcessIntentError;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 use crate::mls_store::MlsStore;
 use futures::stream::{self, StreamExt};
 use prost::Message;
@@ -1116,7 +1116,7 @@ fn combine_sync_errors(first: GroupError, second: GroupError) -> GroupError {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 pub(crate) async fn pending_welcome_for_test(
     context: &impl XmtpSharedContext,
     welcome: &xmtp_proto::types::WelcomeMessage,
@@ -1218,9 +1218,10 @@ pub(crate) async fn held_readd<P: crate::groups::test_support::EnginePeer>(
 mod tests {
     use super::*;
     use crate::groups::WelcomeMembership;
+    use crate::groups::test_support::MlsGroupExt;
+    use crate::groups::test_support::{EnginePeer, EngineTestPeer};
     use crate::prelude::*;
-    use crate::tester;
-    use crate::utils::test::MlsGroupExt;
+
     use rstest::*;
 
     struct RejectMembership {
@@ -1255,8 +1256,8 @@ mod tests {
         use xmtp_db::schema::{incoming_envelopes, key_package_history};
         use xmtp_proto::backend_v1::{client_envelope::Payload, welcome_message::Version};
 
-        tester!(alix, disable_workers);
-        tester!(bo, disable_workers);
+        let alix = EngineTestPeer::new().await;
+        let bo = EngineTestPeer::new().await;
         let group = alix.create_group(None, None).unwrap();
         group.invite(&bo).await.unwrap();
         let welcome = bo
@@ -1469,8 +1470,8 @@ mod tests {
         use xmtp_db::ConnectionExt;
         use xmtp_db::schema::{incoming_envelopes, key_package_history};
 
-        tester!(alix, disable_workers);
-        tester!(bo, disable_workers);
+        let alix = EngineTestPeer::new().await;
+        let bo = EngineTestPeer::new().await;
         let HeldReadd {
             bo_group, welcome, ..
         } = held_readd(&alix, &bo).await;
@@ -1635,7 +1636,7 @@ mod tests {
         use xmtp_db::ConnectionExt;
         use xmtp_db::incoming_envelope::NewIncomingEnvelope;
 
-        tester!(bo, disable_workers);
+        let bo = EngineTestPeer::new().await;
         let service = WelcomeService::new(bo.context.clone());
         let db = bo.context.db();
         db.admit_ordered_batch(
@@ -1726,15 +1727,10 @@ mod tests {
     async fn a_full_held_allowance_rejects_the_oldest_held_welcome() {
         use xmtp_db::incoming_envelope::NewIncomingEnvelope;
 
-        tester!(bo, disable_workers);
-        let mut settings = bo.context.incoming_runtime().policy().clone();
-        settings.welcome_pending.rows = 2;
-        let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
-            .stream_policy(settings)
-            .with_disable_workers(true)
-            .with_allow_offline(Some(true))
-            .build()
-            .await?;
+        let bo = EngineTestPeer::new().await;
+        let client = bo
+            .with_stream_policy(|settings| settings.welcome_pending.rows = 2)
+            .await;
         let service = WelcomeService::new(client.context.clone());
         let db = client.context.db();
         let limits = client
@@ -1775,7 +1771,7 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn a_rate_limited_welcome_retries_after_the_delay() {
         use xmtp_db::incoming_envelope::NewIncomingEnvelope;
-        tester!(bo, disable_workers);
+        let bo = EngineTestPeer::new().await;
         let service = WelcomeService::new(bo.context.clone());
         let db = bo.context.db();
         db.admit_ordered_batch(
@@ -1812,7 +1808,7 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn a_pointee_rate_limit_never_outlasts_its_retention() {
         use xmtp_db::incoming_envelope::NewIncomingEnvelope;
-        tester!(bo, disable_workers);
+        let bo = EngineTestPeer::new().await;
         let service = WelcomeService::new(bo.context.clone());
         let db = bo.context.db();
         db.admit_ordered_batch(
@@ -1856,11 +1852,11 @@ mod tests {
         use xmtp_db::ConnectionExt;
         use xmtp_db::schema::incoming_envelopes;
 
-        tester!(alix, disable_workers);
-        tester!(bo, disable_workers);
+        let alix = EngineTestPeer::new().await;
+        let bo = EngineTestPeer::new().await;
         let _other_installations = if pointer {
-            tester!(bo2, from: bo, disable_workers);
-            tester!(bo3, from: bo, disable_workers);
+            let bo2 = bo.new_installation().await;
+            let bo3 = bo.new_installation().await;
             Some((bo2, bo3))
         } else {
             None
@@ -1990,10 +1986,10 @@ mod tests {
         use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
         use xmtp_db::{ConnectionExt, schema::incoming_envelopes};
 
-        tester!(alix, disable_workers);
-        tester!(bo, disable_workers);
-        tester!(_bo2, from: bo, disable_workers);
-        tester!(_bo3, from: bo, disable_workers);
+        let alix = EngineTestPeer::new().await;
+        let bo = EngineTestPeer::new().await;
+        let _bo2 = bo.new_installation().await;
+        let _bo3 = bo.new_installation().await;
         let group = alix.create_group(None, None).unwrap();
         group.invite(&bo).await.unwrap();
         let welcome = bo
@@ -2040,16 +2036,13 @@ mod tests {
             }
             .into())
         });
-        let missing_client = crate::builder::ClientBuilder::from_client(bo.client.clone())
-            .api_client(std::sync::Arc::new(api))
-            .config_provider(std::sync::Arc::new(
-                xmtp_configuration::StaticConfigProvider::default(),
-            ))
-            .with_allow_offline(Some(true))
-            .with_disable_workers(true)
-            .build()
-            .await
-            .unwrap();
+        let missing_client: EngineTestPeer<_> = bo
+            .with_api(std::sync::Arc::new(api), None, |options| {
+                options.config_provider = Some(std::sync::Arc::new(
+                    xmtp_configuration::StaticConfigProvider::default(),
+                ))
+            })
+            .await;
         for _ in 0..2 {
             let missing_service = WelcomeService::new(missing_client.context.clone());
             assert!(matches!(
@@ -2172,10 +2165,10 @@ mod tests {
         use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
         use xmtp_db::{ConnectionExt, schema::incoming_envelopes};
 
-        tester!(alix, disable_workers);
-        tester!(bo, disable_workers);
-        tester!(_bo2, from: bo, disable_workers);
-        tester!(_bo3, from: bo, disable_workers);
+        let alix = EngineTestPeer::new().await;
+        let bo = EngineTestPeer::new().await;
+        let _bo2 = bo.new_installation().await;
+        let _bo3 = bo.new_installation().await;
         let group = alix.create_group(None, None).unwrap();
         group.invite(&bo).await.unwrap();
         let welcome = bo
@@ -2248,16 +2241,13 @@ mod tests {
                 xmtp_api_grpc::error::GrpcError::Status(status),
             ))
         });
-        let failing_client = crate::builder::ClientBuilder::from_client(bo.client.clone())
-            .api_client(std::sync::Arc::new(api))
-            .config_provider(std::sync::Arc::new(
-                xmtp_configuration::StaticConfigProvider::default(),
-            ))
-            .with_allow_offline(Some(true))
-            .with_disable_workers(true)
-            .build()
-            .await
-            .unwrap();
+        let failing_client: EngineTestPeer<_> = bo
+            .with_api(std::sync::Arc::new(api), None, |options| {
+                options.config_provider = Some(std::sync::Arc::new(
+                    xmtp_configuration::StaticConfigProvider::default(),
+                ))
+            })
+            .await;
         let failing_service = WelcomeService::new(failing_client.context.clone());
         let blocked = unreadable || !retryable;
         assert!(matches!(
@@ -2326,8 +2316,8 @@ mod tests {
         use xmtp_db::schema::incoming_envelopes;
         use xmtp_proto::backend_v1::{client_envelope::Payload, welcome_message::Version};
 
-        tester!(alix, disable_workers);
-        tester!(bo, disable_workers);
+        let alix = EngineTestPeer::new().await;
+        let bo = EngineTestPeer::new().await;
         let first_group = alix.create_group(None, None)?;
         first_group.invite(&bo).await?;
         let second_group = alix.create_group(None, None)?;
@@ -2411,8 +2401,8 @@ mod tests {
     #[case::retry(true)]
     #[xmtp_common::test(unwrap_try = true)]
     async fn welcome_rejection_commits_only_terminal_progress(#[case] retryable: bool) {
-        tester!(alix, disable_workers);
-        tester!(bo, disable_workers);
+        let alix = EngineTestPeer::new().await;
+        let bo = EngineTestPeer::new().await;
         let group = alix.create_group(None, None).unwrap();
         group.invite(&bo).await.unwrap();
         let welcome = bo
@@ -2454,8 +2444,8 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn later_welcome_completion_keeps_earlier_retry_pending() {
-        tester!(alix, disable_workers);
-        tester!(bo, disable_workers);
+        let alix = EngineTestPeer::new().await;
+        let bo = EngineTestPeer::new().await;
         let first_group = alix.create_group(None, None)?;
         first_group.invite(&bo).await?;
         let second_group = alix.create_group(None, None)?;

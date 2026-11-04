@@ -1,8 +1,7 @@
 //! The engine picks the inboxes whose identity updates it must load.
 
-use crate::builder::ClientBuilder;
+use crate::groups::test_support::EngineTestPeer;
 use xmtp_common::rand_vec;
-use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_db::{
     ConnectionExt, db_connection::DbConnection, identity_update::StoredIdentityUpdate, prelude::*,
 };
@@ -21,8 +20,7 @@ where
 #[rstest::rstest]
 #[xmtp_common::test]
 async fn load_identity_updates_if_needed() {
-    let wallet = generate_local_wallet();
-    let client = ClientBuilder::new_test_client(&wallet).await;
+    let client = EngineTestPeer::new_with(|o| o.triggers = true).await;
     let conn = client.context.db();
 
     insert_identity_update(&conn, "inbox_1", 1);

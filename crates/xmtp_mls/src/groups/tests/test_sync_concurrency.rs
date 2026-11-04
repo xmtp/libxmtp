@@ -1,6 +1,7 @@
 //! Concurrent sync, cursors, and fork detection.
 
 use super::*;
+use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 
 // verifies: PROC-055
 #[xmtp_common::test(unwrap_try = true)]
@@ -21,9 +22,9 @@ async fn far_forward_application_message_is_rejected_and_later_message_arrives()
 
     const LAST_ACCEPTABLE_GENERATION: u32 = 1_000;
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     let alix_group = alix.create_group(None, None)?;
     alix_group
         .add_members(&[bo.inbox_id(), caro.inbox_id()])
@@ -167,8 +168,8 @@ async fn far_forward_proposal_stays_held() {
 
     const PROPOSAL_COUNT: u32 = 1_002;
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
     let bo_group = receive_group_invite(&bo).await;
@@ -243,8 +244,8 @@ async fn process_messages_abort_on_retryable_error() {
     use xmtp_db::incoming_envelope::{IncomingRetry, QueryIncomingEnvelope, StreamTopic};
     use xmtp_proto::types::{OrderedEnvelopeBatch, Topic};
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
     let bo_group = receive_group_invite(&bo).await;
@@ -350,8 +351,8 @@ async fn skip_already_processed_messages() {
     use xmtp_db::incoming_envelope::{QueryIncomingEnvelope, StreamTopic};
     use xmtp_proto::types::{OrderedEnvelopeBatch, Topic};
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
     let bo_group = receive_group_invite(&bo).await;
@@ -406,10 +407,9 @@ async fn skip_already_processed_messages() {
 
 #[xmtp_common::test]
 async fn skip_already_processed_intents() {
-    let alix = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
+    let alix = EngineTestPeer::new_with(|o| o.triggers = true).await;
 
-    let bo_wallet = generate_local_wallet();
-    let bo_client = ClientBuilder::new_test_client_vanilla(&bo_wallet).await;
+    let bo_client = EngineTestPeer::new_with(|o| o.triggers = true).await;
 
     let alix_group = alix.create_group(None, None).unwrap();
 
@@ -436,90 +436,14 @@ async fn skip_already_processed_intents() {
     assert_ok!(process_result);
 }
 
-#[xmtp_common::test(flavor = "multi_thread")]
-async fn test_parallel_syncs() {
-    tester!(alix1, sync_worker);
-
-    let alix1_group = alix1.create_group(None, None).unwrap();
-
-    tester!(alix2, from: alix1);
-
-    let sync_tasks: Vec<_> = (0..10)
-        .map(|_| {
-            let group_clone = alix1_group.clone();
-            // Each of these syncs is going to trigger the client to invite alix2 to the group
-            // because of the race
-            xmtp_common::spawn(None, async move { group_clone.sync().await }).join()
-        })
-        .collect();
-
-    let results = join_all(sync_tasks).await;
-
-    // Check if any of the syncs failed
-    for result in results.into_iter() {
-        assert!(result.is_ok(), "Sync error {:?}", result.err());
-    }
-
-    // Make sure that only one welcome was sent
-    let alix2_welcomes = alix1
-        .context
-        .api()
-        .query_welcome_messages(alix2.installation_public_key())
-        .await
-        .unwrap();
-    assert_eq!(alix2_welcomes.len(), 1);
-
-    // The installation Add is inline. The refresh emits a membership
-    // AppDataUpdate proposal and the commit that consumes it.
-    let group_messages = alix1
-        .context
-        .api()
-        .query_group_messages(alix1_group.group_id)
-        .await
-        .unwrap();
-    assert_eq!(group_messages.len(), 2);
-
-    let alix2_group = receive_group_invite(&alix2).await;
-
-    // Send a message from alix1
-    alix1_group
-        .send_message("hi from alix1".as_bytes(), SendMessageOpts::default())
-        .await
-        .unwrap();
-    // Send a message from alix2
-    alix2_group
-        .send_message("hi from alix2".as_bytes(), SendMessageOpts::default())
-        .await
-        .unwrap();
-
-    // Sync both clients
-    alix1_group.sync().await.unwrap();
-    alix2_group.sync().await.unwrap();
-
-    let alix1_messages = alix1_group.find_messages(&MsgQueryArgs::default()).unwrap();
-    let alix2_messages = alix2_group.find_messages(&MsgQueryArgs::default()).unwrap();
-    assert_eq!(alix1_messages.len(), alix2_messages.len() - 1);
-
-    assert!(
-        alix1_messages
-            .iter()
-            .any(|m| m.decrypted_message_bytes == "hi from alix2".as_bytes())
-    );
-    assert!(
-        alix2_messages
-            .iter()
-            .any(|m| m.decrypted_message_bytes == "hi from alix1".as_bytes())
-    );
-}
-
 #[rstest::rstest]
 #[xmtp_common::test(flavor = "multi_thread")]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn add_missing_installs_reentrancy() {
-    tester!(alix1);
+    let alix1 = EngineTestPeer::new().await;
     let alix1_group = alix1.create_group(None, None).unwrap();
 
-    tester!(alix2, from: alix1);
+    let alix2 = alix1.new_installation().await;
 
     // We are going to run add_missing_installations TWICE
     // which will create two intents to add the installations
@@ -618,10 +542,10 @@ async fn add_missing_installs_reentrancy() {
 // verifies: FORK-073
 #[xmtp_common::test(unwrap_try = true, flavor = "multi_thread")]
 async fn test_when_processing_message_return_future_wrong_epoch_group_marked_probably_forked() {
-    use crate::utils::test_mocks_helpers::set_test_mode_future_wrong_epoch;
+    use crate::groups::test_mocks::set_test_mode_future_wrong_epoch;
 
-    tester!(client_a);
-    tester!(client_b);
+    let client_a = EngineTestPeer::new().await;
+    let client_b = EngineTestPeer::new().await;
 
     let group_a = client_a.create_group(None, None).unwrap();
     group_a.add_members(&[client_b.inbox_id()]).await.unwrap();
@@ -666,9 +590,9 @@ async fn test_when_processing_message_return_future_wrong_epoch_group_marked_pro
 
 #[xmtp_common::test(flavor = "multi_thread")]
 async fn can_stream_out_of_order_without_forking() {
-    tester!(client_a1);
-    tester!(client_b);
-    tester!(client_c);
+    let client_a1 = EngineTestPeer::new().await;
+    let client_b = EngineTestPeer::new().await;
+    let client_c = EngineTestPeer::new().await;
 
     // Create a group
     let group_a = client_a1.create_group(None, None).unwrap();
@@ -804,7 +728,7 @@ async fn own_message_without_intent_skips_and_increments_cursor() {
     use xmtp_db::TransactionOutcome::Continue;
     use xmtp_db::incoming_envelope::{QueryIncomingEnvelope, StreamTopic};
 
-    tester!(alice, disable_workers);
+    let alice = EngineTestPeer::new().await;
     let group = alice.create_group(None, None)?;
     group.key_update().await?;
     let topic = StreamTopic::group(group.group_id);
@@ -859,8 +783,8 @@ async fn own_message_without_intent_skips_and_increments_cursor() {
 // A test drives an OpenMLS convenience commit; its GroupInfo never leaves the test.
 #[allow(clippy::disallowed_methods)]
 async fn prepared_commit_keeps_keys_without_advancing_epoch() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.add_members(&[bo.inbox_id()]).await?;
     group.sync().await?;

@@ -1,12 +1,12 @@
 use crate::groups::send_message_opts::SendMessageOptsBuilder;
-use crate::tester;
+use crate::groups::test_support::{EnginePeer, EngineTestPeer};
 
 /// Test that validates the `should_push` field is properly sent to the network
 /// when set to true
 // verifies: SEND-021
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_send_message_should_push() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
 
     // Send a message with should_push set to true

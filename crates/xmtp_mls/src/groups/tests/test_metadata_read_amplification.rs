@@ -12,13 +12,13 @@
 //! release builds, so this measurement adds nothing to the production read path.
 
 use crate::groups::GroupError;
-use crate::tester;
+use crate::groups::test_support::{EnginePeer, EngineTestPeer};
 use xmtp_db::sql_key_store::count_kv_reads;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn metadata_read_amplification() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group
         .update_group_name("Perf Test Group".to_string())

@@ -1,6 +1,6 @@
 use super::*;
+use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 use crate::prelude::*;
-use crate::tester;
 use prost::Message;
 use xmtp_mls_validation::commit::CommitRuleError;
 use xmtp_proto::types::Topic;
@@ -35,16 +35,15 @@ async fn competing_metadata_attempts_from_one_epoch_preserve_both_updates(
     use crate::groups::send_message_opts::SendMessageOpts;
     use xmtp_db::group_message::MsgQueryArgs;
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
     let bo_group = xmtp_common::wait_for_ok(|| async {
         bo.sync_welcomes()
             .await
-            .map_err(crate::client::ClientError::from)
             .and_then(|_| bo.group(&group.group_id))
     })
     .await
@@ -52,7 +51,6 @@ async fn competing_metadata_attempts_from_one_epoch_preserve_both_updates(
     let caro_group = xmtp_common::wait_for_ok(|| async {
         caro.sync_welcomes()
             .await
-            .map_err(crate::client::ClientError::from)
             .and_then(|_| caro.group(&group.group_id))
     })
     .await
@@ -330,7 +328,7 @@ fn golden_attempt_parts() -> (
 #[ignore = "writes fixtures/prepared_attempt_next.cbor.hex for a deliberate format change"]
 #[xmtp_common::test(unwrap_try = true)]
 async fn write_golden_prepared_attempt() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.send_message_optimistic(b"golden prepared attempt", Default::default())?;
     let (_, mut attempt) = prepare_message(&group).await?;
@@ -425,7 +423,7 @@ fn stored_attempt_byte_fields_are_byte_strings() {
 /// later `Option` field existed reads it as `None`.
 #[xmtp_common::test(unwrap_try = true)]
 async fn prepared_attempt_is_cbor_and_checks_its_version() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     group.send_message_optimistic(b"cbor prepared format", Default::default())?;
@@ -491,25 +489,18 @@ async fn prepared_attempt_is_cbor_and_checks_its_version() {
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn rejected_intent_keeps_its_typed_cause_after_restart_and_later_rejection() {
-    use crate::{
-        Client,
-        builder::DeviceSyncMode,
-        groups::intents::{PermissionPolicyOption, PermissionUpdateType},
-        identity::IdentityStrategy,
-        utils::DefaultTestClientCreator,
-    };
-    use std::sync::Arc;
+    use crate::groups::intents::{PermissionPolicyOption, PermissionUpdateType};
+
     use xmtp_common::wait_for_some;
     use xmtp_db::{
-        StorageOption, TestDb, XmtpTestDb,
+        StorageOption,
         incoming_envelope::{QueryIncomingEnvelope, StreamTopic},
     };
-    use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
-    use xmtp_mls_group_state::group_mutable_metadata::MetadataField;
-    use xmtp_proto::{api_client::ApiBuilder, prelude::XmtpTestClient};
 
-    tester!(alix, persistent_db, disable_workers);
-    tester!(bo, disable_workers);
+    use xmtp_mls_group_state::group_mutable_metadata::MetadataField;
+
+    let alix = EngineTestPeer::persistent().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -603,21 +594,17 @@ async fn rejected_intent_keeps_its_typed_cause_after_restart_and_later_rejection
         .is_some()
     );
     drop(group);
+    let owner = alix.owner.clone();
     drop(alix);
 
     // Reopen the original file and cached identity after dropping the first client.
-    let store = TestDb::create_persistent_store(Some(database)).await;
-    let api = Arc::new(DefaultTestClientCreator::create().build()?);
-    let restarted = Client::builder(IdentityStrategy::CachedOnly)
-        .store(store)
-        .api_client(api)
-        .default_mls_store()?
-        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
-        .with_disable_workers(true)
-        .with_commit_log_worker(false)
-        .with_device_sync_worker_mode(Some(DeviceSyncMode::Disabled))
-        .build()
-        .await?;
+    let restarted = EngineTestPeer::open_persistent(
+        owner,
+        &database,
+        crate::identity_lifecycle::IdentityStrategy::CachedOnly,
+        |_| {},
+    )
+    .await;
     let group = restarted.group(&group_id)?;
     let result = group.sync_until_intent_resolved(failed.id).await;
     let Err(GroupError::Sync(summary)) = result else {
@@ -651,8 +638,8 @@ async fn rejected_intent_keeps_its_typed_cause_after_restart_and_later_rejection
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn prepared_proposals_keep_wire_order_after_reload() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let data: Vec<u8> =
         ProposeMemberUpdateIntentData::new(vec![bo.inbox_id().to_string()], vec![]).try_into()?;
@@ -686,7 +673,7 @@ async fn prepared_proposals_keep_wire_order_after_reload() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn lost_publish_reply_retries_exact_prepared_envelopes() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     group.send_message_optimistic(b"lost publish reply", Default::default())?;
@@ -702,8 +689,8 @@ async fn lost_publish_reply_retries_exact_prepared_envelopes() {
     let group_id = group.group_id;
     let snapshot = std::sync::Arc::new(alix.db_snapshot());
     drop(group);
+    let restarted = alix.from_snapshot(&snapshot, |_| {}).await;
     drop(alix);
-    tester!(restarted, snapshot: snapshot, disable_workers);
     let group = restarted.group(&group_id)?;
     let before = group.context.db().prepared_envelopes(intent.id)?.unwrap();
     group.publish_intents().await?;
@@ -754,7 +741,7 @@ async fn lost_publish_reply_retries_exact_prepared_envelopes() {
 // verifies: SEND-008
 #[xmtp_common::test(unwrap_try = true)]
 async fn late_publish_reply_cannot_update_replacement_attempt() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let message_id = group.send_message_optimistic(b"late publish reply", Default::default())?;
@@ -795,7 +782,7 @@ async fn late_publish_reply_cannot_update_replacement_attempt() {
 async fn oversized_unprepared_message_does_not_block_later_intents() {
     use xmtp_db::group_message::DeliveryStatus;
 
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let status_events = alix.context.events().subscribe(
@@ -842,7 +829,7 @@ async fn oversized_unprepared_message_does_not_block_later_intents() {
 async fn malformed_admin_list_intent_does_not_block_later_intents() {
     use crate::groups::intents::{AdminListActionType, UpdateAdminListIntentData};
 
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     // Earlier builds queued the caller's inbox id without parsing it.
     let data: Vec<u8> = UpdateAdminListIntentData::new(AdminListActionType::Add, "x".into()).into();
@@ -861,8 +848,8 @@ async fn malformed_admin_list_intent_does_not_block_later_intents() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn preparation_rejects_changed_proposal_refs_at_the_same_epoch()
 -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let proposal = QueueIntent::propose_member_update()
         .data(Vec::<u8>::try_from(ProposeMemberUpdateIntentData::new(
@@ -910,8 +897,8 @@ async fn preparation_rejects_changed_proposal_refs_at_the_same_epoch()
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn preparation_fences_a_second_snapshot_of_the_same_intent() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let data = group
@@ -982,8 +969,8 @@ async fn preparation_fences_a_second_snapshot_of_the_same_intent() {
 // verifies: SEND-006, SEND-011
 #[xmtp_common::test(unwrap_try = true)]
 async fn welcome_followup_retries_exact_bytes_after_restart() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let data = group
@@ -1011,8 +998,8 @@ async fn welcome_followup_retries_exact_bytes_after_restart() {
     let group_id = group.group_id;
     let snapshot = std::sync::Arc::new(alix.db_snapshot());
     drop(group);
+    let restarted = alix.from_snapshot(&snapshot, |_| {}).await;
     drop(alix);
-    tester!(restarted, snapshot: snapshot, disable_workers);
     let group = restarted.group(&group_id)?;
     let before: StoredGroupIntent = group.context.db().fetch(&intent.id)?.unwrap();
     assert_eq!(before.state, IntentState::Committed);
@@ -1039,8 +1026,8 @@ async fn welcome_followup_retries_exact_bytes_after_restart() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn welcome_followup_requires_ordered_commit_cursor() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let data = group
@@ -1071,7 +1058,7 @@ async fn welcome_followup_requires_ordered_commit_cursor() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn intent_sync_rejects_an_absent_intent() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let absent_id = i32::MAX;
@@ -1084,8 +1071,8 @@ async fn intent_sync_rejects_an_absent_intent() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn send_completes_after_queued_state_changes() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -1127,22 +1114,20 @@ async fn send_completes_after_queued_state_changes() {
 async fn pending_adds_welcome_every_new_leaf_after_commit_readback() {
     use crate::groups::intents::{CommitPendingProposalsIntentData, ProposeMemberUpdateIntentData};
     use xmtp_db::incoming_envelope::{QueryIncomingEnvelope, StreamTopic};
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
     let bo_group = xmtp_common::wait_for_ok(|| async {
-        bo.sync_welcomes()
-            .await
-            .map_err(crate::client::ClientError::from)?;
+        bo.sync_welcomes().await?;
         bo.group(&group.group_id)
     })
     .await?;
     bo_group.receive().await?;
-    tester!(bo2, from: bo, disable_workers);
-    tester!(caro, disable_workers);
-    tester!(caro2, from: caro, disable_workers);
+    let bo2 = bo.new_installation().await;
+    let caro = EngineTestPeer::new().await;
+    let caro2 = caro.new_installation().await;
     let proposal = QueueIntent::propose_member_update()
         .data(Vec::<u8>::try_from(ProposeMemberUpdateIntentData::new(
             vec![bo.inbox_id().into(), caro.inbox_id().into()],
@@ -1192,10 +1177,7 @@ async fn pending_adds_welcome_every_new_leaf_after_commit_readback() {
     );
     for joiner in [&bo2, &caro, &caro2] {
         let joined = xmtp_common::wait_for_ok(|| async {
-            joiner
-                .sync_welcomes()
-                .await
-                .map_err(crate::client::ClientError::from)?;
+            joiner.sync_welcomes().await?;
             joiner.group(&group.group_id)
         })
         .await?;
@@ -1223,23 +1205,18 @@ async fn pending_adds_welcome_every_new_leaf_after_commit_readback() {
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn rejected_own_application_echo_fails_atomically_and_survives_restart() {
-    use crate::{
-        Client, builder::DeviceSyncMode, groups::mls_sync::GroupHeadOutcome,
-        identity::IdentityStrategy, utils::DefaultTestClientCreator,
-    };
+    use crate::groups::mls_sync::GroupHeadOutcome;
     use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl, connection::SimpleConnection};
-    use std::sync::Arc;
+
     use tls_codec::Deserialize;
     use xmtp_db::{
-        ConnectionExt, StorageOption, TestDb, XmtpTestDb,
+        ConnectionExt, StorageOption,
         group_message::DeliveryStatus,
         incoming_envelope::{IncomingRetry, QueryIncomingEnvelope, StreamTopic},
     };
-    use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
-    use xmtp_proto::{
-        api_client::ApiBuilder, prelude::XmtpTestClient, types::OrderedEnvelopeBatch,
-    };
-    tester!(alix, persistent_db, disable_workers);
+
+    use xmtp_proto::types::OrderedEnvelopeBatch;
+    let alix = EngineTestPeer::persistent().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let message_id =
@@ -1394,19 +1371,15 @@ async fn rejected_own_application_echo_fails_atomically_and_survives_restart() {
     drop(events);
     drop(db);
     drop(group);
+    let owner = alix.owner.clone();
     drop(alix);
-    let store = TestDb::create_persistent_store(Some(database)).await;
-    let api = Arc::new(DefaultTestClientCreator::create().build()?);
-    let restarted = Client::builder(IdentityStrategy::CachedOnly)
-        .store(store)
-        .api_client(api)
-        .default_mls_store()?
-        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
-        .with_disable_workers(true)
-        .with_commit_log_worker(false)
-        .with_device_sync_worker_mode(Some(DeviceSyncMode::Disabled))
-        .build()
-        .await?;
+    let restarted = EngineTestPeer::open_persistent(
+        owner,
+        &database,
+        crate::identity_lifecycle::IdentityStrategy::CachedOnly,
+        |_| {},
+    )
+    .await;
     let group = restarted.group(&group_id)?;
     assert_eq!(
         group

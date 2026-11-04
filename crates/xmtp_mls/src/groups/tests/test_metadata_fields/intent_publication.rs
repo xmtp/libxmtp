@@ -1,6 +1,7 @@
 //! Queued metadata intent publication and failure causes.
 
 use super::*;
+use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 use crate::prelude::*;
 
 /// A queued field write is authorized again when its commit is built, so
@@ -9,8 +10,9 @@ use crate::prelude::*;
 // verifies: META-071
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_denied_writes_fail_when_published() {
-    tester!(alix, configured: |c| c.application_components = catalogue());
-    tester!(bo);
+    let alix =
+        EngineTestPeer::new_with(|o| o.configure(|c| c.application_components = catalogue())).await;
+    let bo = EngineTestPeer::new().await;
     alix.create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
     let bo_group = bo.wait_for_welcomes().await?.pop()?;
@@ -139,8 +141,9 @@ fn assert_type_changed(
 // verifies: META-071
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_writes_refused_at_publish_keep_their_field_error() {
-    tester!(alix, configured: |c| c.application_components = catalogue());
-    tester!(bo);
+    let alix =
+        EngineTestPeer::new_with(|o| o.configure(|c| c.application_components = catalogue())).await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -192,7 +195,8 @@ async fn test_writes_refused_at_publish_keep_their_field_error() {
 // verifies: META-071
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_each_refused_write_reports_its_own_field_error() {
-    tester!(alix, configured: |c| c.application_components = catalogue());
+    let alix =
+        EngineTestPeer::new_with(|o| o.configure(|c| c.application_components = catalogue())).await;
     let group = alix.create_group(None, None)?;
     // The first sync checks the installations, which publishes every
     // queued intent. Later syncs publish one commit each. The sync that
@@ -240,8 +244,9 @@ async fn test_each_refused_write_reports_its_own_field_error() {
 // verifies: META-071
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_writes_refused_by_another_sync_keep_their_field_error() {
-    tester!(alix, configured: |c| c.application_components = catalogue());
-    tester!(bo);
+    let alix =
+        EngineTestPeer::new_with(|o| o.configure(|c| c.application_components = catalogue())).await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -269,8 +274,9 @@ async fn test_writes_refused_by_another_sync_keep_their_field_error() {
 // verifies: META-071
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_queued_writes_keep_their_sync_error() {
-    tester!(alix, configured: |c| c.application_components = catalogue());
-    tester!(bo);
+    let alix =
+        EngineTestPeer::new_with(|o| o.configure(|c| c.application_components = catalogue())).await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;

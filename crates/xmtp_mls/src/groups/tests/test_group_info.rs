@@ -1,6 +1,7 @@
 //! A commit never exports a GroupInfo. Its group context holds the group
 //! root, which may leave the client only inside a Welcome.
 
+use crate::groups::test_support::{EnginePeer, EngineTestPeer};
 use crate::{
     context::CoreContext,
     groups::{
@@ -8,7 +9,6 @@ use crate::{
         mls_sync::generate_prepared_commit,
     },
     state_tx::state_write,
-    tester,
 };
 use openmls::messages::proposals::AppDataUpdateOperation;
 use xmtp_db::TransactionOutcome::Continue;
@@ -20,7 +20,7 @@ use xmtp_mls_group_state::app_data::component_id::ComponentId;
 // verifies: GMOD-042
 #[xmtp_common::test(unwrap_try = true)]
 async fn app_data_commit_exports_no_group_info() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let signer = &alix.context.identity().installation_keys;
     let updates = vec![(

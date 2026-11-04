@@ -9,6 +9,7 @@
 use super::faults::{Fault, FaultyApi, FaultyContext, faulty_group, group_message, welcome};
 use super::welcomes::{PreparedWelcomes, WelcomeEnvelopeKind};
 use super::*;
+use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -65,10 +66,7 @@ fn envelopes(bytes: &[Vec<u8>]) -> Vec<wire::ClientEnvelope> {
 }
 
 /// How many times the backend stored `envelope` on its topic.
-async fn stored_copies(
-    tester: &crate::utils::ClientTester,
-    envelope: &wire::ClientEnvelope,
-) -> usize {
+async fn stored_copies(tester: &EngineTestPeer, envelope: &wire::ClientEnvelope) -> usize {
     let topic = xmtp_mls_validation::parse_envelope(envelope.clone())
         .unwrap()
         .topic;
@@ -96,7 +94,7 @@ fn measured_len(envelope: &wire::ClientEnvelope) -> usize {
 /// Rebuild against a deployment snapshot whose envelope bound became smaller
 /// after the exact bytes were saved. The store and identity survive.
 async fn group_after_envelope_limit_shrink(
-    tester: &crate::utils::ClientTester,
+    tester: &EngineTestPeer,
     group_id: &GroupId,
     api: FaultyApi,
     max_envelope_bytes: usize,
@@ -104,14 +102,11 @@ async fn group_after_envelope_limit_shrink(
     let provider = xmtp_configuration::StaticConfigProvider::edited(|snapshot| {
         snapshot.limits.max_envelope_bytes = max_envelope_bytes;
     });
-    let client = crate::builder::ClientBuilder::from_client(tester.client.clone())
-        .api_client(api)
-        .config_provider(Arc::new(provider))
-        .with_disable_workers(true)
-        .with_allow_offline(Some(true))
-        .build()
-        .await
-        .unwrap();
+    let client = tester
+        .with_api(api, None, |options| {
+            options.config_provider = Some(Arc::new(provider))
+        })
+        .await;
     MlsGroup::new_cached(client.context.clone(), group_id)
         .unwrap()
         .0
@@ -125,7 +120,7 @@ async fn group_after_envelope_limit_shrink(
 // verifies: SEND-007
 #[xmtp_common::test(unwrap_try = true)]
 async fn publish_out_of_range_settlement_recovers_a_committed_attempt_after_restart() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let message_id = group.send_message_optimistic(b"lost response", Default::default())?;
@@ -167,7 +162,7 @@ async fn publish_out_of_range_settlement_recovers_a_committed_attempt_after_rest
 // verifies: SEND-007
 #[xmtp_common::test(unwrap_try = true)]
 async fn publish_out_of_range_settlement_fails_an_attempt_the_backend_did_not_store() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let refused_id = group.send_message_optimistic(b"never stored", Default::default())?;
@@ -209,7 +204,7 @@ async fn publish_out_of_range_settlement_fails_an_attempt_the_backend_did_not_st
 // verifies: SEND-007
 #[xmtp_common::test(unwrap_try = true)]
 async fn publish_out_of_range_settlement_reads_every_page_of_the_topic() {
-    tester!(alix, disable_workers, configured: |c| c.limits.max_query_limit = 2);
+    let alix = EngineTestPeer::new_with(|o| o.configure(|c| c.limits.max_query_limit = 2)).await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     for index in 0..5 {
@@ -242,10 +237,10 @@ async fn publish_out_of_range_settlement_reads_every_page_of_the_topic() {
 // verifies: SEND-007, SEND-011
 #[xmtp_common::test(unwrap_try = true)]
 async fn publish_out_of_range_settlement_completes_a_mixed_topic_welcome_batch() {
-    tester!(alix, disable_workers, configured: |c| c.limits.max_publish_topics = 2);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
-    tester!(dan, disable_workers);
+    let alix = EngineTestPeer::new_with(|o| o.configure(|c| c.limits.max_publish_topics = 2)).await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
+    let dan = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     // The batch spans at least two requests. The first to reach the backend
     // commits with its response lost, which ends the batch before the others
@@ -346,7 +341,6 @@ async fn publish_out_of_range_settlement_completes_a_mixed_topic_welcome_batch()
             member
                 .sync_welcomes()
                 .await
-                .map_err(crate::client::ClientError::from)
                 .and_then(|_| member.group(&group.group_id))
         })
         .await
@@ -381,13 +375,10 @@ fn of_kind(welcomes: &PreparedWelcomes, kind: WelcomeEnvelopeKind) -> Vec<wire::
 
 /// A client whose key packages do not advertise pointees, so it gets an
 /// inline Welcome.
-async fn inline_only_tester() -> crate::utils::ClientTester {
+async fn inline_only_tester() -> EngineTestPeer {
     let hook = crate::identity::WelcomePointersHook::new(false);
     let eve = crate::identity::ENABLE_WELCOME_POINTERS
-        .scope(hook.clone(), async {
-            tester!(eve, disable_workers);
-            eve
-        })
+        .scope(hook.clone(), EngineTestPeer::new())
         .await;
     assert!(hook.reads() > 0);
     eve
@@ -395,8 +386,8 @@ async fn inline_only_tester() -> crate::utils::ClientTester {
 
 /// A client whose newest key package has only a classical wrapper, so its
 /// inline Welcome is smaller than one wrapped for a post-quantum key.
-async fn classical_tester() -> crate::utils::ClientTester {
-    tester!(fred, disable_workers);
+async fn classical_tester() -> EngineTestPeer {
+    let fred = EngineTestPeer::new().await;
     crate::identity_lifecycle::rotate_and_upload_key_package(
         fred.identity(),
         fred.context.api(),
@@ -453,8 +444,8 @@ fn a_failed_configuration_check_is_not_a_backend_status() {
 // verifies: SEND-023, SEND-025
 #[xmtp_common::test(unwrap_try = true)]
 async fn smaller_limit_fails_an_unstored_welcome_batch() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let api = FaultyApi::new(&alix, welcome, [Fault::Refuse(tonic::Code::OutOfRange)]);
     api.stop_before_recovery.store(true, Ordering::SeqCst);
@@ -526,10 +517,10 @@ async fn smaller_limit_fails_an_unstored_welcome_batch() {
 async fn smaller_limit_republishes_the_pointers_of_a_stored_pointee(
     #[case] fault: Option<Fault>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
-    tester!(dan, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
+    let dan = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let (intent_id, welcomes) =
@@ -604,10 +595,10 @@ async fn smaller_limit_publishes_pointers_whose_pointee_is_stored(
     #[case] fault: Option<Fault>,
     #[case] pointers_sent: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
-    tester!(dan, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
+    let dan = EngineTestPeer::new().await;
     let eve = inline_only_tester().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
@@ -669,7 +660,6 @@ async fn smaller_limit_publishes_pointers_whose_pointee_is_stored(
                 member
                     .sync_welcomes()
                     .await
-                    .map_err(crate::client::ClientError::from)
                     .and_then(|_| member.group(&group.group_id))
             })
             .await
@@ -684,8 +674,8 @@ async fn smaller_limit_publishes_pointers_whose_pointee_is_stored(
 // verifies: SEND-025
 #[xmtp_common::test(unwrap_try = true)]
 async fn smaller_limit_publishes_the_inline_welcomes_that_fit() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let fred = classical_tester().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
@@ -721,8 +711,8 @@ async fn smaller_limit_publishes_the_inline_welcomes_that_fit() {
 async fn smaller_limit_fails_a_fresh_welcome_batch() {
     /// Below the size of any Welcome.
     const SMALL_ENVELOPE_BYTES: usize = 256;
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let intent_id = commit_membership_change(&group, &[bo.inbox_id()]).await;
@@ -759,8 +749,8 @@ async fn smaller_limit_fails_a_fresh_welcome_batch() {
 async fn follow_up_errors_are_reported_from_the_earliest_intent(
     #[case] earlier_fits: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     // Fred's Welcome is classical and small; Bo's is post-quantum and larger.
     let fred = classical_tester().await;
     let group = alix.create_group(None, None)?;
@@ -835,8 +825,8 @@ async fn follow_up_errors_are_reported_from_the_earliest_intent(
 async fn refused_welcome_publish_ends_the_batch(
     #[case] faults: Vec<Fault>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let requests = faults.len();
     let api = FaultyApi::new(&alix, welcome, faults);
@@ -864,12 +854,12 @@ async fn refused_welcome_publish_ends_the_batch(
 #[xmtp_common::test(unwrap_try = true)]
 async fn send_goes_on_when_refreshed_installations_get_no_welcome() {
     use xmtp_db::{ConnectionExt, diesel::prelude::*, schema::groups::dsl};
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    tester!(_bo2, from: bo, disable_workers);
+    let _bo2 = bo.new_installation().await;
     let api = FaultyApi::new(
         &alix,
         welcome,
@@ -900,8 +890,8 @@ async fn send_goes_on_when_refreshed_installations_get_no_welcome() {
 // verifies: SEND-011
 #[xmtp_common::test(unwrap_try = true)]
 async fn next_send_publishes_owed_welcomes() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let membership = commit_membership_change(&group, &[bo.inbox_id()]).await;
@@ -947,7 +937,7 @@ fn save_oversized_attempt<C: XmtpSharedContext>(
 // verifies: SEND-007, SEND-009
 #[xmtp_common::test(unwrap_try = true)]
 async fn publish_settlement_fails_an_oversized_saved_attempt_the_backend_did_not_store() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let saved_id =
@@ -982,7 +972,7 @@ async fn publish_settlement_fails_an_oversized_saved_attempt_the_backend_did_not
 // verifies: SEND-007
 #[xmtp_common::test(unwrap_try = true)]
 async fn publish_settlement_recovers_an_oversized_saved_attempt_the_backend_stored() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let message_id =

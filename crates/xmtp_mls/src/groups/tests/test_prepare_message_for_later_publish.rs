@@ -1,8 +1,8 @@
 use crate::context::CoreContext;
 use crate::groups::message_id::calculate_message_id;
 use crate::groups::send_message_opts::SendMessageOpts;
+use crate::groups::test_support::{EnginePeer, EngineTestPeer};
 use crate::groups::{DeliveryStatus, GroupError};
-use crate::tester;
 use xmtp_common::RetryableError;
 use xmtp_db::group_intent::{IntentKind, IntentState, QueryGroupIntent};
 use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs};
@@ -10,7 +10,7 @@ use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs};
 /// Prepared messages stay local until an explicit publish. Repeated publish is idempotent.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_prepared_message_requires_explicit_idempotent_publish() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let message_id = group.prepare_message_for_later_publish(b"test message", true, None)?;
     let query = MsgQueryArgs {
@@ -54,7 +54,7 @@ async fn test_prepared_message_requires_explicit_idempotent_publish() {
 /// Test that multiple messages can be prepared and then selectively published.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_selective_publish_of_prepared_messages() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
 
     let id_1 = group.prepare_message_for_later_publish(b"message one", true, None)?;
@@ -91,7 +91,7 @@ async fn test_selective_publish_of_prepared_messages() {
 /// (the random default), preserving the historical always-unique behavior.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_default_idempotency_key_is_unique_per_send() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
 
     let id_1 = group.prepare_message_for_later_publish(b"same content", true, None)?;
@@ -110,7 +110,7 @@ async fn test_default_idempotency_key_is_unique_per_send() {
 // verifies: SEND-002, SEND-003
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_duplicate_idempotency_key_is_idempotent() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
 
     let key = "retry-key".to_string();
@@ -146,9 +146,9 @@ async fn test_duplicate_idempotency_key_is_idempotent() {
 async fn test_idempotency_key_crosses_the_wire(
     #[case] mode: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix, disable_workers);
-    tester!(alix2, from: alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let alix2 = alix.new_installation().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.add_members(&[bo.inbox_id()]).await?;
 
@@ -190,7 +190,10 @@ async fn test_idempotency_key_crosses_the_wire(
     let alix2_groups = alix2.wait_for_welcomes().await?;
     let alix2_group = &alix2_groups[0];
     alix2_group.sync().await?;
-    assert_ne!(alix.installation_id, alix2.installation_id);
+    assert_ne!(
+        alix.context.installation_id(),
+        alix2.context.installation_id()
+    );
     let opts = || SendMessageOpts {
         should_push: true,
         idempotency_key: Some(key.clone()),

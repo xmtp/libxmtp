@@ -2,17 +2,17 @@
 //! installation of the same inbox.
 
 #[cfg(not(target_arch = "wasm32"))]
+use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
+#[cfg(not(target_arch = "wasm32"))]
 use {
-    crate::builder::ClientBuilder, crate::utils::FullXmtpClient,
-    crate::utils::test::identity::get_association_state,
-    xmtp_cryptography::utils::generate_local_wallet,
+    crate::groups::test_support::get_association_state,
     xmtp_id::associations::test_utils::add_wallet_signature,
 };
 
 /// Creates a group of `client`'s inbox alone, so it adds the inbox's other
 /// installations, and returns its failed installations and leaf keys.
 #[cfg(not(target_arch = "wasm32"))]
-async fn own_installation_group(client: &FullXmtpClient) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
+async fn own_installation_group(client: &EngineTestPeer) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
     let group = client.create_group(None, None).unwrap();
     group.add_missing_installations().await.unwrap();
     group
@@ -30,11 +30,11 @@ async fn own_installation_group(client: &FullXmtpClient) -> (Vec<Vec<u8>>, Vec<V
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::test(flavor = "multi_thread")]
 pub async fn revoke_installation_with_malformed_keypackage() {
-    use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
+    use crate::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage;
 
-    let wallet = generate_local_wallet();
-    let client1: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
-    let client2: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
+    let client1 = EngineTestPeer::new_with(|o| o.triggers = true).await;
+    let wallet = client1.owner.clone();
+    let client2 = client1.new_installation_with(|o| o.triggers = true).await;
 
     let association_state = get_association_state(&client1, client1.inbox_id()).await;
     // Ensure there are two installations on the inbox
@@ -69,12 +69,12 @@ pub async fn revoke_installation_with_malformed_keypackage() {
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::test(flavor = "multi_thread")]
 pub async fn revoke_good_installation_with_other_malformed_keypackage() {
-    use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
+    use crate::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage;
 
-    let wallet = generate_local_wallet();
-    let client1: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
-    let client2: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
-    let client3: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
+    let client1 = EngineTestPeer::new_with(|o| o.triggers = true).await;
+    let wallet = client1.owner.clone();
+    let client2 = client1.new_installation_with(|o| o.triggers = true).await;
+    let client3 = client1.new_installation_with(|o| o.triggers = true).await;
 
     let association_state = get_association_state(&client1, client1.inbox_id()).await;
     // Ensure there are two installations on the inbox

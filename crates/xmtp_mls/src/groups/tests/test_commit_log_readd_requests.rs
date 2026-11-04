@@ -1,7 +1,7 @@
+use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 use crate::{
     context::CoreContext,
     groups::{UpdateAdminListType, commit_log::CommitLogWorker, oneshot::Oneshot},
-    tester,
 };
 use xmtp_db::{consent_record::ConsentState, group::QueryGroup, prelude::QueryReaddStatus};
 
@@ -15,9 +15,9 @@ use xmtp_proto::{
 async fn test_readd_installation_succeeds() {
     use xmtp_db::{prelude::QueryRefreshState, refresh_state::EntityKind};
 
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
 
     let a_group = alix
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
@@ -126,10 +126,10 @@ async fn test_readd_installation_succeeds() {
 // verifies: FORK-051, FORK-064
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_readd_bookkeeping() {
-    tester!(alix, disable_workers, enable_fork_recovery_requests);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
-    tester!(devon, disable_workers);
+    let alix = EngineTestPeer::new_with(|o| o.enable_fork_recovery_requests()).await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
+    let devon = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(
             &[bo.inbox_id(), caro.inbox_id(), devon.inbox_id()],
@@ -264,8 +264,8 @@ async fn test_readd_bookkeeping() {
 #[xmtp_common::test]
 async fn test_request_readd_with_allowlisted_groups() {
     // Step 1: Bo creates a group
-    tester!(bo);
-    tester!(caro);
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
 
     let group = bo
         .create_group_with_members(&[caro.inbox_id()], None, None)
@@ -278,7 +278,10 @@ async fn test_request_readd_with_allowlisted_groups() {
     let unnormalized_group_id = "0x".to_owned() + &group_id_hex.to_uppercase();
 
     // Step 2: Create Alix with that group ID in the allowlist
-    tester!(alix, enable_fork_recovery_requests_for: vec![unnormalized_group_id]);
+    let alix = EngineTestPeer::new_with(|o| {
+        o.enable_fork_recovery_requests_for(vec![unnormalized_group_id])
+    })
+    .await;
 
     // Step 3: Bo adds Alix to the group
     group
@@ -362,7 +365,7 @@ async fn a_readd_without_a_usable_key_package_waits(
         intents::{QueueIntent, ReaddInstallationsIntentData},
         mls_sync::{note_retries, retry_due},
     };
-    use crate::utils::test_mocks_helpers::{
+    use crate::identity_lifecycle::test_mocks::{
         RestoreKeyPackages, set_test_mode_upload_malformed_keypackage,
     };
     use openmls::prelude::{AppDataUpdateOperation, Proposal};
@@ -376,9 +379,9 @@ async fn a_readd_without_a_usable_key_package_waits(
     use xmtp_mls_validation::commit::extract_group_membership;
     use xmtp_proto::types::Topic;
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
@@ -607,8 +610,8 @@ async fn a_readd_without_a_usable_key_package_waits(
 // verifies: FORK-050, FORK-053, FORK-080, GMOD-052, FORK-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_dm_peer_answers_a_readd_request() {
-    tester!(alix, disable_workers, enable_fork_recovery_requests);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new_with(|o| o.enable_fork_recovery_requests()).await;
+    let bo = EngineTestPeer::new().await;
     let dm = alix
         .find_or_create_dm(bo.inbox_id().to_string(), None)
         .await?;
@@ -704,8 +707,8 @@ async fn a_reversible_failure_keeps_the_readd_request(
 ) -> Result<(), Box<dyn std::error::Error>> {
     use xmtp_db::{ConnectionExt, diesel::RunQueryDsl, prelude::QueryGroupVersion};
 
-    tester!(alix, disable_workers, enable_fork_recovery_requests);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new_with(|o| o.enable_fork_recovery_requests()).await;
+    let bo = EngineTestPeer::new().await;
     let dm = alix
         .find_or_create_dm(bo.inbox_id().to_string(), None)
         .await?;
@@ -773,8 +776,8 @@ async fn a_reversible_failure_keeps_the_readd_request(
 async fn a_moot_readd_request_drops_while_paused() {
     use xmtp_db::prelude::QueryGroupVersion;
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let dm = alix
         .find_or_create_dm(bo.inbox_id().to_string(), None)
         .await?;
@@ -810,9 +813,9 @@ async fn a_readder_promoted_in_an_unsynced_commit_answers() {
         refresh_state::EntityKind,
     };
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
@@ -863,9 +866,11 @@ async fn a_readder_promoted_in_an_unsynced_commit_answers() {
 // verifies: FORK-050, FORK-080, FORK-064, GMOD-052
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_dm_readd_is_answered_once_by_peer_or_sibling() {
-    tester!(alix, disable_workers, enable_fork_recovery_requests);
-    tester!(alix2, from: alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new_with(|o| o.enable_fork_recovery_requests()).await;
+    let alix2 = alix
+        .new_installation_with(|o| o.enable_fork_recovery_requests())
+        .await;
+    let bo = EngineTestPeer::new().await;
     let dm = alix
         .find_or_create_dm(bo.inbox_id().to_string(), None)
         .await?;
@@ -938,8 +943,8 @@ async fn a_dm_readd_is_answered_once_by_peer_or_sibling() {
 async fn a_future_readd_claim_publishes_no_commit(
     #[case] claimed: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .find_or_create_dm(bo.inbox_id().to_string(), None)
         .await?;
@@ -996,8 +1001,8 @@ async fn a_claim_at_the_processed_cursor_is_answered_once() {
         refresh_state::EntityKind,
     };
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;

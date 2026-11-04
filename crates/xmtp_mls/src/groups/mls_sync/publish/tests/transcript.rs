@@ -1,5 +1,6 @@
 use super::*;
 use crate::groups::send_message_opts::SendMessageOpts;
+use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 use xmtp_events::{ClientEvent, EventFilter, EventKind, MessageStatus};
 use xmtp_proto::api::HasStats;
 use xmtp_proto::xmtp::mls::message_contents::{EncodedContent, plaintext_envelope::V1};
@@ -71,7 +72,7 @@ fn status<Context: XmtpSharedContext>(group: &MlsGroup<Context>, id: &[u8]) -> D
 // verifies: GMOD-054
 #[xmtp_common::test(unwrap_try = true)]
 async fn transcript_types_are_never_sent() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let publish_count = || {
@@ -144,7 +145,7 @@ async fn reply_wrapping_a_transcript_type_is_never_sent() {
     };
     use xmtp_proto::xmtp::mls::message_contents::Compression;
 
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     for type_id in ["group_updated", "group_membership_change"] {
@@ -265,7 +266,7 @@ async fn over_budget_reply_is_refused_before_writes() {
     malformed.content = vec![0xff];
     assert!(!carries_reserved_transcript(&malformed.encode_to_vec()));
 
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     // The supported boundary is accepted through the real preparation API.
@@ -313,7 +314,7 @@ async fn over_budget_reply_is_refused_before_writes() {
 // verifies: GMOD-054
 #[xmtp_common::test(unwrap_try = true)]
 async fn stored_reserved_message_fails_at_publish() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let publish_count = || {
@@ -370,7 +371,7 @@ async fn stored_reserved_message_fails_at_publish() {
 // verifies: GMOD-054
 #[xmtp_common::test(unwrap_try = true)]
 async fn queued_reserved_intent_fails_without_blocking_later_sends() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let publish_count = || {
@@ -408,7 +409,7 @@ async fn stored_reserved_message_with_saved_attempt_is_not_refused() {
     use xmtp_db::diesel::prelude::*;
     use xmtp_db::{ConnectionExt, schema::group_intents::dsl};
 
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
     let key = "old-saved";
@@ -499,8 +500,8 @@ async fn publish_raw_application<Context: XmtpSharedContext>(
 async fn received_reserved_type_stays_an_application_message() {
     use xmtp_db::group_message::GroupMessageKind;
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
