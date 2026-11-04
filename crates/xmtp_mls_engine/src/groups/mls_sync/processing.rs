@@ -268,7 +268,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 };
                 let error = if error.is_missing_proposal()
                     && tx.with_group(self.group_id, |group, storage| {
-                        proposal_state_lost(group, &storage.db(), self.group_id)
+                        proposal_state_lost(group, &storage.db(), self.group_id, envelope)
                     })? {
                     GroupMessageProcessingError::LostProposalState
                 } else {
@@ -397,12 +397,22 @@ fn group_is_restored(
 /// its own epoch, so if the store holds every delivered one, a missing
 /// reference was absent from the prefix. Any lost delivered proposal holds the
 /// commit, because the evidence cannot name the reference the commit lacks.
+/// An own commit's missing proposal is never lost state: its author fails it
+/// only after finding a reference that was never delivered.
 // implements: PROC-011, PROC-012
 fn proposal_state_lost(
     group: &OpenMlsGroup,
     db: &impl DbQuery,
     group_id: GroupId,
+    envelope: &GroupMessage,
 ) -> Result<bool, GroupMessageProcessingError> {
+    // implements: GMOD-058
+    if db
+        .find_group_intent_by_payload_hash(envelope.payload_hash.as_slice())?
+        .is_some_and(|intent| intent.group_id == group_id)
+    {
+        return Ok(false);
+    }
     let held: HashSet<&[u8]> = group
         .pending_proposals()
         .map(|proposal| proposal.proposal_reference_ref().as_slice())

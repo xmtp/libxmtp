@@ -214,6 +214,8 @@ where
                     for reference in rejected_refs {
                         // Every member evicts the same proposals, so a later
                         // reference to one is absent, not lost local state.
+                        // An author whose saved commit references one checks
+                        // it again on its echo and rejects it as peers do.
                         db.forget_received_proposal(
                             self.group_id,
                             group.epoch().as_u64() as i64,

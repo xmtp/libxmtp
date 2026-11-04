@@ -310,6 +310,212 @@ async fn preparation_rejects_changed_proposal_refs_at_the_same_epoch()
     Ok(())
 }
 
+/// Publish a standalone proposal that inserts `owner`'s display name.
+async fn propose_display_name<C: XmtpSharedContext>(
+    group: &MlsGroup<C>,
+    owner: &str,
+    display_name: &[u8],
+) -> Result<(), GroupError> {
+    use openmls::messages::proposals::AppDataUpdateOperation;
+    use tls_codec::{Serialize, VLBytes};
+    use xmtp_mls_group_state::{app_data::component_id::ComponentId, inbox_id::InboxId};
+    use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
+
+    let name = TlsMapDelta::<InboxId, VLBytes>::new()
+        .insert(
+            InboxId::from_hex(owner).expect("a hex inbox id"),
+            VLBytes::new(display_name.to_vec()),
+        )
+        .tls_serialize_detached()?;
+    let signer = &group.context.identity().installation_keys;
+    let message = xmtp_mls_core::state_tx::state_write(group.context.mls_storage(), |tx| {
+        tx.with_group(group.group_id, |mls, storage| {
+            let (message, _) = mls
+                .propose_app_data_update(
+                    &xmtp_db::XmtpOpenMlsProviderRef::new(storage),
+                    signer,
+                    ComponentId::USER_DISPLAY_NAME.as_u16(),
+                    AppDataUpdateOperation::Update(name.clone().into()),
+                )
+                .map_err(GroupError::Proposal)?;
+            Ok::<_, GroupError>(Continue(message.tls_serialize_detached()?))
+        })
+    })?
+    .into_continued();
+    let messages = group.prepare_group_messages(vec![(message.as_slice(), false)])?;
+    group.context.api().send_group_messages(messages).await?;
+    Ok(())
+}
+
+/// An author checks the proposals its saved commit references the way peers
+/// resolve them. When every member dropped one and its delivery record, all
+/// of them reject the commit, the author included. When only the author's
+/// store lost it and its delivery is still recorded, all of them apply it.
+/// The author's rejection stays terminal when its store has also lost another
+/// delivered proposal.
+// verifies: GMOD-058
+#[rstest::rstest]
+#[case::evicted_everywhere(true, false)]
+#[case::lost_by_the_author(false, false)]
+#[case::evicted_with_another_lost_proposal(true, true)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn own_echo_rejects_commit_whose_reference_was_evicted(
+    #[case] evicted: bool,
+    #[case] another_lost: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use xmtp_db::{
+        encrypted_store::remote_commit_log::CommitResult,
+        incoming_envelope::{QueryIncomingEnvelope, StreamTopic},
+    };
+
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.wait_for_welcomes().await?.remove(0);
+    propose_display_name(&bo_group, bo.inbox_id(), b"Bo").await?;
+    if another_lost {
+        propose_display_name(&bo_group, bo.inbox_id(), b"Bob").await?;
+    }
+    let proposals = if another_lost { 2 } else { 1 };
+    let pending = |group: &MlsGroup<_>| {
+        group.with_group_snapshot(|mls| {
+            Ok(mls
+                .pending_proposals()
+                .map(|proposal| proposal.proposal_reference_ref().clone())
+                .collect::<Vec<_>>())
+        })
+    };
+    // Reads can lag writes, so each member syncs until it holds the proposal.
+    for member in [&group, &bo_group] {
+        xmtp_common::wait_for_eq(
+            || async {
+                member.sync().await.unwrap();
+                pending(member).unwrap().len()
+            },
+            proposals,
+        )
+        .await?;
+    }
+    let references = pending(&group)?;
+    assert_eq!(pending(&bo_group)?, references);
+    let reference = references[0].clone();
+
+    QueueIntent::metadata_update()
+        .data(Vec::<u8>::from(
+            UpdateMetadataIntentData::new_update_group_name("after".into()),
+        ))
+        .queue(&group)?;
+    let (intent, attempt) = prepare_kind(&group, IntentKind::MetadataUpdate).await?;
+    if another_lost {
+        // Alix's store loses the second proposal; its delivery stays recorded.
+        let lost = references[1].clone();
+        xmtp_mls_core::state_tx::state_write(group.context.mls_storage(), |tx| {
+            tx.with_group(group.group_id, |mls, storage| {
+                mls.remove_pending_proposal(storage, &lost).unwrap();
+                Ok::<_, GroupError>(Continue(()))
+            })
+        })?;
+    }
+    // Eviction drops the proposal and its delivery record on every member;
+    // a local loss drops only the author's stored copy.
+    let members = if evicted {
+        vec![&group, &bo_group]
+    } else {
+        vec![&group]
+    };
+    for member in members {
+        xmtp_mls_core::state_tx::state_write(member.context.mls_storage(), |tx| {
+            tx.with_group(member.group_id, |mls, storage| {
+                if evicted {
+                    storage.db().forget_received_proposal(
+                        member.group_id,
+                        mls.epoch().as_u64() as i64,
+                        reference.as_slice(),
+                    )?;
+                }
+                mls.remove_pending_proposal(storage, &reference).unwrap();
+                Ok::<_, GroupError>(Continue(()))
+            })
+        })?;
+    }
+
+    group.publish_intents().await?;
+    // Alix syncs until its intent resolves, and Bo until it has processed
+    // as far as Alix.
+    let state = || {
+        Fetch::<StoredGroupIntent>::fetch(&group.context.db(), &intent.id)
+            .unwrap()
+            .expect("the intent")
+            .state
+    };
+    xmtp_common::wait_for_eq(
+        || async {
+            let _ = group.sync().await;
+            matches!(state(), IntentState::Published | IntentState::ToPublish)
+        },
+        false,
+    )
+    .await?;
+    let topic = StreamTopic::group(group.group_id);
+    let processed = |member: &crate::groups::test_support::EngineTestGroup| {
+        member
+            .context
+            .db()
+            .topic_progress(&topic)
+            .unwrap()
+            .processed
+    };
+    let target = processed(&group);
+    xmtp_common::wait_for_eq(
+        || async {
+            let _ = bo_group.sync().await;
+            processed(&bo_group) >= target
+        },
+        true,
+    )
+    .await?;
+    let authenticator = |group: &MlsGroup<_>| {
+        group.with_group_snapshot(|mls| Ok(mls.epoch_authenticator().as_slice().to_vec()))
+    };
+    let epoch = group.epoch().await?;
+    assert_eq!(bo_group.epoch().await?, epoch, "the author split");
+    assert_eq!(authenticator(&bo_group)?, authenticator(&group)?);
+    let state = state();
+    let rejected_at = |rejection: Option<xmtp_db::incoming_envelope::TerminalRejection>| {
+        rejection.map(|rejection| rejection.sequence_id)
+    };
+    if evicted {
+        assert_eq!(epoch, attempt.base.epoch);
+        assert_eq!(state, IntentState::Error);
+        let cursor = rejected_at(group.context.db().read_last_rejection(&topic)?);
+        assert!(cursor.is_some(), "the author recorded no rejection");
+        assert_eq!(
+            rejected_at(bo_group.context.db().read_last_rejection(&topic)?),
+            cursor
+        );
+        // The author logs the result a peer's missing-proposal rejection
+        // gives. Bo joined by Welcome and logs nothing for its own epoch.
+        let logged: Vec<_> = group
+            .local_commit_log()
+            .await?
+            .into_iter()
+            .filter(|log| Some(xmtp_proto::types::Cursor(log.commit_sequence_id as u64)) == cursor)
+            .map(|log| log.commit_result)
+            .collect();
+        assert_eq!(logged, [CommitResult::Undecryptable]);
+    } else {
+        assert_eq!(epoch, attempt.base.epoch + 1);
+        assert!(
+            matches!(state, IntentState::Committed | IntentState::Processed),
+            "{state:?}"
+        );
+        assert_eq!(bo_group.group_name()?, "after");
+    }
+    Ok(())
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn preparation_fences_a_second_snapshot_of_the_same_intent() {
     let alix = EngineTestPeer::new().await;
