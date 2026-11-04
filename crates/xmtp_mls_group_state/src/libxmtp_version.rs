@@ -181,6 +181,33 @@ mod tests {
         }
     }
 
+    /// The creation floor pauses `8.0.0-rc4` and earlier, which report
+    /// `1.12.0-dev` or `1.12.0-dev.1`, and admits every build of the 8.0.0
+    /// line. The RC and dev versions follow `release_version` in
+    /// `dev/sdk_version.py`, which a release build reports instead of the
+    /// plain target.
+    // verifies: GMOD-027
+    #[xmtp_common::test(unwrap_try = true)]
+    fn creation_floor_admits_release_builds_and_pauses_rc4() {
+        let floor = LibXMTPVersion::parse(xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION)?;
+        let target = "8.0.0";
+        let (timestamp, sha) = ("20261104000000", "0123456789abcdef0123456789abcdef01234567");
+        let dev = format!("{target}-pre.{timestamp}.dev.g{}", &sha[..7]);
+        let rc = format!("{target}-rc{}", 5);
+        for paused in ["1.12.0-dev", "1.12.0-dev.1"] {
+            assert!(
+                floor > LibXMTPVersion::parse(paused)?,
+                "{paused} must pause"
+            );
+        }
+        for admitted in [dev.as_str(), rc.as_str(), target] {
+            assert!(
+                floor <= LibXMTPVersion::parse(admitted)?,
+                "{admitted} must join"
+            );
+        }
+    }
+
     /// Creation must not write a floor above the version of the creating client.
     #[xmtp_common::test(unwrap_try = true)]
     fn proposals_min_protocol_version_does_not_exceed_workspace_version() {

@@ -70,14 +70,20 @@ pub const MIN_RECOVERY_REQUEST_VERSION: &str = "1.6.0";
 
 /// The protocol floor written when a group or DM is created.
 ///
-/// Its runtime effect is nil by construction: this floor must be at or below
-/// `CARGO_PKG_VERSION`. The version gate becomes load-bearing when a later
-/// floor is raised above a shipped client version. Keep the gate wired so
-/// those clients pause and resume after an upgrade.
+/// It is the lowest pre-release of the workspace target, `<target>-0`.
+/// Release builds report `<target>-rcN` or `<target>-pre.<timestamp>.dev.g<sha>`
+/// as their version, which sort below `<target>`, so a floor of `<target>`
+/// would pause every RC and dev build in the groups it creates. A client
+/// below the floor pauses in those groups instead of applying commits under
+/// rules it lacks.
 ///
-/// Follow the floor-bump convention in the component registry when changing
-/// the wire format. Raise this constant with the workspace version.
-pub const PROPOSALS_MIN_PROTOCOL_VERSION: &str = "1.12.0-dev.1";
+/// When a release changes what receivers accept, the change that sets this
+/// to `<target>-0` merges after every such receive-rule change, and no
+/// pre-release of the target is cut before it does. A receive-rule change
+/// merged after a target's first pre-release needs a new target. See
+/// `docs/create-a-release.md`, and the floor-bump convention in the
+/// component registry for wire-format changes.
+pub const PROPOSALS_MIN_PROTOCOL_VERSION: &str = "8.0.0-0";
 
 /// First version whose receivers accept an inbox adding back its own leafless
 /// installation. Senders retry only in groups whose floor is at least this.

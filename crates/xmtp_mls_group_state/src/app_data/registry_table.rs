@@ -116,6 +116,12 @@ use crate::app_data::{
 /// check when the guards run, and pausing on unvalidated input would
 /// let any member freeze a group.
 ///
+/// A release that changes what receivers accept sets
+/// `PROPOSALS_MIN_PROTOCOL_VERSION` to `<target>-0` in a change that merges
+/// after every such receive-rule change and before the target's first
+/// pre-release; a receive-rule change merged after that pre-release needs a
+/// new target (`docs/create-a-release.md`).
+///
 /// Two ergonomic patterns for shipping a new component without
 /// editing `WELL_KNOWN`:
 ///

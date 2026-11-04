@@ -510,3 +510,53 @@ async fn test_send_message_after_min_version_update_gets_expected_error() {
         .await;
     assert!(result.is_ok());
 }
+
+/// A new group records the floor `8.0.0-0`. A client that reports
+/// `1.12.0-dev.1`, as `8.0.0-rc4` and earlier builds of `main` did, holds the
+/// group's Welcome. A client that reports `8.0.0-rc5` joins and reads a
+/// message.
+// verifies: GMOD-025, JOIN-057
+#[xmtp_common::test(unwrap_try = true)]
+async fn rc4_client_holds_welcome_and_rc5_client_joins() {
+    let reporting = |version: &str| {
+        let mut info = VersionInfo::default();
+        info.test_update_version(version);
+        info
+    };
+    let alix = EngineTestPeer::new().await;
+    let rc4 = EngineTestPeer::new_with(|o| o.version_info = reporting("1.12.0-dev.1")).await;
+    let rc5 = EngineTestPeer::new_with(|o| o.version_info = reporting("8.0.0-rc5")).await;
+    let group = alix
+        .create_group_with_members(&[rc4.inbox_id(), rc5.inbox_id()], None, None)
+        .await?;
+    group
+        .send_message(b"for 8.0.0 builds", SendMessageOpts::default())
+        .await?;
+
+    let rc5_group = rc5.wait_for_welcomes().await?.first()?.clone();
+    // One sync can miss a fresh write, so poll.
+    let delivered = xmtp_common::wait_for_some(|| async {
+        let _ = rc5_group.sync().await;
+        rc5_group
+            .find_messages(&MsgQueryArgs::default())
+            .unwrap()
+            .into_iter()
+            .find(|message| message.decrypted_message_bytes == b"for 8.0.0 builds")
+    })
+    .await;
+    assert!(delivered.is_some(), "the rc5 client must read the message");
+
+    xmtp_common::wait_for_eq(
+        || async {
+            let _ = rc4.sync_welcomes().await;
+            rc4.context.db().has_pending_welcomes().unwrap()
+        },
+        true,
+    )
+    .await?;
+    assert!(
+        !rc4.group(&group.group_id)
+            .is_ok_and(|group| group.is_active().unwrap_or(false)),
+        "the rc4 client must not join"
+    );
+}
