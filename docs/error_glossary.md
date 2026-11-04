@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**43 error types** across **14 crates** with **446 total error codes**.
+**43 error types** across **15 crates** with **446 total error codes**.
 
 ## xmtp_api
 
@@ -387,14 +387,6 @@ Stable failure categories. Inner causes remain available to Rust callers.
 
 ## xmtp_mls
 
-### BarrierError <sub>enum</sub>
-
-<small>`crates/xmtp_mls/src/subscriptions/barrier.rs`</small>
-
-| Error Code | Description |
-|:-----------|:------------|
-| `BarrierError::Incomplete` | Processing did not meet the fixed targets. Pending work remains durable. May be retryable. |
-
 ### CatchUpError <sub>enum</sub>
 
 <small>`crates/xmtp_mls/src/subscriptions/catch_up.rs`</small>
@@ -475,85 +467,6 @@ Stable failure categories. Inner causes remain available to Rust callers.
 | `DeviceSyncError::Recv` | Receive error. Channel receive failed. Retryable. |
 | `DeviceSyncError::MissingField` | Missing field. Required field not present. Retryable. |
 | `DeviceSyncError::OutboxPageUnpublished` | Outbox page unpublished. A queued sync message is not published yet; its values stay owed and the outbox retries. Retryable. |
-
-### GroupError <sub>enum</sub>
-
-<small>`crates/xmtp_mls/src/groups/error.rs`</small>
-
-| Error Code | Description |
-|:-----------|:------------|
-| `GroupError::ReservedTranscriptContentType` | Application messages cannot use a reserved transcript content type. Not retryable. |
-| `GroupError::MessageSenderConflict` | The message id belongs to another sender inbox. Not retryable. |
-| `GroupError::UserLimitExceeded` | Max user limit exceeded. Attempted to add too many members. Not retryable. |
-| `GroupError::MissingSequenceId` | Sequence ID not found. No sequence ID for an inbox after an identity-update refresh — its registration hasn't propagated yet. Retryable. |
-| `GroupError::AddressNotFound` | Addresses not found. Specified addresses have no XMTP identity. Not retryable. |
-| `GroupError::WrappedApi` | API error. Network request failed. Retryable. |
-| `GroupError::InvalidGroupMembership` | Invalid group membership. Group membership state is invalid. Not retryable. |
-| `GroupError::LeaveCantProcessed` | Leave cannot be processed. Group leave validation failed. Not retryable. |
-| `GroupError::Storage` | Storage error. Database operation failed. May be retryable. |
-| `GroupError::Intent` | Intent error. Failed to process group intent. Not retryable. |
-| `GroupError::CreateMessage` | Create message error. MLS message creation failed. Not retryable. |
-| `GroupError::TlsError` | TLS codec error. MLS TLS encoding/decoding failed. Not retryable. |
-| `GroupError::GroupCreate` | Group create error. MLS group creation failed. May be retryable. |
-| `GroupError::SelfUpdate` | Self update error. MLS self-update operation failed. May be retryable. |
-| `GroupError::WelcomeError` | Welcome error. Processing MLS welcome message failed. May be retryable. |
-| `GroupError::InvalidExtension` | Invalid extension. MLS extension validation failed. Not retryable. |
-| `GroupError::Signature` | Invalid signature. MLS signature verification failed. Not retryable. |
-| `GroupError::IdentityUpdate` | Identity update error. Reading or verifying identity updates failed. May be retryable. |
-| `GroupError::Blocked` | Connection blocked. This database is bound to a different deployment, or the deployment now requires a newer client. Not retryable. |
-| `GroupError::ReceiveError` | Receive error. Processing received group message failed. May be retryable. |
-| `GroupError::AddressValidation` | Address validation error. An address/identifier is invalid. Not retryable. |
-| `GroupError::InvalidPublicKeys` | Invalid public keys. Keys are not valid Ed25519 public keys. Not retryable. |
-| `GroupError::CommitValidation` | Commit validation error. MLS commit validation failed. May be retryable. |
-| `GroupError::Identity` | Identity error. Identity operation failed. Not retryable. |
-| `GroupError::ConversionError` | Conversion error. Proto conversion failed. Not retryable. |
-| `GroupError::CryptoError` | Crypto error. Cryptographic operation failed. Not retryable. |
-| `GroupError::CreateGroupContextExtProposalError` | Group context proposal error. Failed to create group context extension proposal. May be retryable. |
-| `GroupError::ProposeAddMember` | Propose add member error. Failed to create an add-member proposal. May be retryable. |
-| `GroupError::ProposeRemoveMember` | Propose remove member error. Failed to create a remove-member proposal. May be retryable. |
-| `GroupError::Proposal` | Proposal error. Generic MLS proposal creation/handling failure. May be retryable. |
-| `GroupError::CommitToPendingProposals` | Commit to pending proposals error. Failed to commit pending proposals into an MLS commit. May be retryable. |
-| `GroupError::MergePendingCommit` | Merge pending commit error. Failed to merge a pending commit into local state. May be retryable. |
-| `GroupError::ProposalsNotSupported` | Proposals not supported. Encountered a proposal when our client does not support proposals. Not retryable. |
-| `GroupError::MinVersionExceedsOwnVersion` | Caller asked to set `MIN_SUPPORTED_PROTOCOL_VERSION` to a value the caller's own client does not satisfy. Refusing prevents the caller from immediately pausing themselves (and every peer at or below their version) the moment the bump lands. Not retryable. |
-| `GroupError::MinVersionDowngrade` | Caller asked to lower `MIN_SUPPORTED_PROTOCOL_VERSION` below the floor already on the group. Monotonic-only: a downgrade would silently unpause peers between the old and new floors, defeating the gate. Not retryable. |
-| `GroupError::InvalidMinVersion` | Caller passed a `min_version` string that does not parse as semver. The `update_group_min_version` path returns this error so SDK consumers can handle malformed input by code. Not retryable. |
-| `GroupError::ComponentSource` | Component source error. Failed to encode, decode, or look up a well-known component during the AppDataUpdate path. Not retryable. |
-| `GroupError::MetadataField` | A metadata field read or write is invalid for the group's committed fields: an unknown field, a wrong type, or a write the committed state rejects. Not retryable. |
-| `GroupError::AppDataCommit` | AppData commit error. Failed to build or stage a commit that bundles an inline AppDataUpdate proposal. Wraps the structured `GroupAppDataError` from `stage_app_data_propose_and_commit` so the underlying OpenMLS create/stage failure is preserved instead of being string-flattened. |
-| `GroupError::BootstrapSynthesis` | App data value encoding failure: the sender could not encode a component value for the dictionary. Not retryable: encoding is deterministic over its inputs. |
-| `GroupError::CredentialError` | Credential error. MLS credential validation failed. Not retryable. |
-| `GroupError::LeafNodeError` | Leaf node error. MLS leaf node operation failed. Not retryable. |
-| `GroupError::InstallationDiff` | Installation diff error. Installation diff computation failed. May be retryable. |
-| `GroupError::NoPSKSupport` | No PSK support. Pre-shared keys are not supported. Not retryable. |
-| `GroupError::SqlKeyStore` | SQL key store error. OpenMLS key store operation failed. May be retryable. |
-| `GroupError::SyncFailedToWait` | Sync failed to wait. Waiting for intent sync failed. Retryable. |
-| `GroupError::PublishedButUnconfirmed` | The exact published attempt remains pending. A later call can confirm it. Retryable. |
-| `GroupError::MissingPendingCommit` | Missing pending commit. Expected pending commit not found. Not retryable. |
-| `GroupError::ProcessIntent` | Process intent error. Failed to process group intent. May be retryable. |
-| `GroupError::LockUnavailable` | Failed to load lock. Concurrency lock acquisition failed. Retryable. |
-| `GroupError::TooManyCharacters` | Exceeded max characters. Field value exceeds character limit. Not retryable. |
-| `GroupError::AppDataSuperseded` | A guarded metadata update was abandoned because another member changed the field first. Not retryable as-is: the value was derived from state that no longer exists. Re-derive it from `actual` and queue a new update. Distinct from a sync failure — nothing went wrong, the write is just stale. |
-| `GroupError::GroupPausedUntilUpdate` | Group paused until update. Group is paused until a newer version is available. Not retryable. |
-| `GroupError::GroupInactive` | Group is inactive. Operation on an inactive group. Not retryable. |
-| `GroupError::Sync` | Sync summary. Sync operation completed with errors. May be retryable. |
-| `GroupError::Db` | Database connection error. Database connection failed. Retryable. |
-| `GroupError::MlsStore` | MLS store error. OpenMLS key store failed. Not retryable. |
-| `GroupError::MetadataPermissionsError` | Metadata permissions error. Metadata permission check failed. Not retryable. |
-| `GroupError::FailedToVerifyInstallations` | Failed to verify installations. Installation verification failed. Not retryable. |
-| `GroupError::NoWelcomesToSend` | No welcomes to send. No welcome messages to send to new members. Not retryable. |
-| `GroupError::CodecError` | Codec error. Content type codec failed. Retryable. |
-| `GroupError::WrapWelcome` | Wrap welcome error. Failed to wrap welcome message. Not retryable. |
-| `GroupError::UnwrapWelcome` | Unwrap welcome error. Failed to unwrap welcome message. Not retryable. |
-| `GroupError::WelcomeDataNotFound` | Welcome data not found. Welcome data missing from topic. Not retryable. |
-| `GroupError::WelcomeGroupPrefixPending` | The old group must process its ordered prefix before this Welcome can install. Retryable. |
-| `GroupError::InvalidWelcomeMetadata` | The Welcome has missing, malformed, or out-of-range join metadata. Not retryable. |
-| `GroupError::WelcomeGroupRoot` | The Welcome's group context has no 32-byte group root, or its root does not derive the Welcome's group id. Not retryable. |
-| `GroupError::UnsupportedWelcomeVersion` | The Welcome needs a newer client. Keep it blocked until upgrade. Retryable. |
-| `GroupError::UninitializedResult` | Result not initialized. Expected result was not initialized. Not retryable. |
-| `GroupError::Diesel` | Diesel ORM error. Raw database query failed. May be retryable. |
-| `GroupError::UninitializedField` | Uninitialized field. Builder field not initialized. Not retryable. |
-| `GroupError::DeleteMessage` | Delete message error. Failed to delete message. Retryable only while the message is being published. |
 
 ### LocalDeliveryError <sub>enum</sub>
 
@@ -636,6 +549,95 @@ Errors use fixed messages and never include notification credentials.
 | `IdentityError::InvalidExtension` | Invalid extension error. MLS extension validation failed. Not retryable. |
 | `IdentityError::MissingPostQuantumPublicKey` | Missing PQ public key. Post-quantum public key not found. Not retryable. |
 | `IdentityError::UninitializedField` | Uninitialized field. Builder field not initialized. Not retryable. |
+
+## xmtp_mls_engine
+
+### BarrierError <sub>enum</sub>
+
+<small>`crates/xmtp_mls_engine/src/subscriptions/barrier.rs`</small>
+
+| Error Code | Description |
+|:-----------|:------------|
+| `BarrierError::Incomplete` | Processing did not meet the fixed targets. Pending work remains durable. May be retryable. |
+
+### GroupError <sub>enum</sub>
+
+<small>`crates/xmtp_mls_engine/src/groups/error.rs`</small>
+
+| Error Code | Description |
+|:-----------|:------------|
+| `GroupError::ReservedTranscriptContentType` | Application messages cannot use a reserved transcript content type. Not retryable. |
+| `GroupError::MessageSenderConflict` | The message id belongs to another sender inbox. Not retryable. |
+| `GroupError::UserLimitExceeded` | Max user limit exceeded. Attempted to add too many members. Not retryable. |
+| `GroupError::MissingSequenceId` | Sequence ID not found. No sequence ID for an inbox after an identity-update refresh — its registration hasn't propagated yet. Retryable. |
+| `GroupError::AddressNotFound` | Addresses not found. Specified addresses have no XMTP identity. Not retryable. |
+| `GroupError::WrappedApi` | API error. Network request failed. Retryable. |
+| `GroupError::InvalidGroupMembership` | Invalid group membership. Group membership state is invalid. Not retryable. |
+| `GroupError::LeaveCantProcessed` | Leave cannot be processed. Group leave validation failed. Not retryable. |
+| `GroupError::Storage` | Storage error. Database operation failed. May be retryable. |
+| `GroupError::Intent` | Intent error. Failed to process group intent. Not retryable. |
+| `GroupError::CreateMessage` | Create message error. MLS message creation failed. Not retryable. |
+| `GroupError::TlsError` | TLS codec error. MLS TLS encoding/decoding failed. Not retryable. |
+| `GroupError::GroupCreate` | Group create error. MLS group creation failed. May be retryable. |
+| `GroupError::SelfUpdate` | Self update error. MLS self-update operation failed. May be retryable. |
+| `GroupError::WelcomeError` | Welcome error. Processing MLS welcome message failed. May be retryable. |
+| `GroupError::InvalidExtension` | Invalid extension. MLS extension validation failed. Not retryable. |
+| `GroupError::Signature` | Invalid signature. MLS signature verification failed. Not retryable. |
+| `GroupError::IdentityUpdate` | Identity update error. Reading or verifying identity updates failed. May be retryable. |
+| `GroupError::Blocked` | Connection blocked. This database is bound to a different deployment, or the deployment now requires a newer client. Not retryable. |
+| `GroupError::ReceiveError` | Receive error. Processing received group message failed. May be retryable. |
+| `GroupError::AddressValidation` | Address validation error. An address/identifier is invalid. Not retryable. |
+| `GroupError::InvalidPublicKeys` | Invalid public keys. Keys are not valid Ed25519 public keys. Not retryable. |
+| `GroupError::CommitValidation` | Commit validation error. MLS commit validation failed. May be retryable. |
+| `GroupError::Identity` | Identity error. Identity operation failed. Not retryable. |
+| `GroupError::ConversionError` | Conversion error. Proto conversion failed. Not retryable. |
+| `GroupError::CryptoError` | Crypto error. Cryptographic operation failed. Not retryable. |
+| `GroupError::CreateGroupContextExtProposalError` | Group context proposal error. Failed to create group context extension proposal. May be retryable. |
+| `GroupError::ProposeAddMember` | Propose add member error. Failed to create an add-member proposal. May be retryable. |
+| `GroupError::ProposeRemoveMember` | Propose remove member error. Failed to create a remove-member proposal. May be retryable. |
+| `GroupError::Proposal` | Proposal error. Generic MLS proposal creation/handling failure. May be retryable. |
+| `GroupError::CommitToPendingProposals` | Commit to pending proposals error. Failed to commit pending proposals into an MLS commit. May be retryable. |
+| `GroupError::MergePendingCommit` | Merge pending commit error. Failed to merge a pending commit into local state. May be retryable. |
+| `GroupError::ProposalsNotSupported` | Proposals not supported. Encountered a proposal when our client does not support proposals. Not retryable. |
+| `GroupError::MinVersionExceedsOwnVersion` | Caller asked to set `MIN_SUPPORTED_PROTOCOL_VERSION` to a value the caller's own client does not satisfy. Refusing prevents the caller from immediately pausing themselves (and every peer at or below their version) the moment the bump lands. Not retryable. |
+| `GroupError::MinVersionDowngrade` | Caller asked to lower `MIN_SUPPORTED_PROTOCOL_VERSION` below the floor already on the group. Monotonic-only: a downgrade would silently unpause peers between the old and new floors, defeating the gate. Not retryable. |
+| `GroupError::InvalidMinVersion` | Caller passed a `min_version` string that does not parse as semver. The `update_group_min_version` path returns this error so SDK consumers can handle malformed input by code. Not retryable. |
+| `GroupError::ComponentSource` | Component source error. Failed to encode, decode, or look up a well-known component during the AppDataUpdate path. Not retryable. |
+| `GroupError::MetadataField` | A metadata field read or write is invalid for the group's committed fields: an unknown field, a wrong type, or a write the committed state rejects. Not retryable. |
+| `GroupError::AppDataCommit` | AppData commit error. Failed to build or stage a commit that bundles an inline AppDataUpdate proposal. Wraps the structured `GroupAppDataError` from `stage_app_data_propose_and_commit` so the underlying OpenMLS create/stage failure is preserved instead of being string-flattened. |
+| `GroupError::BootstrapSynthesis` | App data value encoding failure: the sender could not encode a component value for the dictionary. Not retryable: encoding is deterministic over its inputs. |
+| `GroupError::CredentialError` | Credential error. MLS credential validation failed. Not retryable. |
+| `GroupError::LeafNodeError` | Leaf node error. MLS leaf node operation failed. Not retryable. |
+| `GroupError::InstallationDiff` | Installation diff error. Installation diff computation failed. May be retryable. |
+| `GroupError::NoPSKSupport` | No PSK support. Pre-shared keys are not supported. Not retryable. |
+| `GroupError::SqlKeyStore` | SQL key store error. OpenMLS key store operation failed. May be retryable. |
+| `GroupError::SyncFailedToWait` | Sync failed to wait. Waiting for intent sync failed. Retryable. |
+| `GroupError::PublishedButUnconfirmed` | The exact published attempt remains pending. A later call can confirm it. Retryable. |
+| `GroupError::MissingPendingCommit` | Missing pending commit. Expected pending commit not found. Not retryable. |
+| `GroupError::ProcessIntent` | Process intent error. Failed to process group intent. May be retryable. |
+| `GroupError::LockUnavailable` | Failed to load lock. Concurrency lock acquisition failed. Retryable. |
+| `GroupError::TooManyCharacters` | Exceeded max characters. Field value exceeds character limit. Not retryable. |
+| `GroupError::AppDataSuperseded` | A guarded metadata update was abandoned because another member changed the field first. Not retryable as-is: the value was derived from state that no longer exists. Re-derive it from `actual` and queue a new update. Distinct from a sync failure — nothing went wrong, the write is just stale. |
+| `GroupError::GroupPausedUntilUpdate` | Group paused until update. Group is paused until a newer version is available. Not retryable. |
+| `GroupError::GroupInactive` | Group is inactive. Operation on an inactive group. Not retryable. |
+| `GroupError::Sync` | Sync summary. Sync operation completed with errors. May be retryable. |
+| `GroupError::Db` | Database connection error. Database connection failed. Retryable. |
+| `GroupError::MlsStore` | MLS store error. OpenMLS key store failed. Not retryable. |
+| `GroupError::MetadataPermissionsError` | Metadata permissions error. Metadata permission check failed. Not retryable. |
+| `GroupError::FailedToVerifyInstallations` | Failed to verify installations. Installation verification failed. Not retryable. |
+| `GroupError::NoWelcomesToSend` | No welcomes to send. No welcome messages to send to new members. Not retryable. |
+| `GroupError::CodecError` | Codec error. Content type codec failed. Retryable. |
+| `GroupError::WrapWelcome` | Wrap welcome error. Failed to wrap welcome message. Not retryable. |
+| `GroupError::UnwrapWelcome` | Unwrap welcome error. Failed to unwrap welcome message. Not retryable. |
+| `GroupError::WelcomeDataNotFound` | Welcome data not found. Welcome data missing from topic. Not retryable. |
+| `GroupError::WelcomeGroupPrefixPending` | The old group must process its ordered prefix before this Welcome can install. Retryable. |
+| `GroupError::InvalidWelcomeMetadata` | The Welcome has missing, malformed, or out-of-range join metadata. Not retryable. |
+| `GroupError::WelcomeGroupRoot` | The Welcome's group context has no 32-byte group root, or its root does not derive the Welcome's group id. Not retryable. |
+| `GroupError::UnsupportedWelcomeVersion` | The Welcome needs a newer client. Keep it blocked until upgrade. Retryable. |
+| `GroupError::UninitializedResult` | Result not initialized. Expected result was not initialized. Not retryable. |
+| `GroupError::Diesel` | Diesel ORM error. Raw database query failed. May be retryable. |
+| `GroupError::UninitializedField` | Uninitialized field. Builder field not initialized. Not retryable. |
+| `GroupError::DeleteMessage` | Delete message error. Failed to delete message. Retryable only while the message is being published. |
 
 ## xmtp_mls_group_state
 
