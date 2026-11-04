@@ -643,7 +643,7 @@ async fn test_receiver_rejects_overlong_metadata_from_raw_app_data_intent() {
 //    code path currently emits `RemoveByHash` (admin-list paths use
 //    explicit `Remove(inbox_id)` mutations). Unit coverage for the
 //    resolver lives in
-//    `crates/xmtp_mls_group_state/src/app_data/component_source.rs` under
+//    `crates/xmtp_mls_group_state/src/app_data/component_source/tests/expand_changes.rs` under
 //    `test_expand_remove_by_hash_*`; revisit if a future caller starts
 //    emitting hash-based deletes.
 /// An inline update must obey the registry policy and leave the group unchanged.

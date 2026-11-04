@@ -16,7 +16,7 @@ import java.util.Collections
 // drops every connection and refuses new ones; the open Kotlin Flow must stay
 // open, report the outage, and deliver the message sent meanwhile after the
 // proxy comes back. Rust tests the reconnect itself:
-// xmtp_mls/src/client/tests/lifecycle.rs::should_reconnect.
+// xmtp_mls/src/client/tests/lifecycle/connection.rs::should_reconnect.
 class StreamRecoveryTest {
     // dev/docker/toxiproxy/config.json defines this proxy in front of the backend.
     private val proxy = "backend"
