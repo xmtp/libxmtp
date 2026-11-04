@@ -519,9 +519,7 @@ where
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(INTERIM_TRANSCRIPT_HASH_LABEL, group_id)?;
         let value = encode_value(INTERIM_TRANSCRIPT_HASH_LABEL, interim_transcript_hash)?;
-        let _ = self.write::<CURRENT_VERSION>(INTERIM_TRANSCRIPT_HASH_LABEL, &key, &value);
-
-        Ok(())
+        self.write::<CURRENT_VERSION>(INTERIM_TRANSCRIPT_HASH_LABEL, &key, &value)
     }
 
     // The group context is not public: its AppData dictionary holds the
@@ -2255,5 +2253,40 @@ pub(crate) mod tests {
             "the ref in another encoding was not removed"
         );
         assert!(MlsGroup::load(storage, group.group_id())?.is_some());
+    }
+
+    /// A failed interim transcript hash write is returned to the caller, so
+    /// the group transaction fails instead of committing without the hash.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn interim_transcript_hash_write_failure_is_returned() {
+        use super::INTERIM_TRANSCRIPT_HASH_LABEL;
+        use crate::ConnectionExt;
+        use diesel::{RunQueryDsl, sql_query};
+
+        let store = crate::TestDb::create_persistent_store(None).await;
+        let key_store = SqlKeyStore::new(store.conn());
+        let label = String::from_utf8(INTERIM_TRANSCRIPT_HASH_LABEL.to_vec())?;
+        key_store.conn.raw_query(|conn| {
+            sql_query(format!(
+                "CREATE TRIGGER block_interim_transcript_hash BEFORE INSERT ON openmls_key_value \
+                 WHEN substr(NEW.key_bytes, 1, {len}) = CAST('{label}' AS BLOB) \
+                 BEGIN SELECT RAISE(ABORT, 'interim transcript hash write blocked'); END",
+                len = label.len(),
+            ))
+            .execute(conn)
+        })?;
+
+        let group_id = GroupId::from_slice(&[0x11; 32]);
+        let result = key_store.write_interim_transcript_hash(&group_id, &Value(vec![2; 32], 2));
+        // The error is the write's own, not an earlier encoding failure.
+        let Err(SqlKeyStoreError::Connection(crate::ConnectionError::Database(
+            diesel::result::Error::DatabaseError(_, info),
+        ))) = result
+        else {
+            panic!("the failed write was not returned: {result:?}");
+        };
+        assert_eq!(info.message(), "interim transcript hash write blocked");
+        let read: Option<Value> = key_store.interim_transcript_hash(&group_id)?;
+        assert_eq!(read, None);
     }
 }
