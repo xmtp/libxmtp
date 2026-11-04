@@ -61,10 +61,10 @@ use pending::{
     pending_row_matches_key, status_from_row,
 };
 pub use runtime::AttachmentRuntime;
-#[cfg(all(any(test, feature = "test-utils"), not(target_arch = "wasm32")))]
-use runtime::{LEASE_DURATION, LEASE_RENEW};
 #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
 use runtime::{FAIL_NEXT_RECONCILES, LeaseTiming};
+#[cfg(all(any(test, feature = "test-utils"), not(target_arch = "wasm32")))]
+use runtime::{LEASE_DURATION, LEASE_RENEW};
 
 /// The attachments feature slot: the client's attachment runtime.
 pub trait AttachmentFeatures {

@@ -5,9 +5,8 @@ use super::*;
 
 pub(super) const CHUNK: usize = 64 * 1024;
 #[cfg(all(target_arch = "wasm32", feature = "test-hooks"))]
-static DOWNLOAD_MOVE_PAUSE: Mutex<
-    Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>,
-> = Mutex::new(None);
+static DOWNLOAD_MOVE_PAUSE: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>> =
+    Mutex::new(None);
 #[cfg(all(target_arch = "wasm32", feature = "test-hooks"))]
 static DOWNLOAD_TEST_BODY: Mutex<Option<Vec<u8>>> = Mutex::new(None);
 #[cfg(all(target_arch = "wasm32", feature = "test-hooks"))]
