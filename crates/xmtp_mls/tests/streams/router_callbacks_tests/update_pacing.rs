@@ -1,5 +1,4 @@
 use super::*;
-use crate::context::XmtpMlsLocalContext;
 use futures::StreamExt;
 use prost::Message;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -11,6 +10,8 @@ use xmtp_common::{
 use xmtp_configuration::{ConfigProvider, StaticConfigProvider};
 use xmtp_db::XmtpTestDb;
 use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
+use xmtp_mls::context::XmtpMlsLocalContext;
+use xmtp_mls_engine::groups::context::XmtpSharedContext as _;
 use xmtp_mls_identity::identity_lifecycle::IdentityStrategy;
 use xmtp_proto::{
     api::{ApiClientError, BytesStream, Client as WireClient, NetworkError},
@@ -148,8 +149,7 @@ async fn open(client: &Client<Context>, topic: u8) -> IncomingSubscription<Netwo
     };
     client
         .context
-        .features
-        .incoming
+        .incoming_runtime()
         .factory_for_test()
         .expect("production factory")
         .open(cursors, limits)

@@ -160,3 +160,35 @@ pub fn cached_text_row(
         idempotency_key,
     })
 }
+
+/// An application message row at `cursor` in `group_id`, for a test that
+/// stores or delivers it.
+pub fn generate_stored_msg(
+    cursor: xmtp_proto::types::Cursor,
+    group_id: xmtp_proto::types::GroupId,
+) -> StoredGroupMessage {
+    StoredGroupMessage {
+        id: xmtp_common::rand_vec::<32>(),
+        group_id,
+        decrypted_message_bytes: b"test message".to_vec(),
+        sent_at_ns: 100,
+        kind: xmtp_db::group_message::GroupMessageKind::Application,
+        sender_installation_id: xmtp_common::rand_vec::<32>(),
+        sender_inbox_id: "test inbox".into(),
+        delivery_status: xmtp_db::group_message::DeliveryStatus::Published,
+        content_type: xmtp_db::group_message::ContentType::Text,
+        version_major: 0,
+        version_minor: 0,
+        authority_id: "testauthority".to_string(),
+        reference_id: None,
+        sequence_id: cursor.0 as i64,
+        envelope_hash: None,
+        expiry_ns: None,
+        expiry_unknown: false,
+        deleted_by_inbox_id: None,
+        expire_at_ns: None,
+        inserted_at_ns: 0,
+        should_push: true,
+        idempotency_key: 100.to_string(),
+    }
+}

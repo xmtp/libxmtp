@@ -82,15 +82,15 @@ async fn local_delivery_precedes_registration_ack() {
     tester!(alix, disable_workers);
     let group = alix.create_group(None, None)?;
     group.send_msg(b"already stored").await;
-    let mut builder =
-        crate::builder::ClientBuilder::from_client(alix.client.clone()).with_disable_workers(true);
+    let mut builder = xmtp_mls::builder::ClientBuilder::from_client(alix.client.clone())
+        .with_disable_workers(true);
     let factory = builder
-        .incoming_factory
+        .incoming_factory_mut()
         .take()
         .expect("live subscription factory");
     let entered = Arc::new(Notify::new());
     let release = Arc::new(Notify::new());
-    builder.incoming_factory = Some(Arc::new({
+    *builder.incoming_factory_mut() = Some(Arc::new({
         let entered = entered.clone();
         let release = release.clone();
         move |cursors, limits| -> SubscriptionFuture {

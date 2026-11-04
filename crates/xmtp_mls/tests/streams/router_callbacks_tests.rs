@@ -6,13 +6,13 @@ use std::time::Duration;
 use xmtp_common::StreamHandle;
 use xmtp_db::group_message::{GroupMessageKind, StoredGroupMessage};
 
-use crate::Client;
-use crate::subscriptions::router_callbacks::{
+use xmtp_mls::Client;
+use xmtp_mls::subscriptions::router_callbacks::{
     resume_bidi_streams, shared_transport_count,
     stream_conversation_messages_with_callback_dispatch, suspend_bidi_streams,
 };
-use crate::tester;
-use crate::utils::MlsGroupExt;
+use xmtp_mls::tester;
+use xmtp_mls::utils::MlsGroupExt;
 use xmtp_mls_core::context::CoreContext;
 use xmtp_mls_engine::subscriptions::incoming::stream_api::shared_wires::shared_transport;
 
@@ -21,12 +21,12 @@ const WAIT: Duration = Duration::from_secs(20);
 // verifies: PROC-040
 #[xmtp_common::test(unwrap_try = true)]
 async fn conversation_startup_storage_error_reaches_callback_once_before_close() {
-    use crate::subscriptions::SubscribeError;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use xmtp_db::{
         ConnectionExt,
         group::{GroupQueryArgs, QueryGroup},
     };
+    use xmtp_mls::subscriptions::SubscribeError;
     use xmtp_mls_engine::subscriptions::incoming::IncomingCoordinator;
 
     tester!(alix, persistent_db, disable_workers);
@@ -76,7 +76,7 @@ async fn conversation_startup_storage_error_reaches_callback_once_before_close()
 
 async fn assert_retained_messages(
     receiver: &mut tokio::sync::mpsc::UnboundedReceiver<
-        crate::subscriptions::Result<StoredGroupMessage>,
+        Result<StoredGroupMessage, xmtp_mls::subscriptions::SubscribeError>,
     >,
     expected: &[StoredGroupMessage],
 ) {

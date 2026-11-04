@@ -1,7 +1,5 @@
 use super::*;
-use crate::client::ClientError;
 use std::sync::Arc;
-use xmtp_mls_engine::groups::summary::ProcessSummary;
 use xmtp_proto::types::{Cursor, Topic};
 
 fn barrier(target: Option<u64>, reason: BarrierFailure) -> BarrierError {
@@ -81,43 +79,6 @@ fn published_failure_without_barrier_keeps_intent_identity() {
     let details = stream_failure_details(&error)?;
     assert_eq!(details.intent_id, Some(17));
     assert!(details.barriers.is_empty());
-}
-
-#[xmtp_common::test(unwrap_try = true)]
-fn traverses_all_sync_summary_branches_and_transparent_wrappers() {
-    let mut summary = SyncSummary::other(GroupError::StreamBarrier(barrier(
-        None,
-        BarrierFailure::Deadline,
-    )));
-    summary.add_publish_err(GroupError::PublishedButUnconfirmed {
-        intent_id: 17,
-        cause: Some(Box::new(barrier(Some(1), BarrierFailure::Blocked))),
-        rate_limit_delay: None,
-    });
-    summary.add_post_commit_err(GroupError::PublishedButUnconfirmed {
-        intent_id: 18,
-        cause: Some(Box::new(barrier(Some(2), BarrierFailure::Cancelled))),
-        rate_limit_delay: None,
-    });
-    summary.add_process(ProcessSummary {
-        errored: vec![(
-            Cursor(3),
-            GroupMessageProcessingError::PreparedAttempt(Box::new(GroupError::StreamBarrier(
-                barrier(Some(3), BarrierFailure::Blocked),
-            ))),
-        )],
-        ..Default::default()
-    });
-    let error = ClientError::Group(Box::new(GroupError::Sync(Box::new(summary))));
-    let details = crate::client::stream_failure_details(&error)?;
-    let targets: Vec<_> = details
-        .barriers
-        .iter()
-        .map(|barrier| barrier.unfinished[0].target.as_deref())
-        .collect();
-    assert_eq!(targets, vec![None, Some("1"), Some("2"), Some("3")]);
-    assert_eq!(details.published_intent_ids, vec![17, 18]);
-    assert_eq!(details.intent_id, None);
 }
 
 #[cfg(not(target_arch = "wasm32"))]

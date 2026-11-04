@@ -61,4 +61,5 @@ mod notifications;
 mod preflight;
 mod server_configuration;
 mod storage_location;
+mod stream_failure;
 mod sync;

@@ -412,7 +412,7 @@ where
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 impl<Owner> crate::groups::test_support::EnginePeer for Tester<Owner, FullXmtpClient>
 where
     Owner: InboxOwner,

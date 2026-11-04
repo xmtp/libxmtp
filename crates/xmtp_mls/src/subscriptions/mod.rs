@@ -14,12 +14,6 @@ use stream_conversations::StreamConversations;
 const DEFAULT_STREAM_CONSENT_STATES: [ConsentState; 2] =
     [ConsentState::Allowed, ConsentState::Unknown];
 
-// Live backend tests require native full-duplex HTTP/2.
-#[cfg(all(test, not(target_arch = "wasm32")))]
-mod bidi_tests;
-// Randomized delivery fuzz over the live node (same gating as `bidi_tests`).
-#[cfg(all(test, not(target_arch = "wasm32")))]
-mod bidi_fuzz_tests;
 // One-shot bounded catch-up through the shared receiver.
 pub use xmtp_mls_engine::subscriptions::barrier;
 pub mod catch_up;
@@ -32,18 +26,12 @@ mod stream_all;
 pub mod stream_conversations;
 pub mod stream_failure;
 pub mod stream_messages;
-// Live integration tests for the router (v3 wire; same gating rationale as
-// `bidi_tests` above).
-#[cfg(all(test, not(target_arch = "wasm32")))]
-mod delivery_integration_tests;
+// Native callback adapters over the shared backend transport.
 // A message stream against a backend that charges stream rent.
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod rate_limit_tests;
-// Native callback adapters over the shared backend transport.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod router_callbacks;
-#[cfg(all(test, not(target_arch = "wasm32")))]
-mod router_callbacks_tests;
 pub(crate) mod watchdog;
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -716,84 +704,7 @@ pub enum StreamKind {
 }
 
 #[cfg(test)]
-mod message_deletion_tests;
-
-#[cfg(test)]
-pub(crate) mod tests {
+mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     mod disconnect_propagation;
-
-    use crate::tester;
-    use xmtp_mls_core::context::CoreContext;
-
-    /// A macro for asserting that a stream yields a specific decrypted message.
-    ///
-    /// # Example
-    /// ```rust
-    /// assert_msg!(stream, b"first");
-    /// ```
-    #[macro_export]
-    macro_rules! assert_msg {
-        ($stream:expr, $expected:expr) => {
-            let next = $stream
-                .next()
-                .await
-                .unwrap()
-                .inspect_err(|e| tracing::error!("{}", e.to_string()))
-                .unwrap();
-
-            assert_eq!(
-                String::from_utf8_lossy(next.decrypted_message_bytes.as_slice()),
-                String::from_utf8_lossy($expected.as_bytes())
-            );
-        };
-    }
-
-    /// A macro for asserting that a stream yields a specific decrypted message.
-    ///
-    /// # Example
-    /// ```rust
-    /// assert_msg!(stream, b"first");
-    /// ```
-    #[macro_export]
-    macro_rules! assert_msg_exists {
-        ($stream:expr) => {
-            assert!(
-                !$stream
-                    .next()
-                    .await
-                    .unwrap()
-                    .unwrap()
-                    .decrypted_message_bytes
-                    .is_empty()
-            );
-        };
-    }
-
-    #[xmtp_common::test(flavor = "multi_thread", worker_threads = 5, unwrap_try = true)]
-    async fn test_process_streamed_welcome_message() {
-        use prost::Message;
-        use xmtp_proto::types::{Cursor, Topic};
-        tester!(alix);
-        tester!(bo);
-        let alix_group = alix.create_group(None, None)?;
-        alix_group.add_members(&[bo.inbox_id()]).await?;
-        let envelopes = alix
-            .context
-            .api()
-            .query_all(
-                [(
-                    Topic::new_welcome_message(bo.context.installation_id()),
-                    Cursor(0),
-                )]
-                .into(),
-                bo.context.api().limits().max_query_limit as u32,
-            )
-            .await?;
-        assert!(!envelopes.is_empty(), "Should have at least one welcome");
-        let groups = bo
-            .process_streamed_welcome_message(envelopes[0].encode_to_vec())
-            .await?;
-        assert_eq!(groups.len(), 1, "Should have exactly one group");
-    }
 }

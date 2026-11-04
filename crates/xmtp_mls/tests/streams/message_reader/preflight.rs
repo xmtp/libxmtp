@@ -1,15 +1,15 @@
 //! A public reader reports a client's failed configuration check, and a
 //! replacement reader checks again.
 
-use crate::utils::test::preflight::*;
 use xmtp_common::RetryableError;
+use xmtp_mls::utils::test::preflight::*;
 use xmtp_mls_engine::groups::context::XmtpSharedContext;
 use xmtp_mls_server_config::server_configuration::ServerConfigError;
 use xmtp_proto::api::ApiClientError;
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn deferred_preflight_public_reader_reports_first_failure_and_replacement_can_retry() {
-    use crate::subscriptions::{
+    use xmtp_mls::subscriptions::{
         local_delivery::{DeliveryScope, LocalDeliveryFilter},
         message_reader::MessageReader,
     };

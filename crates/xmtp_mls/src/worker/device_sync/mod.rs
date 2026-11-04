@@ -514,7 +514,7 @@ where
     /// The newest sync group that only the own inbox is in.
     /// Older builds stored sync groups from other inboxes; this skips them.
     // implements: SYNC-002, SYNC-010
-    pub(crate) fn primary_sync_group(&self) -> Result<Option<MlsGroup<Context>>, GroupError> {
+    pub fn primary_sync_group(&self) -> Result<Option<MlsGroup<Context>>, GroupError> {
         let own_inbox_id = self.context.inbox_id();
         for stored in self.context.db().all_sync_groups()? {
             let group = MlsGroup::load_by_id(&self.context, &stored.id)?;

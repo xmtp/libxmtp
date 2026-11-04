@@ -1,20 +1,21 @@
 use super::*;
-use crate::prelude::*;
-use crate::{
-    subscriptions::message_reader::MessageReader, test::mock::generate_stored_msg, tester,
-};
+use crate::subscriptions::message_reader::MessageReader;
 use futures::{FutureExt, StreamExt};
 use xmtp_common::{
     ErrorCode,
     time::{Duration, timeout},
 };
 use xmtp_db::{ConnectionExt, Store};
+use xmtp_mls_core::context::CoreContext;
+use xmtp_mls_engine::groups::test_support::{
+    EnginePeer, EngineTestPeer, message_rows::generate_stored_msg,
+};
 use xmtp_proto::types::Cursor;
 
 // verifies: PROC-052
 #[xmtp_common::test(unwrap_try = true)]
 async fn iterator_drop_retains_the_last_item_until_a_later_next_request() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let first = generate_stored_msg(Cursor(100), group.group_id);
     let second = generate_stored_msg(Cursor(200), group.group_id);
@@ -43,7 +44,7 @@ async fn iterator_drop_retains_the_last_item_until_a_later_next_request() {
 // verifies: PROC-052
 #[xmtp_common::test(unwrap_try = true)]
 async fn rejected_callback_releases_owner_without_consuming_its_item() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let message = generate_stored_msg(Cursor(100), group.group_id);
     message.store(&alix.context.db())?;
@@ -74,7 +75,7 @@ async fn rejected_callback_releases_owner_without_consuming_its_item() {
 // verifies: PROC-052
 #[xmtp_common::test(unwrap_try = true)]
 async fn cancelling_a_pending_next_does_not_bypass_explicit_acknowledgement() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let first = generate_stored_msg(Cursor(100), group.group_id);
     let second = generate_stored_msg(Cursor(200), group.group_id);
@@ -97,7 +98,7 @@ async fn cancelling_a_pending_next_does_not_bypass_explicit_acknowledgement() {
 // verifies: CONS-043
 #[xmtp_common::test(unwrap_try = true)]
 async fn denied_group_with_default_filter_is_delivered_when_scoped() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.update_consent_state(ConsentState::Denied)?;
     let message = generate_stored_msg(Cursor(100), group.group_id);
@@ -117,7 +118,7 @@ async fn denied_group_with_default_filter_is_delivered_when_scoped() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn excluded_rows_stay_consumed_after_a_filter_change() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let denied = alix.create_group(None, None)?;
     let allowed = alix.create_group(None, None)?;
     denied.update_consent_state(ConsentState::Denied)?;
@@ -177,7 +178,7 @@ async fn excluded_rows_stay_consumed_after_a_filter_change() {
 // verifies: CONS-042, CONS-043
 #[xmtp_common::test(unwrap_try = true)]
 async fn all_scope_defaults_to_allowed_and_unknown_but_group_scope_does_not() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let denied = alix.create_group(None, None)?;
     let allowed = alix.create_group(None, None)?;
     let unknown = alix.create_group(None, None)?;
@@ -227,7 +228,7 @@ async fn all_scope_defaults_to_allowed_and_unknown_but_group_scope_does_not() {
 // verifies: CONS-042, CONS-043
 #[xmtp_common::test(unwrap_try = true)]
 async fn all_scope_history_snapshot_uses_the_stream_consent_default() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let denied = alix.create_group(None, None)?;
     let allowed = alix.create_group(None, None)?;
     denied.update_consent_state(ConsentState::Denied)?;
@@ -270,7 +271,7 @@ async fn all_scope_history_snapshot_uses_the_stream_consent_default() {
 // verifies: PROC-026
 #[xmtp_common::test(unwrap_try = true)]
 async fn missed_local_wake_is_recovered_by_a_fresh_database_poll() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let mut reader = LocalDelivery::new(
         alix.context.clone(),
@@ -295,7 +296,7 @@ async fn missed_local_wake_is_recovered_by_a_fresh_database_poll() {
 // verifies: PROC-031
 #[xmtp_common::test(unwrap_try = true)]
 async fn stale_host_queue_token_cannot_dispatch_or_acknowledge() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     generate_stored_msg(Cursor(100), group.group_id).store(&alix.context.db())?;
     let mut reader = LocalDelivery::new(
@@ -314,7 +315,7 @@ async fn stale_host_queue_token_cannot_dispatch_or_acknowledge() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn removed_and_readded_scope_discards_old_queued_tokens_without_acknowledging() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let message = generate_stored_msg(Cursor(100), group.group_id);
     message.store(&alix.context.db())?;
@@ -361,7 +362,7 @@ async fn removed_and_readded_scope_discards_old_queued_tokens_without_acknowledg
 #[xmtp_common::test(unwrap_try = true)]
 async fn queued_content_is_rechecked_after_deletion_and_restore() {
     use diesel::{QueryDsl, RunQueryDsl};
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let start = alix.context.db().current_delivery_cursor()?;
     let first = generate_stored_msg(Cursor(100), group.group_id);
@@ -406,7 +407,7 @@ async fn queued_content_is_rechecked_after_deletion_and_restore() {
 // verifies: PROC-025, PROC-060
 #[xmtp_common::test(unwrap_try = true)]
 async fn buffered_stream_sees_deletions() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let start = alix.context.db().current_delivery_cursor()?;
     let first = generate_stored_msg(Cursor(100), group.group_id);
@@ -443,7 +444,7 @@ xmtp_common::if_native! {
 // verifies: PROC-040
 #[xmtp_common::test(unwrap_try = true)]
 async fn read_storage_error_ends_iterator_once_and_new_reader_replays_on_same_client() {
-    tester!(alix, persistent_db);
+    let alix = EngineTestPeer::persistent().await;
     let group = alix.create_group(None, None)?;
     let message = generate_stored_msg(Cursor(100), group.group_id);
     message.store(&alix.context.db())?;
@@ -464,7 +465,7 @@ async fn read_storage_error_ends_iterator_once_and_new_reader_replays_on_same_cl
 async fn queued_enrichment_storage_error_is_terminal_and_reopen_retains_the_item() {
     use prost::Message;
     use xmtp_content_types::{ContentCodec, text::TextCodec};
-    tester!(alix, persistent_db);
+    let alix = EngineTestPeer::persistent().await;
     let group = alix.create_group(None, None)?;
     let mut message = generate_stored_msg(Cursor(100), group.group_id);
     message.decrypted_message_bytes = TextCodec::encode("queued message".to_string())?.encode_to_vec();
@@ -497,7 +498,7 @@ async fn queued_enrichment_storage_error_is_terminal_and_reopen_retains_the_item
 // verifies: PROC-040
 #[xmtp_common::test(unwrap_try = true)]
 async fn final_owner_check_storage_error_closes_the_reader_without_advancing_delivery() {
-    tester!(alix, persistent_db);
+    let alix = EngineTestPeer::persistent().await;
     let group = alix.create_group(None, None)?;
     let message = generate_stored_msg(Cursor(100), group.group_id);
     message.store(&alix.context.db())?;
@@ -532,7 +533,7 @@ async fn final_owner_check_storage_error_closes_the_reader_without_advancing_del
 // verifies: PROC-040
 #[xmtp_common::test(unwrap_try = true)]
 async fn acknowledgement_storage_error_reaches_the_pending_reader_and_replays() {
-    tester!(alix, persistent_db);
+    let alix = EngineTestPeer::persistent().await;
     let group = alix.create_group(None, None)?;
     let message = generate_stored_msg(Cursor(100), group.group_id);
     message.store(&alix.context.db())?;
@@ -566,7 +567,7 @@ async fn acknowledgement_storage_error_reaches_the_pending_reader_and_replays() 
 #[xmtp_common::test(unwrap_try = true)]
 async fn renewal_storage_error_retains_its_cause_and_allows_a_fresh_reader() {
     use xmtp_common::ErrorCode;
-    tester!(alix, persistent_db);
+    let alix = EngineTestPeer::persistent().await;
     let group = alix.create_group(None, None)?;
     let first = generate_stored_msg(Cursor(100), group.group_id);
     let second = generate_stored_msg(Cursor(200), group.group_id);
@@ -604,7 +605,7 @@ async fn sqlite_full_ack_ends_stream_without_next_handoff_and_new_stream_replays
         #[diesel(sql_type = diesel::sql_types::BigInt)]
         max_page_count: i64,
     }
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let first = generate_stored_msg(Cursor(100), group.group_id);
     let second = generate_stored_msg(Cursor(200), group.group_id);
@@ -642,7 +643,7 @@ async fn sqlite_full_ack_ends_stream_without_next_handoff_and_new_stream_replays
 #[xmtp_common::test(unwrap_try = true)]
 async fn expired_lease_ends_reader_and_only_a_new_stream_can_acquire_delivery() {
     use diesel::RunQueryDsl;
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let message = generate_stored_msg(Cursor(100), group.group_id);
     message.store(&alix.context.db())?;
@@ -676,7 +677,7 @@ async fn expired_lease_ends_reader_and_only_a_new_stream_can_acquire_delivery() 
 // verifies: PROC-031, PROC-040
 #[xmtp_common::test(unwrap_try = true)]
 async fn failed_old_acknowledgement_cannot_release_a_competing_owner() {
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     generate_stored_msg(Cursor(100), group.group_id).store(&alix.context.db())?;
     let mut reader = LocalDelivery::new(
@@ -713,7 +714,7 @@ async fn queued_undecodable_content_is_delivered_and_the_stream_continues() {
     use prost::Message;
     use xmtp_content_types::{ContentCodec, text::TextCodec};
     use xmtp_mls_messages::decoded_message::{ContentDecodeFailureKind, MessageBody};
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     // The mock row's bytes are not a serialized EncodedContent.
     let malformed = generate_stored_msg(Cursor(100), group.group_id);
@@ -756,7 +757,7 @@ async fn queued_undecodable_content_is_delivered_and_the_stream_continues() {
 async fn enrichment_does_not_dispatch_and_stale_selection_remains_nonterminal() {
     use prost::Message;
     use xmtp_content_types::{ContentCodec, text::TextCodec};
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let mut message = generate_stored_msg(Cursor(100), group.group_id);
     message.decrypted_message_bytes =
@@ -792,7 +793,7 @@ async fn enrichment_does_not_dispatch_and_stale_selection_remains_nonterminal() 
 async fn queued_message_that_expires_before_enrichment_is_not_delivered() {
     use prost::Message;
     use xmtp_content_types::{ContentCodec, text::TextCodec};
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let mut expiring = generate_stored_msg(Cursor(100), group.group_id);
     expiring.decrypted_message_bytes = TextCodec::encode("expiring".into())?.encode_to_vec();
@@ -853,7 +854,7 @@ async fn replay_ack_boundary(
 ) -> std::result::Result<(), Box<dyn std::error::Error>> {
     use xmtp_db::delivery::acknowledgement::{DeliveryAckPhase, DeliveryAckRequest};
     use xmtp_db::refresh_state::{EntityKind, QueryRefreshState};
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let from = alix.context.db().current_delivery_cursor()?;
     let first = generate_stored_msg(Cursor(100), group.group_id);
@@ -982,7 +983,7 @@ async fn replay_ack_boundary(
 #[xmtp_common::test(unwrap_try = true)]
 async fn all_reader_and_snapshot_hide_sync_without_consuming_internal_messages() {
     use xmtp_db::{diesel::prelude::*, group::ConversationType, schema::groups};
-    tester!(alix);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let sync = alix.create_group(None, None)?;
     alix.context.db().raw_query(|conn| {
@@ -1037,7 +1038,7 @@ async fn subscribe_error_code_reaches_stream_storage_code() {
     };
     use xmtp_common::RetryableError;
     use xmtp_mls_core::worker::NeedsDbReconnect;
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let open = || {
         MessageReader::new(

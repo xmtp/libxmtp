@@ -1,16 +1,18 @@
 //! Live delivery checks over the durable receiver and local reader.
 
-use super::{
-    Result, SubscribeError,
-    local_delivery::{DeliveryScope, LocalDeliveryFilter},
-    message_reader::MessageReader,
-};
-use crate::prelude::*;
-use crate::{tester, utils::MlsGroupExt};
 use futures::StreamExt;
 use std::time::Duration;
 use xmtp_db::group_message::{GroupMessageKind, StoredGroupMessage};
+use xmtp_mls::prelude::*;
+use xmtp_mls::subscriptions::{
+    SubscribeError,
+    local_delivery::{DeliveryScope, LocalDeliveryFilter},
+    message_reader::MessageReader,
+};
+use xmtp_mls::{tester, utils::MlsGroupExt};
 use xmtp_mls_engine::groups::context::XmtpSharedContext;
+
+type Result<T> = std::result::Result<T, SubscribeError>;
 
 const WAIT: Duration = Duration::from_secs(20);
 
@@ -24,10 +26,10 @@ mod reader_contract;
 // verifies: EVENT-001, EVENT-027
 #[xmtp_common::test(unwrap_try = true)]
 async fn the_same_reader_recovers_a_missed_commit_after_a_tcp_outage() {
-    use super::incoming::{IncomingConnection, IncomingRegistration};
-    use crate::utils::DefaultTestClientCreator;
     use xmtp_db::prelude::*;
     use xmtp_events::{ClientEvent, ConnectionState, EventFilter, EventKind};
+    use xmtp_mls::subscriptions::incoming::{IncomingConnection, IncomingRegistration};
+    use xmtp_mls::utils::DefaultTestClientCreator;
     use xmtp_proto::api_client::{
         ApiBuilder, NetConnectConfig, XmtpMlsBidiStreams, XmtpTestClient,
     };
@@ -285,9 +287,9 @@ async fn durable_reader_delivers_live_messages() {
 #[case::reader_opened_while_inactive(true)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn streamed_message_recovers_pending_rejoin_welcome(#[case] open_while_inactive: bool) {
-    use super::incoming::{IncomingProcessing, IncomingRegistration};
     use xmtp_common::wait_for_eq;
     use xmtp_db::prelude::*;
+    use xmtp_mls::subscriptions::incoming::{IncomingProcessing, IncomingRegistration};
     use xmtp_proto::types::Topic;
 
     tester!(alix, disable_workers);

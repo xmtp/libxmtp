@@ -1,11 +1,11 @@
 //! Deletion items for expired messages: whatever removes the message, the
 //! deletion stream reports which message went, never what it said.
 
-use crate::tester;
 use xmtp_common::time::{Duration, now_ns};
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_db::prelude::*;
 use xmtp_events::{EventBus, EventFilter, EventWriter};
+use xmtp_mls::tester;
 use xmtp_mls_core::context::CoreContext;
 use xmtp_mls_core::events::InternalEvent;
 use xmtp_mls_core::worker::disappearing_messages::{
@@ -77,8 +77,8 @@ fn assert_no_body(
 /// The deletion stream of `context`, not polled until the test reads it.
 fn deletion_stream(
     context: &impl CoreContext,
-) -> impl futures::Stream<Item = crate::subscriptions::Result<DecodedMessage>> {
-    use crate::subscriptions::StreamMessages;
+) -> impl futures::Stream<Item = Result<DecodedMessage, xmtp_mls::subscriptions::SubscribeError>> {
+    use xmtp_mls::subscriptions::StreamMessages;
     context
         .events()
         .subscribe(
@@ -171,9 +171,9 @@ async fn expired_message_deletion_event_carries_no_body(
 // verifies: META-051
 #[xmtp_common::test(unwrap_try = true)]
 async fn deletion_that_expires_before_delivery_carries_no_body() {
-    use crate::subscriptions::StreamMessages;
     use futures::StreamExt;
     use xmtp_db::group_message::{ContentType, DeliveryStatus, GroupMessageKind};
+    use xmtp_mls::subscriptions::StreamMessages;
     use xmtp_mls_core::events::DeletedMessages;
 
     let bus = EventBus::new();

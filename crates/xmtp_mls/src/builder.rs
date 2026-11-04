@@ -1109,6 +1109,16 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         self
     }
 
+    /// The subscription factory the built client's receiver opens through,
+    /// for a test that wraps or replaces it.
+    #[cfg(any(test, feature = "test-utils"))]
+    #[doc(hidden)]
+    pub fn incoming_factory_mut(
+        &mut self,
+    ) -> &mut Option<Arc<dyn crate::subscriptions::incoming::SubscriptionFactory>> {
+        &mut self.incoming_factory
+    }
+
     pub fn with_device_sync_worker_mode(self, mode: Option<DeviceSyncMode>) -> Self {
         Self {
             device_sync_worker_mode: mode.unwrap_or(DeviceSyncMode::Enabled),

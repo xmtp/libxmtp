@@ -3,11 +3,11 @@
 //! and fixed target completion. The transport test checks delivery across
 //! lease changes, slow consumers, and connection failures.
 
-use crate::prelude::*;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
+use xmtp_mls::prelude::*;
 
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
@@ -15,12 +15,12 @@ use rand::{RngExt, SeedableRng};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinSet;
 
-use crate::tester;
-use crate::utils::{LocalTesterBuilder, TesterBuilder};
 use xmtp_api_backend::{
     BackendBinding, BidiConnection, BidiEvent, BidiTransport, DEFAULT_LEASE_DEPTH, LeaseEvent,
     OpenError, TopicLease, TransportBinding,
 };
+use xmtp_mls::tester;
+use xmtp_mls::utils::{LocalTesterBuilder, TesterBuilder};
 use xmtp_mls_engine::groups::MlsGroup;
 use xmtp_mls_engine::groups::context::XmtpSharedContext;
 use xmtp_proto::backend_v1::subscribe_request::Update;
@@ -65,9 +65,9 @@ async fn publish_message<C: XmtpSharedContext>(group: &MlsGroup<C>, payload: &[u
 /// sent just before it, because its target comes from a read that can lag the
 /// primary (see `wait_for_welcomes`). Poll until all of the groups arrive.
 async fn joined_groups(
-    producer: &crate::utils::ClientTester,
+    producer: &xmtp_mls::utils::ClientTester,
     group_ids: &[xmtp_proto::types::GroupId],
-) -> Vec<crate::utils::TestMlsGroup> {
+) -> Vec<xmtp_mls::utils::TestMlsGroup> {
     xmtp_common::wait_for_some(|| async {
         producer
             .sync_welcomes()

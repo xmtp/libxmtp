@@ -248,6 +248,11 @@ required-features = ["test-utils"]
 name = "openmls_host_logging"
 required-features = ["test-utils"]
 
+[[test]]
+name = "streams"
+path = "tests/streams/main.rs"
+required-features = ["test-hooks", "test-utils"]
+
 [[bench]]
 harness = false
 name = "group_limit"
