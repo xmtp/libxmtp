@@ -3,6 +3,9 @@
 Run recipes from the repository root through `dev/nix-shell`. Discover the full
 catalog with `dev/nix-shell 'just --list'`; modules expose their own recipes.
 
+For a Droid cloud snapshot with Nix and shell dependencies already loaded, use
+the [Factory Environment setup](../.factory/README.md).
+
 ## Tooling and CI changes
 
 - `dev/nix-shell 'just lint-config'`: treefmt, CI declaration, release tools.

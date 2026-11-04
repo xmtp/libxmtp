@@ -11,7 +11,22 @@
 # needs no Nix evaluation. --refresh evaluates again.
 
 set -euo pipefail
+# Cloud snapshots may install Nix without loading shell startup files. Keep the
+# wrapper usable from Droid's non-login commands as well as interactive shells.
+if ! command -v nix >/dev/null 2>&1; then
+  export PATH="$HOME/.nix-profile/bin:/nix/var/nix/profiles/default/bin:$PATH"
+fi
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [[ -f "/etc/nix/libxmtp-droid.conf" ]]; then
+  # A cloud snapshot may restore files without the daemon process. Only execute
+  # the root-owned installed helper, never a privileged script from this checkout.
+  if [[ $EUID -eq 0 ]]; then
+    "/usr/local/sbin/libxmtp-nix-daemon"
+  else
+    sudo -n "/usr/local/sbin/libxmtp-nix-daemon"
+  fi
+  export NIX_REMOTE=daemon
+fi
 shell_name="${NIX_DEVSHELL:-default}"
 refresh=false
 print_env=false
