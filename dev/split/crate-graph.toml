@@ -1,0 +1,36 @@
+# The normal dependencies among the ten xmtp_mls crates: the "Normal deps"
+# column of the Target crates table (Ref yrC4OvnlOKmcebA9). dev/split/crate-graph
+# fails when cargo metadata shows any other edge or lacks one listed here.
+# Temporary split validation; Task 24 deletes it with the checker.
+
+[allowed]
+xmtp_mls_messages = []
+xmtp_mls_server_config = []
+xmtp_mls_core = ["xmtp_mls_server_config"]
+xmtp_mls_identity = ["xmtp_mls_core", "xmtp_mls_server_config"]
+xmtp_mls_attachments = ["xmtp_mls_core"]
+xmtp_mls_engine = [
+  "xmtp_mls_core",
+  "xmtp_mls_identity",
+  "xmtp_mls_messages",
+  "xmtp_mls_server_config",
+]
+xmtp_mls_streams = [
+  "xmtp_mls_core",
+  "xmtp_mls_engine",
+  "xmtp_mls_messages",
+  "xmtp_mls_server_config",
+]
+xmtp_mls_device_sync = ["xmtp_mls_core", "xmtp_mls_engine", "xmtp_mls_identity"]
+xmtp_mls_notifications = ["xmtp_mls_core", "xmtp_mls_engine"]
+xmtp_mls = [
+  "xmtp_mls_attachments",
+  "xmtp_mls_core",
+  "xmtp_mls_device_sync",
+  "xmtp_mls_engine",
+  "xmtp_mls_identity",
+  "xmtp_mls_messages",
+  "xmtp_mls_notifications",
+  "xmtp_mls_server_config",
+  "xmtp_mls_streams",
+]
