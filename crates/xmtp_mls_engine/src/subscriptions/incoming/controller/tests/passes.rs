@@ -575,3 +575,137 @@ async fn each_connection_change_is_published_before_the_next_event() {
         ]
     );
 }
+
+/// A status rebuild publishes each current scope from durable state and never
+/// writes over a scope generation the controller has not applied yet. A failed
+/// read publishes its error, not stale progress.
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rebuild_publishes_durable_state_for_current_scopes_only() {
+    let alix = EngineTestPeer::new().await;
+    let topic = stored_groups(&alix.context, 1).remove(0);
+    let key = topic_key(&topic)?;
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    let lease = coordinator.acquire(IncomingScope::Topics(vec![topic.clone()]));
+    register_all(&mut controller);
+    admit_empty(&mut controller, &topic, &[10, 20]);
+    alix.context
+        .db()
+        .complete_pending_envelope(&key, Cursor(10))?;
+    controller.refresh_statuses();
+    let status = lease.snapshot();
+    let durable = alix.context.db().topic_progress(&key)?;
+    assert_eq!(status.topics[0].received, durable.received);
+    assert_eq!(status.topics[0].processed, durable.processed);
+    assert_eq!(
+        status.connection_generation,
+        controller.transport.generation
+    );
+
+    let old = lease.replace_topics(Vec::new());
+    controller.refresh_statuses();
+    let current = lease.snapshot();
+    assert!(current.scope_generation > old.scope_generation);
+    assert!(current.topics.is_empty());
+    assert_eq!(current.previous?.processing, IncomingProcessing::Cancelled);
+
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller
+        .scopes
+        .get_mut(&lease.id)?
+        .topics
+        .insert(topic.clone());
+    run_raw_sql(&alix.context, "DROP TABLE incoming_envelopes");
+    controller.refresh_statuses();
+    let failed = lease.snapshot();
+    assert!(failed.topics.is_empty());
+    assert!(matches!(
+        failed.error.as_deref(),
+        Some(IncomingError::Storage(_))
+    ));
+}
+
+/// Regression guard: the SQL statements of a controller pass and of a status
+/// rebuild do not grow with the number of groups or of held heads.
+// verifies: PROC-013
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn pass_and_status_sql_do_not_grow_with_groups() {
+    use xmtp_db::database::{count_sql_queries, count_sql_queries_async};
+
+    let alix = EngineTestPeer::new().await;
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    let lease = coordinator.acquire(IncomingScope::AllGroups);
+    let mut passes = Vec::new();
+    let mut groups = 0;
+    for added in [100, 900] {
+        let topics = stored_groups(&alix.context, added);
+        groups += added;
+        register_all(&mut controller);
+        // Every group has a held head, which takes no turn: a third wait for
+        // their retry time, a third are blocked and already rechecked, and a
+        // third wait on a dependency.
+        for (index, topic) in topics.iter().enumerate() {
+            admit_empty(&mut controller, topic, &[10]);
+            match index % 3 {
+                0 => retry_at(&alix.context, topic, 10, i64::MAX, false),
+                1 => {
+                    retry_at(&alix.context, topic, 10, 0, true);
+                    controller
+                        .topics
+                        .entry(topic.clone())
+                        .or_default()
+                        .processing
+                        .retried_head = Some(Cursor(10));
+                }
+                _ => controller.dependency_registry.attach(
+                    DependencyParent::GroupHead(topic.clone(), Cursor(10)),
+                    identity_key(&IdentityRequirement {
+                        inbox_id: "peer".into(),
+                        sequence_id: 1,
+                    }),
+                ),
+            }
+        }
+        // The first pass reads receipt for the new topics; the next is steady.
+        controller.run_pass(false).await;
+        let (_, pass, _) = count_sql_queries_async(controller.run_pass(false)).await;
+        passes.push(pass);
+        // A rebuild is one read transaction: BEGIN, two SELECTs and COMMIT.
+        let (_, rebuild, transactions) = count_sql_queries(|| controller.refresh_statuses());
+        assert_eq!((rebuild, transactions), (4, 1));
+        // Every group topic and the Welcome topic.
+        assert_eq!(lease.snapshot().topics.len(), groups + 1);
+    }
+    assert_eq!(
+        passes[0], passes[1],
+        "pass statements at 100 and 1,000 groups"
+    );
+}
+
+/// A status counts pending rows through the scope's target, or through receipt
+/// when no target is fixed: a Welcome counts its unresolved Welcomes through
+/// its target, and a group without a target reports its blocked head.
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_status_reads_pending_rows_through_the_target_or_receipt() {
+    let alix = EngineTestPeer::new().await;
+    let welcome = Topic::new_welcome_message(alix.context.installation_id());
+    let group = stored_groups(&alix.context, 1).remove(0);
+    let mut controller = controller(alix.context.clone());
+    add_scope(&mut controller, 1, &welcome);
+    add_scope(&mut controller, 2, &group);
+    admit_empty(&mut controller, &welcome, &[10, 20, 30]);
+    admit_empty(&mut controller, &group, &[10, 20]);
+    retry_at(&alix.context, &group, 10, 0, true);
+    controller
+        .scopes
+        .get_mut(&1)?
+        .targets
+        .insert(welcome.clone(), Cursor(15));
+    controller.refresh_statuses();
+    let statuses = controller.state.statuses.lock();
+    assert_eq!(statuses[&1].topics[0].unresolved_welcomes, 1);
+    assert_eq!(statuses[&2].topics[0].blocked.as_deref(), Some("held"));
+    assert_eq!(statuses[&2].processing, IncomingProcessing::Blocked);
+}
