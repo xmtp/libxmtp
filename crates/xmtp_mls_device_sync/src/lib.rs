@@ -1,3 +1,8 @@
+//! Device sync: the sync worker and its sync group, preference sync, and
+//! archive export and import. Built on the core, engine and identity crates;
+//! names no facade, streams or notifications type.
+#![warn(clippy::unwrap_used)]
+
 use prost::Message;
 use std::sync::Arc;
 use thiserror::Error;
@@ -691,4 +696,11 @@ fn decode_supported_content(bytes: &[u8]) -> Option<ReceivedContent> {
         .ok()?
         .content
         .map(ReceivedContent)
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), ctor::ctor(unsafe))]
+#[cfg(all(test, not(target_arch = "wasm32")))]
+fn test_setup() {
+    xmtp_common::logger();
+    let _ = fdlimit::raise_fd_limit();
 }

@@ -1,3 +1,9 @@
+//! Message and conversation streams over the engine receiver: local
+//! delivery and message readers, catch-up, stream failures and the native
+//! callback adapters. Built on the core, engine, messages and server
+//! configuration crates; names no facade, device-sync or notifications type.
+#![warn(clippy::unwrap_used)]
+
 use futures::{Stream, StreamExt};
 use prost::Message;
 use tokio::sync::oneshot;
@@ -701,4 +707,11 @@ pub enum StreamKind {
 mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     mod disconnect_propagation;
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), ctor::ctor(unsafe))]
+#[cfg(all(test, not(target_arch = "wasm32")))]
+fn test_setup() {
+    xmtp_common::logger();
+    let _ = fdlimit::raise_fd_limit();
 }
