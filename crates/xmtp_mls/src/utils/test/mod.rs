@@ -19,12 +19,9 @@ pub mod inbox_handles;
 pub mod preflight;
 
 #[cfg(test)]
-pub(crate) mod crafted_welcome;
-#[cfg(test)]
 pub(crate) mod notifications;
 pub mod test_mocks_helpers;
-mod tester_utils_trait_ext;
-pub use tester_utils_trait_ext::*;
+pub use crate::groups::test_support::MlsGroupExt;
 
 use crate::XmtpApi;
 use crate::{
@@ -82,64 +79,6 @@ pub(crate) fn group_secret_encodings(
             ]
         })
         .collect()
-}
-
-/// A key package for this installation, signed with its installation key and
-/// naming its inbox, whose key package extensions are exactly `extensions`.
-/// Its capabilities advertise both XMTP addressing extensions. Nothing
-/// uploads it.
-#[cfg(test)]
-pub(crate) fn key_package_with_extensions(
-    context: &impl XmtpSharedContext,
-    ciphersuite: openmls::prelude::Ciphersuite,
-    extensions: Vec<openmls::prelude::Extension>,
-) -> Vec<u8> {
-    use openmls::prelude::{
-        ApplicationIdExtension, Capabilities, CredentialWithKey, Extension, ExtensionType,
-        Extensions, KeyPackage, LeafNode, ProposalType, tls_codec::Serialize,
-    };
-    use xmtp_configuration::{
-        WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID, WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
-    };
-    let identity = context.identity();
-    let capabilities = Capabilities::new(
-        None,
-        Some(&[ciphersuite]),
-        Some(&[
-            ExtensionType::ApplicationId,
-            ExtensionType::AppDataDictionary,
-            ExtensionType::Unknown(WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID),
-            ExtensionType::Unknown(WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID),
-        ]),
-        Some(&[
-            ProposalType::GroupContextExtensions,
-            ProposalType::AppDataUpdate,
-        ]),
-        None,
-    );
-    KeyPackage::builder()
-        .leaf_node_capabilities(capabilities)
-        .leaf_node_extensions(
-            Extensions::<LeafNode>::single(Extension::ApplicationId(ApplicationIdExtension::new(
-                context.inbox_id().as_bytes(),
-            )))
-            .unwrap(),
-        )
-        .key_package_extensions(Extensions::from_vec(extensions).unwrap())
-        .mark_as_last_resort()
-        .build(
-            ciphersuite,
-            &context.mls_provider(),
-            &identity.installation_keys,
-            CredentialWithKey {
-                credential: identity.credential(),
-                signature_key: identity.installation_keys.public_slice().into(),
-            },
-        )
-        .unwrap()
-        .key_package()
-        .tls_serialize_detached()
-        .unwrap()
 }
 
 impl<A, S> ClientBuilder<A, S> {
@@ -380,29 +319,6 @@ pub async fn wait_for_min_intents<C: ConnectionExt>(
         }
     })
     .await
-}
-
-#[cfg(any(test, feature = "test-utils"))]
-impl<Context: XmtpSharedContext> MlsGroup<Context> {
-    /// Sign `message` under the group signing key of this group's root, as a
-    /// member signs it at preparation. A test that changes a group message
-    /// signs it again, so that admission accepts the changed bytes and the
-    /// change reaches the receiving client.
-    pub fn sign_as_member(&self, message: &mut xmtp_proto::backend_v1::GroupMessage) {
-        let keys = self
-            .with_group_snapshot(|group| {
-                Ok(
-                    xmtp_mls_group_state::app_data::group_root::check_group_root(
-                        group.extensions(),
-                        group.group_id().as_slice(),
-                    ),
-                )
-            })
-            .unwrap()
-            .expect("a keyed group holds the root of its id");
-        xmtp_mls_group_keys::group_keys::sign_group_message(&keys, message)
-            .expect("signing passes the self-check");
-    }
 }
 
 /// Set a pending receipt to test registration recovery after reopen.

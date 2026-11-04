@@ -154,11 +154,13 @@ async fn scripted_client_verifying(
                 inner: base.context.api().api_client.raw_for_test().clone(),
                 script: script.clone(),
             },
-            StreamPolicy {
-                max_fetched_rows,
-                ..Default::default()
-            },
             verifier.map(|verifier| Box::new(verifier) as Box<dyn SmartContractSignatureVerifier>),
+            |options| {
+                options.stream_policy = StreamPolicy {
+                    max_fetched_rows,
+                    ..Default::default()
+                }
+            },
         )
         .await;
     (client, script)

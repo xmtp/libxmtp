@@ -92,7 +92,12 @@ async fn releasing_readers_allows_recreation_and_releases_the_context() {
         drop(lease);
         drop(coordinator);
         xmtp_common::wait_for_eq(
-            || async { alix.context.incoming_runtime().coordinator.lock().is_none() },
+            || async {
+                alix.context
+                    .incoming_runtime()
+                    .coordinator_for_test()
+                    .is_none()
+            },
             true,
         )
         .await?;

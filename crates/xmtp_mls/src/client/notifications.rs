@@ -4,8 +4,8 @@ pub use crate::core::notifications::{
     NotificationChannel, NotificationConfig, NotificationOverride,
 };
 pub(crate) use crate::core::notifications::{
-    decode, effective, enabled_from_record, encode, encode_config, notification_settings_changed,
-    recipient_secret, stored_config,
+    decode, effective, encode, encode_config, notification_settings_changed, recipient_secret,
+    stored_config,
 };
 use crate::{
     context::XmtpSharedContext,

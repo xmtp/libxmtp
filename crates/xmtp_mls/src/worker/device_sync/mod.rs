@@ -1,16 +1,15 @@
 use crate::core::sync_tasks::schedule_add_missing_installations;
+use crate::groups::is_own_sync_group;
 use crate::state_tx::StateTx;
 use crate::{
     context::XmtpSharedContext,
     groups::{
         GroupError, MlsGroup, PreconfiguredPolicies, send_message_opts, summary::SyncSummary,
     },
-    identity::parse_credential,
     identity_updates::{IdentityUpdateError, IdentityUpdates},
     mls_store::MlsStoreError,
     worker::{NeedsDbReconnect, metrics::WorkerMetrics},
 };
-use openmls::prelude::{BasicCredential, Member};
 use prost::Message;
 use std::sync::Arc;
 use thiserror::Error;
@@ -146,23 +145,6 @@ pub(super) fn selected_sync_group_in<T: TransactionalKeyStore>(
         }
     }
     Ok(None)
-}
-
-/// A sync group belongs to the own inbox only when that inbox added this
-/// client and every leaf node's credential names it.
-// implements: SYNC-010
-pub(crate) fn is_own_sync_group(
-    own_inbox_id: &str,
-    added_by_inbox_id: &str,
-    members: impl IntoIterator<Item = Member>,
-) -> bool {
-    added_by_inbox_id == own_inbox_id
-        && members.into_iter().all(|member| {
-            BasicCredential::try_from(member.credential)
-                .ok()
-                .and_then(|credential| parse_credential(credential.identity()).ok())
-                .is_some_and(|inbox_id| inbox_id == own_inbox_id)
-        })
 }
 
 #[derive(Debug, Error, ErrorCode)]

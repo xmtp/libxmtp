@@ -1,5 +1,6 @@
 use super::*;
 use crate::client::ClientError;
+use crate::groups::summary::ProcessSummary;
 use std::sync::Arc;
 use xmtp_proto::types::{Cursor, Topic};
 
@@ -98,13 +99,15 @@ fn traverses_all_sync_summary_branches_and_transparent_wrappers() {
         cause: Some(Box::new(barrier(Some(2), BarrierFailure::Cancelled))),
         rate_limit_delay: None,
     });
-    summary.process.errored.push((
-        Cursor(3),
-        GroupMessageProcessingError::PreparedAttempt(Box::new(GroupError::StreamBarrier(barrier(
-            Some(3),
-            BarrierFailure::Blocked,
-        )))),
-    ));
+    summary.add_process(ProcessSummary {
+        errored: vec![(
+            Cursor(3),
+            GroupMessageProcessingError::PreparedAttempt(Box::new(GroupError::StreamBarrier(
+                barrier(Some(3), BarrierFailure::Blocked),
+            ))),
+        )],
+        ..Default::default()
+    });
     let error = ClientError::Group(Box::new(GroupError::Sync(Box::new(summary))));
     let details = crate::client::stream_failure_details(&error)?;
     let targets: Vec<_> = details
@@ -163,4 +166,42 @@ fn ordinary_and_invalid_errors_have_no_details() {
     assert!(encode_stream_failure(&GroupError::GroupInactive).is_none());
     assert!(decode_stream_failure("[GenericError::Generic] ordinary error").is_none());
     assert!(decode_stream_failure(&format!("{STREAM_FAILURE_MARKER}invalid-json")).is_none());
+}
+
+// verifies: PROC-018
+#[xmtp_common::test(unwrap_try = true)]
+fn replacement_failure_keeps_cancelled_scope_generation() {
+    use crate::subscriptions::incoming::{IncomingProcessing, ReplacedScope};
+
+    let replaced = ReplacedScope::create();
+    let (old_generation, previous, current) = (
+        replaced.old_generation,
+        &replaced.previous,
+        &replaced.current,
+    );
+    assert_eq!(previous.scope_generation, old_generation);
+    assert_eq!(previous.processing, IncomingProcessing::Cancelled);
+    assert_eq!(previous.topics[0].scope_generation, old_generation);
+    assert_eq!(previous.topics[0].processing, IncomingProcessing::Cancelled);
+    assert!(current.scope_generation > old_generation);
+    assert_eq!(current.previous.as_ref()?.scope_generation, old_generation);
+    let details = StreamBarrierFailure::from(&BarrierError::Incomplete {
+        reason: BarrierFailure::Cancelled,
+        unfinished: vec![replaced.unfinished.clone()],
+    });
+    let reported = &details.unfinished[0];
+    assert_eq!(
+        reported.scope_generation.as_deref(),
+        Some(old_generation.to_string().as_str())
+    );
+    assert_ne!(
+        reported.scope_generation.as_deref(),
+        Some(current.scope_generation.to_string().as_str())
+    );
+    assert_eq!(reported.target.as_deref(), Some("9"));
+    assert_eq!(reported.received, "9");
+    assert_eq!(reported.processed, "8");
+    let (sibling, registered) = replaced.close();
+    assert_eq!(sibling.processing, IncomingProcessing::Pending);
+    assert!(registered);
 }

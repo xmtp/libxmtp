@@ -150,8 +150,7 @@ async fn open(client: &Client<Context>, topic: u8) -> IncomingSubscription<Netwo
         .context
         .features
         .incoming
-        .factory
-        .as_ref()
+        .factory_for_test()
         .expect("production factory")
         .open(cursors, limits)
         .await

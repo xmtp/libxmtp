@@ -402,7 +402,7 @@ mod tests {
             &conversation.group_id.to_openmls(),
         )??;
         let malformed = vec![0xff; 3];
-        let mut stage = crate::groups::mls_ext::commit_without_group_info(
+        let mut stage = crate::groups::test_support::commit_without_group_info(
             &mut group,
             provider.storage(),
             |builder| {
@@ -477,7 +477,7 @@ mod tests {
             &conversation.group_id.to_openmls(),
         )??;
         let commit_log_signer = xmtp_common::rand_vec::<32>();
-        let mut stage = crate::groups::mls_ext::commit_without_group_info(
+        let mut stage = crate::groups::test_support::commit_without_group_info(
             &mut group,
             provider.storage(),
             |builder| {
@@ -986,7 +986,7 @@ mod tests {
         assert!(received_before_join.received > before_join.processed);
         assert!(matches!(
             restored.process_pending_group_head(None)?,
-            crate::groups::mls_sync::GroupHeadOutcome::Inactive
+            crate::groups::test_support::GroupHeadOutcome::Inactive
         ));
         assert_eq!(
             alix2.db().topic_progress(&restored_topic)?.processed,
@@ -1120,7 +1120,7 @@ mod tests {
             panic!("Restored sync_with_conn must reject the request");
         };
         assert!(matches!(
-            sync_summary.other.as_deref(),
+            sync_summary.other_error(),
             Some(GroupError::GroupInactive)
         ));
         assert!(matches!(
@@ -1147,7 +1147,7 @@ mod tests {
             panic!("mixed explicit sync must report the inactive group");
         };
         assert!(matches!(
-            summary.other.as_deref(),
+            summary.other_error(),
             Some(GroupError::GroupInactive)
         ));
         assert!(charlie.db().get_group_message(&incoming_id)?.is_some());
@@ -1806,7 +1806,7 @@ mod tests {
         let archived_dm_id = archived_dm_id.expect("legacy DM pair");
         let mut importer = ArchiveImporter::from_file(path, &key).await?;
         tester!(alix, disable_workers);
-        let pair = crate::groups::parse_canonical_dm_id(Some(&archived_dm_id))?;
+        let pair = crate::groups::test_support::parse_canonical_dm_id(Some(&archived_dm_id))?;
         assert_ne!(pair.member_one_inbox_id, alix.inbox_id());
         assert_ne!(pair.member_two_inbox_id, alix.inbox_id());
         insert_importer(&mut importer, &alix.context).await?;

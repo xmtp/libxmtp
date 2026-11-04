@@ -1,0 +1,1021 @@
+//! Construction, loading, proposal capability, and insertion.
+
+use super::intents::UpdateGroupMembershipIntentData;
+use super::*;
+use xmtp_db::consent_record::{
+    ConsentChange, ConsentKey, ConsentWrite, Decision, Owed, fold_into_inbox, write_consent,
+};
+use xmtp_db::group::GroupQueryArgs;
+use xmtp_mls_core::events::{dm_event_context, emit_consent_changes};
+use xmtp_mls_core::mls_store::MlsStoreError;
+
+mod restored;
+use xmtp_db::TransactionalKeyStore;
+use xmtp_events::EventWriter;
+use xmtp_mls_group_keys::group_keys::{GroupKeys, GroupRoot};
+use xmtp_mls_group_state::app_data::creation::{InitialGroupKind, initial_dictionary};
+use xmtp_mls_group_state::group::DMMetadataOptions;
+
+/// The MLS group id of a group being inserted.
+#[derive(Clone, Copy)]
+pub(crate) enum NewGroupId {
+    /// A new group, named by the group signing key of its root, with the
+    /// commit-log id the same root derives.
+    Keyed {
+        group_id: GroupId,
+        commit_log_id: [u8; 32],
+    },
+    /// An archive placeholder, named by the archived id. It holds no root.
+    Placeholder(GroupId),
+}
+
+impl NewGroupId {
+    /// Draw a root for a new group, or take a placeholder's archived id.
+    // implements: GMOD-040
+    fn draw(existing_group_id: Option<&[u8]>) -> Result<(Self, Option<GroupRoot>), GroupError> {
+        let Some(existing_group_id) = existing_group_id else {
+            let root = GroupRoot::generate();
+            let keys = GroupKeys::derive(&root);
+            let id = Self::Keyed {
+                group_id: GroupId::from(keys.group_id()),
+                commit_log_id: keys.commit_log_id(),
+            };
+            return Ok((id, Some(root)));
+        };
+        Ok((
+            Self::Placeholder(GroupId::try_from(existing_group_id)?),
+            None,
+        ))
+    }
+
+    /// The commit-log id to store with the row. A placeholder has none.
+    fn commit_log_id(self) -> Option<Vec<u8>> {
+        match self {
+            Self::Keyed { commit_log_id, .. } => Some(commit_log_id.to_vec()),
+            Self::Placeholder(_) => None,
+        }
+    }
+}
+
+/// Represents a group, which can contain anywhere from 1 to MAX_GROUP_SIZE inboxes.
+///
+/// This is a wrapper around OpenMLS's `MlsGroup` that handles our application-level configuration
+/// and validations.
+impl<Context> MlsGroup<Context>
+where
+    Context: XmtpSharedContext,
+{
+    // Creates a new group instance. Does not validate that the group exists in the DB
+    pub fn new(
+        context: Context,
+        group_id: GroupId,
+        dm_id: Option<String>,
+        conversation_type: ConversationType,
+        created_at_ns: i64,
+    ) -> Self {
+        Self::new_from_arc(
+            context.clone(),
+            group_id,
+            dm_id,
+            conversation_type,
+            created_at_ns,
+        )
+    }
+
+    /// Creates a new group instance from the database. Validate that the group exists in the DB before constructing
+    /// the group.
+    ///
+    /// # Returns
+    ///
+    /// Returns the Group and the stored group information as a tuple.
+    pub fn new_cached(
+        context: Context,
+        group_id: &GroupId,
+    ) -> Result<(Self, StoredGroup), StorageError> {
+        let conn = context.db();
+        if let Some(group) = conn.find_group(group_id)? {
+            Ok((
+                Self::new_from_arc(
+                    context,
+                    *group_id,
+                    group.dm_id.clone(),
+                    group.conversation_type,
+                    group.created_at_ns,
+                ),
+                group,
+            ))
+        } else {
+            tracing::error!("group {} does not exist", hex::encode(group_id));
+            Err(NotFound::GroupById(*group_id).into())
+        }
+    }
+
+    /// Query for groups with optional filters
+    ///
+    /// Filters:
+    /// - allowed_states: only return groups with the given membership states
+    /// - created_after_ns: only return groups created after the given timestamp (in nanoseconds)
+    /// - created_before_ns: only return groups created before the given timestamp (in nanoseconds)
+    /// - limit: only return the first `limit` groups
+    pub fn find(context: &Context, args: GroupQueryArgs) -> Result<Vec<Self>, MlsStoreError> {
+        Ok(context
+            .db()
+            .find_groups(args)?
+            .into_iter()
+            .map(|stored_group| {
+                Self::new(
+                    context.clone(),
+                    stored_group.id,
+                    stored_group.dm_id,
+                    stored_group.conversation_type,
+                    stored_group.created_at_ns,
+                )
+            })
+            .collect())
+    }
+
+    /// Look up a group by its ID
+    ///
+    /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
+    ///
+    pub fn load_by_id(context: &Context, group_id: &GroupId) -> Result<Self, MlsStoreError> {
+        let conn = context.db();
+        let stored_group: Option<StoredGroup> = conn.fetch(group_id)?;
+        stored_group
+            .map(|g| {
+                Self::new(
+                    context.clone(),
+                    g.id,
+                    g.dm_id,
+                    g.conversation_type,
+                    g.created_at_ns,
+                )
+            })
+            .ok_or(NotFound::GroupById(*group_id))
+            .map_err(Into::into)
+    }
+
+    /// The group `group_id` on `context`, with the given stored fields. It
+    /// reads nothing from the database.
+    pub fn new_from_arc(
+        context: Context,
+        group_id: GroupId,
+        dm_id: Option<String>,
+        conversation_type: ConversationType,
+        created_at_ns: i64,
+    ) -> Self {
+        let mut mutexes = context.mutexes().clone();
+        Self {
+            group_id,
+            dm_id,
+            conversation_type,
+            created_at_ns,
+            mutex: mutexes.get_mutex(group_id),
+            context: context.clone(),
+            #[cfg(any(test, feature = "test-hooks"))]
+            mls_commit_lock: Arc::clone(context.mls_commit_lock()),
+        }
+    }
+
+    /// Read a consistent MLS snapshot. Only immutable results leave the transaction.
+    pub fn with_group_snapshot<R>(
+        &self,
+        operation: impl FnOnce(&OpenMlsGroup) -> Result<R, GroupError>,
+    ) -> Result<R, GroupError> {
+        state_write(self.context.mls_storage(), |tx| {
+            tx.with_group(self.group_id, |group, _| operation(group))
+                .map(Continue)
+        })
+        .map(TransactionOutcome::into_continued)
+    }
+
+    /// Runs `operation` on this group's MLS state, loaded from `storage` while
+    /// holding the group's test commit lock. Test fixtures use it to retain an
+    /// MLS object and construct stale state.
+    #[cfg(any(test, feature = "test-hooks"))]
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub fn load_mls_group_with_lock<F, R>(
+        &self,
+        storage: &impl XmtpMlsStorageProvider,
+        operation: F,
+    ) -> Result<R, GroupError>
+    where
+        F: Fn(OpenMlsGroup) -> Result<R, GroupError>,
+    {
+        // Get the group ID for locking
+        let group_id = self.group_id;
+
+        // Acquire the lock synchronously using blocking_lock
+        let _lock = self.mls_commit_lock.get_lock_sync(group_id);
+        // Load the MLS group
+        let mls_group = OpenMlsGroup::load(storage, &self.group_id.to_openmls())
+            .inspect_err(|e| tracing::error!("openmls error while loading group {e}"))
+            .map_err(|_| NotFound::MlsGroup(self.group_id))?
+            .ok_or(NotFound::MlsGroup(self.group_id))?;
+
+        // Perform the operation with the MLS group
+        operation(mls_group)
+    }
+
+    /// Runs `operation` on this group's MLS state while holding the group's
+    /// test commit lock, so a test fixture can retain the MLS object across a
+    /// network wait.
+    #[cfg(any(test, feature = "test-hooks"))]
+    #[tracing::instrument(level = "trace", skip(operation))]
+    pub async fn load_mls_group_with_lock_async<R, E>(
+        &self,
+        operation: impl AsyncFnOnce(OpenMlsGroup) -> Result<R, E>,
+    ) -> Result<R, E>
+    where
+        E: From<xmtp_db::StorageError> + From<xmtp_db::sql_key_store::SqlKeyStoreError>,
+    {
+        let mls_storage = self.context.mls_storage();
+        // Get the group ID for locking
+        let group_id = self.group_id;
+
+        // Acquire the lock asynchronously
+        let _lock = self.mls_commit_lock.get_lock_async(group_id).await;
+
+        // Load the MLS group
+        let mls_group = OpenMlsGroup::load(mls_storage, &self.group_id.to_openmls())?
+            .ok_or(StorageError::from(NotFound::GroupById(self.group_id)))?;
+
+        // Perform the operation with the MLS group
+        operation(mls_group).await
+    }
+
+    /// Snapshot this group's membership capabilities: the extension types in
+    /// the group context, plus the extension types each member installation
+    /// advertises.
+    ///
+    /// This reports raw capability facts rather than answers — callers filter
+    /// it to whatever question they care about. For the proposal
+    /// (app-data-dictionary) migration specifically, a caller checks for
+    /// [`MlsExtensionType::AppDataDictionary`] in `context_extensions` (already
+    /// migrated?) and in each installation's `supported_extensions` (eligible /
+    /// who is blocking?).
+    ///
+    /// Every installation's capabilities — the local one included — come from
+    /// its *latest published* key package, not its in-group leaf node: a leaf
+    /// is frozen when the installation joins and is never updated, so it would
+    /// understate a client that upgraded afterward. An installation whose key
+    /// package has not been published or fails verification is reported with
+    /// `capabilities_known == false` and an empty extension list, so callers
+    /// can distinguish "unknown" from "advertises nothing". Transient failures (network, auth, db) surface as an `Err`
+    /// rather than masquerading as unknown capabilities.
+    pub async fn membership_capabilities(&self) -> Result<GroupMembershipCapabilities, GroupError> {
+        // Read the group context's extension types under lock. The member list
+        // (below) is read in a separate lock acquisition, so this is a
+        // best-effort snapshot rather than a single atomic view — fine for a
+        // debug surface.
+        let context_extensions = self.with_group_snapshot(|mls_group| {
+            Ok::<_, GroupError>(
+                mls_group
+                    .extensions()
+                    .iter()
+                    .map(|ext| MlsExtensionType::from(ext.extension_type()))
+                    .collect::<Vec<_>>(),
+            )
+        })?;
+
+        let members = self.members().await?;
+        let own_installation_id = self.context.installation_id();
+
+        // Capabilities for every installation come from its latest published
+        // key package. We intentionally include our own installation rather
+        // than reading its in-group leaf, which is frozen at join and would
+        // understate an upgraded local client.
+        let query_ids: Vec<Vec<u8>> = members
+            .iter()
+            .flat_map(|member| member.installation_ids.iter().cloned())
+            .collect();
+
+        let extensions_by_installation = self.installation_extensions(query_ids).await?;
+
+        let installation_capabilities = |installation_id: Vec<u8>| -> InstallationCapabilities {
+            let is_own = installation_id.as_slice() == own_installation_id.as_slice();
+            match extensions_by_installation.get(installation_id.as_slice()) {
+                Some(extensions) => InstallationCapabilities {
+                    installation_id,
+                    is_own,
+                    supported_extensions: extensions.clone(),
+                    capabilities_known: true,
+                },
+                None => InstallationCapabilities {
+                    installation_id,
+                    is_own,
+                    supported_extensions: Vec::new(),
+                    capabilities_known: false,
+                },
+            }
+        };
+
+        let member_caps: Vec<InboxCapabilities> = members
+            .into_iter()
+            .map(|member| InboxCapabilities {
+                inbox_id: member.inbox_id,
+                installations: member
+                    .installation_ids
+                    .into_iter()
+                    .map(installation_capabilities)
+                    .collect(),
+            })
+            .collect();
+
+        Ok(GroupMembershipCapabilities {
+            context_extensions,
+            members: member_caps,
+        })
+    }
+
+    /// Fetch the latest published key package for each given installation and
+    /// return the MLS extension types it advertises, keyed by installation id.
+    ///
+    /// An installation with no published key package (e.g. an old client — what
+    /// this surface exists to flag) or whose key package fails verification is
+    /// simply absent from the returned map; callers treat absence as
+    /// "capabilities unknown". Transient/infrastructure failures (network,
+    /// auth, db) are NOT swallowed — they propagate as `Err`, so a snapshot can
+    /// tell "this installation has nothing published" apart from "we couldn't
+    /// reach the server".
+    ///
+    async fn installation_extensions(
+        &self,
+        query_ids: Vec<Vec<u8>>,
+    ) -> Result<HashMap<Vec<u8>, Vec<MlsExtensionType>>, GroupError> {
+        if query_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let store = xmtp_mls_core::mls_store::MlsStore::new(self.context.clone());
+
+        let verified = store
+            .get_key_packages_for_installation_ids(query_ids)
+            .await?;
+
+        Ok(verified
+            .into_iter()
+            .filter_map(|(id, result)| {
+                let extensions = result
+                    .ok()?
+                    .inner
+                    .leaf_node()
+                    .capabilities()
+                    .extensions()
+                    .iter()
+                    .copied()
+                    .map(MlsExtensionType::from)
+                    .collect();
+                Some((id, extensions))
+            })
+            .collect())
+    }
+
+    /// Validate that key packages support the AppData dictionary
+    /// group-context extension. A leaf that advertises
+    /// `ExtensionType::AppDataDictionary` in its standard MLS
+    /// `Capabilities` can join a migrated group and receive standalone
+    /// `AppDataUpdate` proposals.
+    pub fn validate_key_packages_support_proposals(
+        &self,
+        key_packages: &[openmls::key_packages::KeyPackage],
+    ) -> Result<(), GroupError> {
+        let extension_type = ExtensionType::AppDataDictionary;
+
+        for kp in key_packages {
+            let leaf_node = kp.leaf_node();
+            let capabilities = leaf_node.capabilities();
+
+            if !capabilities.extensions().contains(&extension_type) {
+                return Err(GroupError::ProposalsNotSupported(
+                    "Member does not support AppData dictionary: installation cannot receive standalone proposal messages".to_string(),
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Create a group with only this installation's inbox and store it.
+    /// `conversation_type` must not be a DM.
+    pub fn create_and_insert(
+        context: Context,
+        conversation_type: ConversationType,
+        permissions_policy_set: PolicySet,
+        opts: GroupMetadataOptions,
+        oneshot_message: Option<OneshotMessage>,
+    ) -> Result<Self, GroupError> {
+        assert!(conversation_type != ConversationType::Dm);
+        let stored_group = Self::insert(
+            &context,
+            None,
+            GroupMembershipState::Allowed,
+            conversation_type,
+            permissions_policy_set,
+            opts,
+            oneshot_message,
+            true,
+        )?;
+        let new_group = Self::new_from_arc(
+            context.clone(),
+            stored_group.id,
+            stored_group.dm_id,
+            conversation_type,
+            stored_group.created_at_ns,
+        );
+
+        Ok(new_group)
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "creation event mode keeps the write atomic"
+    )]
+    pub(crate) fn insert(
+        context: &Context,
+        existing_group_id: Option<&[u8]>,
+        membership_state: GroupMembershipState,
+        conversation_type: ConversationType,
+        permissions_policy_set: PolicySet,
+        opts: GroupMetadataOptions,
+        oneshot_message: Option<OneshotMessage>,
+        emit_created_event: bool,
+    ) -> Result<StoredGroup, GroupError> {
+        let draft = Self::prepare_new(
+            context,
+            existing_group_id,
+            conversation_type,
+            permissions_policy_set,
+            &opts,
+            oneshot_message.as_ref(),
+        )?;
+        Self::store_new(
+            context,
+            draft,
+            membership_state,
+            conversation_type,
+            opts,
+            emit_created_event,
+            None,
+        )
+        .map(|(group, _)| group)
+    }
+
+    pub(crate) fn prepare_new(
+        context: &Context,
+        existing_group_id: Option<&[u8]>,
+        conversation_type: ConversationType,
+        permissions_policy_set: PolicySet,
+        opts: &GroupMetadataOptions,
+        oneshot_message: Option<&OneshotMessage>,
+    ) -> Result<(NewGroupId, MlsGroupCreateConfig), GroupError> {
+        assert!(conversation_type != ConversationType::Dm);
+
+        let creator_inbox_id = context.inbox_id();
+        let (group_id, root) = NewGroupId::draw(existing_group_id)?;
+        let dictionary = initial_dictionary(
+            InitialGroupKind::Group {
+                conversation_type,
+                oneshot_message,
+            },
+            &permissions_policy_set
+                .to_proto()
+                .map_err(group_permissions::GroupMutablePermissionsError::from)
+                .map_err(MetadataPermissionsError::from)?,
+            opts,
+            creator_inbox_id,
+            root.as_ref(),
+            &context
+                .server_configuration()
+                .configuration()
+                .application_components,
+        )
+        .map_err(app_data::migration::BootstrapSynthesisError::from)?;
+        // The dictionary holds the root now; wipe this copy.
+        drop(root);
+        let group_config = build_group_config(dictionary)?;
+
+        Ok((group_id, group_config))
+    }
+
+    pub(crate) fn store_new(
+        context: &Context,
+        draft: (NewGroupId, MlsGroupCreateConfig),
+        membership_state: GroupMembershipState,
+        conversation_type: ConversationType,
+        opts: GroupMetadataOptions,
+        emit_created_event: bool,
+        add: Option<UpdateGroupMembershipIntentData>,
+    ) -> Result<(StoredGroup, Option<StoredGroupIntent>), GroupError> {
+        let (group_id, group_config) = draft;
+        let commit_log_enabled = context.server_configuration().commit_log_enabled();
+        if !emit_created_event || conversation_type.is_virtual() {
+            if emit_created_event && conversation_type == ConversationType::Sync {
+                return xmtp_mls_core::state_tx::state_write_with_events(
+                    context.mls_storage(),
+                    context.events(),
+                    |tx, events| {
+                        let (stored_group, created) = Self::insert_group_row(
+                            context,
+                            tx,
+                            group_id,
+                            membership_state,
+                            conversation_type,
+                            &opts,
+                            &group_config,
+                            commit_log_enabled,
+                        )?;
+                        if created {
+                            // implements: SYNC-001
+                            xmtp_mls_core::sync_tasks::schedule_add_missing_installations(
+                                &tx.storage().db(),
+                                events,
+                                stored_group.id,
+                                Some(xmtp_common::time::Duration::from_secs(60)),
+                                true,
+                            )?;
+                            context.task_channels().mark_notification_changed();
+                            events.emit(
+                                None,
+                                Some(xmtp_mls_core::events::InternalEvent::GroupJoined {
+                                    group_id: stored_group.id,
+                                    is_sync: true,
+                                }),
+                            );
+                        }
+                        Ok::<_, GroupError>(Continue(stored_group))
+                    },
+                )
+                .map(|outcome| (outcome.into_continued(), None));
+            }
+            return state_write(context.mls_storage(), |tx| {
+                let (stored_group, _) = Self::insert_group_row(
+                    context,
+                    tx,
+                    group_id,
+                    membership_state,
+                    conversation_type,
+                    &opts,
+                    &group_config,
+                    commit_log_enabled,
+                )?;
+                Ok::<_, GroupError>(Continue(stored_group))
+            })
+            .map(|outcome| (outcome.into_continued(), None));
+        }
+
+        let result = xmtp_mls_core::state_tx::state_write_with_events(
+            context.mls_storage(),
+            context.events(),
+            |tx, events| {
+                let (stored_group, created) = Self::insert_group_row(
+                    context,
+                    tx,
+                    group_id,
+                    membership_state,
+                    conversation_type,
+                    &opts,
+                    &group_config,
+                    commit_log_enabled,
+                )?;
+                if !created {
+                    return Ok::<_, GroupError>(Continue((stored_group, None)));
+                }
+                let storage = tx.storage();
+                let db = storage.db();
+                // implements: CONS-056
+                let key = ConsentKey::group(stored_group.id.as_ref());
+                let created = ConsentWrite::Decide(Decision::Created);
+                let changes: Vec<_> = write_consent(&db, &key, created, Owed::Mark)?
+                    .into_iter()
+                    .collect();
+                emit_consent_changes(context, events, &db, &changes)?;
+                let intent = add
+                    .map(|data| {
+                        let group = Self::new(
+                            context.clone(),
+                            stored_group.id,
+                            None,
+                            conversation_type,
+                            stored_group.created_at_ns,
+                        );
+                        QueueIntent::update_group_membership()
+                            .data(data)
+                            .queue_in(&db, &group)
+                    })
+                    .transpose()?;
+                context.task_channels().mark_notification_changed();
+                events.emit(
+                    Some(xmtp_events::ClientEvent::ConversationJoined(
+                        xmtp_events::ConversationJoined {
+                            group_id: stored_group.id.to_vec(),
+                            conversation_type: xmtp_events::ConversationType::Group,
+                            origin: xmtp_events::JoinOrigin::Created,
+                            adder_inbox_id: None,
+                        },
+                    )),
+                    Some(xmtp_mls_core::events::InternalEvent::GroupJoined {
+                        group_id: stored_group.id,
+                        is_sync: false,
+                    }),
+                );
+                Ok::<_, GroupError>(Continue((stored_group, intent)))
+            },
+        )?
+        .into_continued();
+        Ok(result)
+    }
+
+    /// Create an allowed group of this installation's inbox and store it with
+    /// the first add of `inbox_ids` queued. Member identities and key packages
+    /// resolve before anything is stored. Returns the group and the id of its
+    /// first-add intent, which [`Self::sync_first_add`] completes, or `None`
+    /// when the add adds no one.
+    pub async fn create_with_first_add(
+        context: &Context,
+        inbox_ids: &[impl AsIdRef],
+        permissions_policy_set: Option<PolicySet>,
+        opts: Option<GroupMetadataOptions>,
+    ) -> Result<(Self, Option<i32>), GroupError> {
+        let opts = opts.unwrap_or_default();
+        let draft = Self::prepare_new(
+            context,
+            None,
+            ConversationType::Group,
+            permissions_policy_set.unwrap_or_default(),
+            &opts,
+            None,
+        )?;
+        let ids = inbox_ids.iter().map(AsIdRef::as_ref).collect::<Vec<_>>();
+        // implements: GMOD-056
+        let add = Self::initial_add(context, &draft, &ids).await?;
+        let (stored, intent) = Self::store_new(
+            context,
+            draft,
+            GroupMembershipState::Allowed,
+            ConversationType::Group,
+            opts,
+            true,
+            add,
+        )?;
+        let group = Self::new(
+            context.clone(),
+            stored.id,
+            stored.dm_id,
+            stored.conversation_type,
+            stored.created_at_ns,
+        );
+        Ok((group, intent.map(|intent| intent.id)))
+    }
+
+    /// Sync until the first add [`Self::create_with_first_add`] queued
+    /// resolves. A failure that leaves the add pending is logged and a later
+    /// sync finishes the add; any other failure is returned.
+    pub async fn sync_first_add(&self, first_add: Option<i32>) -> Result<(), GroupError> {
+        let Some(intent_id) = first_add else {
+            return Ok(());
+        };
+        match self.sync_until_intent_resolved(intent_id).await {
+            Err(error) if !self.intent_pending(intent_id)? => return Err(error),
+            Err(error) => tracing::warn!(?error, "first add pending; a sync finishes it"),
+            Ok(_) => {}
+        }
+        Ok(())
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the row stores the creation parameters"
+    )]
+    fn insert_group_row(
+        context: &Context,
+        tx: &mut xmtp_mls_core::state_tx::StateTx<'_, impl TransactionalKeyStore>,
+        id: NewGroupId,
+        membership_state: GroupMembershipState,
+        conversation_type: ConversationType,
+        opts: &GroupMetadataOptions,
+        group_config: &MlsGroupCreateConfig,
+        commit_log_enabled: bool,
+    ) -> Result<(StoredGroup, bool), GroupError> {
+        let storage = tx.storage();
+        let db = storage.db();
+        if let NewGroupId::Placeholder(group_id) = id
+            && let Some(existing) = db.find_group(&group_id)?
+        {
+            return Ok((existing, false));
+        }
+        let mls_group =
+            Self::create_mls_group(context, &storage, id, group_config, commit_log_enabled)?;
+        let group_id: GroupId = mls_group.group_id().try_into()?;
+        // implements: SYNC-031
+        let created_at_ns = if conversation_type == ConversationType::Sync {
+            xmtp_db::group::next_sync_join_time(&db)?
+        } else {
+            now_ns()
+        };
+        let stored_group = StoredGroup::builder()
+            .id(group_id)
+            .created_at_ns(created_at_ns)
+            .membership_state(membership_state)
+            .conversation_type(conversation_type)
+            .added_by_inbox_id(context.inbox_id().to_string())
+            .message_disappear_from_ns(
+                opts.message_disappearing_settings
+                    .as_ref()
+                    .map(|m| m.from_ns),
+            )
+            .message_disappear_in_ns(opts.message_disappearing_settings.as_ref().map(|m| m.in_ns))
+            .should_publish_commit_log(matches!(id, NewGroupId::Keyed { .. }))
+            .commit_log_public_key(id.commit_log_id())
+            .build()?;
+        stored_group.store_or_ignore(&db)?;
+        Ok((stored_group, true))
+    }
+
+    /// Create a DM between this installation's inbox and
+    /// `dm_target_inbox_id` and store it, without adding the peer.
+    pub fn create_dm_and_insert(
+        context: &Context,
+        membership_state: GroupMembershipState,
+        dm_target_inbox_id: InboxId,
+        opts: GroupMetadataOptions,
+        existing_group_id: Option<&[u8]>,
+    ) -> Result<Self, GroupError> {
+        Self::create_dm_with_members(
+            context,
+            membership_state,
+            DmMembers {
+                member_one_inbox_id: context.inbox_id().to_string(),
+                member_two_inbox_id: dm_target_inbox_id,
+            },
+            opts,
+            existing_group_id,
+        )
+    }
+
+    /// The active DM between this installation's inbox and `inbox_id`, or
+    /// `None`. A stored DM that lacks the peer gets the peer first, and any
+    /// failure of that add is returned.
+    pub async fn find_active_dm<E>(
+        context: &Context,
+        inbox_id: InboxIdRef<'_>,
+    ) -> Result<Option<Self>, E>
+    where
+        E: From<xmtp_db::ConnectionError> + From<GroupError>,
+    {
+        let stored = context.db().find_active_dm_group(&DmMembers {
+            member_one_inbox_id: context.inbox_id(),
+            member_two_inbox_id: inbox_id,
+        })?;
+        let Some(stored) = stored else {
+            return Ok(None);
+        };
+        let group = Self::new(
+            context.clone(),
+            stored.id,
+            stored.dm_id,
+            stored.conversation_type,
+            stored.created_at_ns,
+        );
+        // implements: DMS-020
+        group.add_missing_dm_peer().await?;
+        Ok(Some(group))
+    }
+
+    /// Create an allowed DM with `peer_inbox_id`, with the disappearing-message
+    /// settings of `opts`, and store it without adding the peer.
+    pub fn create_allowed_dm(
+        context: &Context,
+        peer_inbox_id: InboxId,
+        opts: Option<DMMetadataOptions>,
+    ) -> Result<Self, GroupError> {
+        Self::create_dm_and_insert(
+            context,
+            GroupMembershipState::Allowed,
+            peer_inbox_id,
+            GroupMetadataOptions {
+                message_disappearing_settings: opts
+                    .unwrap_or_default()
+                    .message_disappearing_settings,
+                ..Default::default()
+            },
+            None,
+        )
+    }
+
+    /// Store an allowed DM with `peer_inbox_id` without adding the peer: the
+    /// state a creation leaves when it stops between the insert and the add.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn create_dm_without_peer(
+        context: &Context,
+        peer_inbox_id: InboxId,
+    ) -> Result<Self, GroupError> {
+        Self::create_dm_and_insert(
+            context,
+            GroupMembershipState::Allowed,
+            peer_inbox_id,
+            GroupMetadataOptions::default(),
+            None,
+        )
+    }
+
+    fn create_dm_with_members(
+        context: &Context,
+        membership_state: GroupMembershipState,
+        dm_members: DmMembers<InboxId>,
+        opts: GroupMetadataOptions,
+        existing_group_id: Option<&[u8]>,
+    ) -> Result<Self, GroupError> {
+        let commit_log_enabled = context.server_configuration().commit_log_enabled();
+        let (group_id, root) = NewGroupId::draw(existing_group_id)?;
+        let kind = if membership_state == GroupMembershipState::Restored {
+            InitialGroupKind::RestoredDm {
+                member_one_inbox_id: &dm_members.member_one_inbox_id,
+                member_two_inbox_id: &dm_members.member_two_inbox_id,
+            }
+        } else {
+            InitialGroupKind::Dm {
+                target_inbox_id: &dm_members.member_two_inbox_id,
+            }
+        };
+        let dictionary = initial_dictionary(
+            kind,
+            &PolicySet::new_dm()
+                .to_proto()
+                .map_err(group_permissions::GroupMutablePermissionsError::from)
+                .map_err(MetadataPermissionsError::from)?,
+            &opts,
+            context.inbox_id(),
+            root.as_ref(),
+            &context
+                .server_configuration()
+                .configuration()
+                .application_components,
+        )
+        .map_err(app_data::migration::BootstrapSynthesisError::from)?;
+        // The dictionary holds the root now; wipe this copy.
+        drop(root);
+        let group_config = build_group_config(dictionary)?;
+
+        let stored_group = if membership_state == GroupMembershipState::Restored {
+            state_write(context.mls_storage(), |tx| {
+                Ok::<_, GroupError>(Continue(Self::insert_dm_row(
+                    context,
+                    tx,
+                    membership_state,
+                    &dm_members,
+                    &opts,
+                    group_id,
+                    &group_config,
+                    commit_log_enabled,
+                )?))
+            })?
+            .into_continued()
+            .0
+        } else {
+            xmtp_mls_core::state_tx::state_write_with_events(
+                context.mls_storage(),
+                context.events(),
+                |tx, events| {
+                    let (stored_group, created, consent) = Self::insert_dm_row(
+                        context,
+                        tx,
+                        membership_state,
+                        &dm_members,
+                        &opts,
+                        group_id,
+                        &group_config,
+                        commit_log_enabled,
+                    )?;
+                    if created {
+                        let storage = tx.storage();
+                        let changes: Vec<_> = consent.iter().cloned().collect();
+                        emit_consent_changes(context, events, &storage.db(), &changes)?;
+                        if existing_group_id.is_none() {
+                            context.task_channels().mark_notification_changed();
+                            events.emit_with_context(
+                                Some(xmtp_events::ClientEvent::ConversationJoined(
+                                    xmtp_events::ConversationJoined {
+                                        group_id: stored_group.id.to_vec(),
+                                        conversation_type: xmtp_events::ConversationType::Dm,
+                                        origin: xmtp_events::JoinOrigin::Created,
+                                        adder_inbox_id: None,
+                                    },
+                                )),
+                                Some(xmtp_mls_core::events::InternalEvent::GroupJoined {
+                                    group_id: stored_group.id,
+                                    is_sync: false,
+                                }),
+                                dm_event_context(stored_group.dm_id.as_deref()),
+                            );
+                        }
+                    }
+                    Ok::<_, GroupError>(Continue((stored_group, created, consent)))
+                },
+            )?
+            .into_continued()
+            .0
+        };
+        let new_group = Self::new_from_arc(
+            context.clone(),
+            stored_group.id,
+            stored_group.dm_id,
+            ConversationType::Dm,
+            stored_group.created_at_ns,
+        );
+        Ok(new_group)
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the row stores the DM creation parameters"
+    )]
+    fn insert_dm_row(
+        context: &Context,
+        tx: &mut xmtp_mls_core::state_tx::StateTx<'_, impl TransactionalKeyStore>,
+        membership_state: GroupMembershipState,
+        dm_members: &DmMembers<InboxId>,
+        opts: &GroupMetadataOptions,
+        id: NewGroupId,
+        group_config: &MlsGroupCreateConfig,
+        commit_log_enabled: bool,
+    ) -> Result<(StoredGroup, bool, Option<ConsentChange>), GroupError> {
+        let storage = tx.storage();
+        let db = storage.db();
+        if let NewGroupId::Placeholder(group_id) = id
+            && let Some(existing) = db.find_group(&group_id)?
+        {
+            return Ok((existing, false, None));
+        }
+        let mls_group =
+            Self::create_mls_group(context, &storage, id, group_config, commit_log_enabled)?;
+        let group_id: GroupId = mls_group.group_id().try_into()?;
+        let stored_group = StoredGroup::builder()
+            .id(group_id)
+            .created_at_ns(now_ns())
+            .membership_state(membership_state)
+            .added_by_inbox_id(context.inbox_id().to_string())
+            .message_disappear_from_ns(
+                opts.message_disappearing_settings
+                    .as_ref()
+                    .map(|m| m.from_ns),
+            )
+            .message_disappear_in_ns(opts.message_disappearing_settings.as_ref().map(|m| m.in_ns))
+            .dm_id(Some(dm_members.to_string()))
+            .commit_log_public_key(id.commit_log_id())
+            .build()?;
+        stored_group.store(&db)?;
+        // A DM's consent is its peer's inbox record.
+        let own = context.inbox_id();
+        let consent = match ConsentKey::of_group(&stored_group, own) {
+            _ if membership_state == GroupMembershipState::Restored => {
+                fold_into_inbox(&db, own, &stored_group)?
+            }
+            // implements: CONS-056
+            Some(key) => {
+                let created = ConsentWrite::Decide(Decision::Created);
+                write_consent(&db, &key, created, Owed::Mark)?
+            }
+            None => None,
+        };
+        Ok((stored_group, true, consent))
+    }
+
+    /// Create the MLS group a new row names. A restored group starts with a
+    /// stub that a Welcome replaces.
+    fn create_mls_group(
+        context: &Context,
+        storage: &impl XmtpMlsStorageProvider,
+        id: NewGroupId,
+        group_config: &MlsGroupCreateConfig,
+        commit_log_enabled: bool,
+    ) -> Result<OpenMlsGroup, GroupError> {
+        let provider = XmtpOpenMlsProviderRef::new(storage);
+        match id {
+            NewGroupId::Keyed { group_id, .. } => OpenMlsGroup::from_creation_logged(
+                &provider,
+                context.identity(),
+                group_config,
+                group_id,
+                commit_log_enabled,
+            ),
+            NewGroupId::Placeholder(group_id) => OpenMlsGroup::from_backup_stub_logged(
+                &provider,
+                context.identity(),
+                group_config,
+                group_id,
+                commit_log_enabled,
+            ),
+        }
+    }
+
+    // Super admin status is only criteria for whether to publish the commit log for now
+    pub(in crate::groups) fn check_should_publish_commit_log(
+        inbox_id: String,
+        mutable_metadata: Option<GroupMutableMetadata>,
+    ) -> bool {
+        mutable_metadata
+            .as_ref()
+            .map(|metadata| metadata.is_super_admin(&inbox_id))
+            .unwrap_or(false) // Default to false if no mutable metadata
+    }
+}

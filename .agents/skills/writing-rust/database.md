@@ -12,7 +12,7 @@ Transactions live on the storage provider, not the connection. The closure and
 the method both return `Result<TransactionOutcome<T>, E>`.
 
 ```rust
-// crates/xmtp_mls/src/groups/intents/queue.rs
+// crates/xmtp_mls_engine/src/groups/intents/queue.rs
 use xmtp_db::{TransactionOutcome, TransactionOutcome::Continue, prelude::*};
 
 crate::state_tx::state_write(context.mls_storage(), |tx| {

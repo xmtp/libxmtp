@@ -24,7 +24,7 @@ import java.nio.file.Path
 // upload task holds the call gate from its claim until the attempt settles
 // (xmtp_sdk/src/attachments.rs PendingAttachment::upload, on_settled_worker),
 // so end() waits the same way for both. Rust owns the detached attempt
-// (xmtp_mls/src/attachments/tests/lifecycle.rs::dropped_upload_waiter_does_not_cancel_attempt)
+// (xmtp_mls_attachments/tests/attachments/lifecycle.rs::dropped_upload_waiter_does_not_cancel_attempt)
 // and the closed calls with nothing in flight
 // (xmtp_sdk/src/tests/attachment_flows.rs::attachment_calls_fail_closed_after_end).
 class AttachmentLifetimeTest {

@@ -69,9 +69,9 @@ fn rate_limit_delays_reach_the_task_runner_through_each_wrapper() {
         DeviceSyncError::Sync(Box::new(summary)).rate_limit_delay(),
         DeviceSyncError::MlsStore(crate::mls_store::MlsStoreError::Api(rate_limited(delay)))
             .rate_limit_delay(),
-        crate::groups::mls_sync::GroupMessageProcessingError::IdentityUpdate(
-            IdentityUpdateError::Api(rate_limited(delay)),
-        )
+        crate::groups::GroupMessageProcessingError::IdentityUpdate(IdentityUpdateError::Api(
+            rate_limited(delay),
+        ))
         .rate_limit_delay(),
         crate::subscriptions::SubscribeError::LocalDelivery(
             crate::subscriptions::local_delivery::LocalDeliveryError::NetworkFailure(Arc::new(

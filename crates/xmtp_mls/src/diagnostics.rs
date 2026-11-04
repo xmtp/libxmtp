@@ -129,7 +129,7 @@ impl Default for RetryBudgets {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::groups::diagnostics::SNAPSHOT_COMMIT_LIMIT;
+    use crate::groups::test_support::SNAPSHOT_COMMIT_LIMIT;
     use crate::{tester, utils::test::MlsGroupExt};
     use xmtp_db::{group::GroupMembershipState, prelude::*};
 

@@ -37,8 +37,12 @@ async fn deferred_preflight_stays_per_client_on_an_existing_native_wire() {
     .default_mls_store()?
     .build()
     .await?;
-    let a_factory = active.context.incoming_runtime().factory.as_ref().unwrap();
-    let b_factory = moved.context.incoming_runtime().factory.as_ref().unwrap();
+    let a_factory = active
+        .context
+        .incoming_runtime()
+        .factory_for_test()
+        .unwrap();
+    let b_factory = moved.context.incoming_runtime().factory_for_test().unwrap();
     let a_topic = Topic::new_group_message([1; 16]);
     let b_topic = Topic::new_group_message([2; 16]);
     let later_a_topic = Topic::new_group_message([3; 16]);
@@ -149,8 +153,7 @@ async fn deferred_preflight_rebuilt_client_uses_its_own_gate_after_old_owner_clo
     let lease = rebuilt
         .context
         .incoming_runtime()
-        .factory
-        .as_ref()
+        .factory_for_test()
         .unwrap()
         .open(
             [(Topic::new_group_message([4; 16]), Cursor(0))].into(),

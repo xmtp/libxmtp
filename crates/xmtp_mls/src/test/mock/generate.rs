@@ -5,7 +5,7 @@ use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_proto::types::Cursor;
 
 use crate::groups::{
-    mls_sync::GroupMessageProcessingError,
+    GroupMessageProcessingError,
     summary::{MessageIdentifier, ProcessSummary, SyncSummary},
 };
 
@@ -37,43 +37,37 @@ pub fn generate_message(
 }
 
 pub fn generate_successful_summary(messages: &[xmtp_proto::types::GroupMessage]) -> SyncSummary {
-    SyncSummary {
-        publish_errors: vec![],
-        process: ProcessSummary {
-            total_messages: HashSet::from_iter(messages.iter().map(|m| m.cursor)),
-            new_messages: messages.iter().map(Into::into).collect(),
-            errored: Vec::new(),
-            app_data_changes: Vec::new(),
-        },
-        post_commit_errors: vec![],
-        other: None,
-    }
+    let mut summary = SyncSummary::default();
+    summary.add_process(ProcessSummary {
+        total_messages: HashSet::from_iter(messages.iter().map(|m| m.cursor)),
+        new_messages: messages.iter().map(Into::into).collect(),
+        errored: Vec::new(),
+        app_data_changes: Vec::new(),
+    });
+    summary
 }
 
 pub fn generate_errored_summary(error_cursors: &[u64], successful_cursors: &[u64]) -> SyncSummary {
-    SyncSummary {
-        publish_errors: vec![],
-        process: ProcessSummary {
-            total_messages: HashSet::from_iter(
-                error_cursors
-                    .iter()
-                    .copied()
-                    .chain(successful_cursors.iter().copied())
-                    .map(Cursor),
-            ),
-            new_messages: generate_messages_with_ids(successful_cursors)
+    let mut summary = SyncSummary::default();
+    summary.add_process(ProcessSummary {
+        total_messages: HashSet::from_iter(
+            error_cursors
                 .iter()
-                .map(Into::into)
-                .collect(),
-            errored: error_cursors
-                .iter()
-                .map(|c| (Cursor(*c), GroupMessageProcessingError::InvalidPayload))
-                .collect(),
-            app_data_changes: Vec::new(),
-        },
-        post_commit_errors: vec![],
-        other: None,
-    }
+                .copied()
+                .chain(successful_cursors.iter().copied())
+                .map(Cursor),
+        ),
+        new_messages: generate_messages_with_ids(successful_cursors)
+            .iter()
+            .map(Into::into)
+            .collect(),
+        errored: error_cursors
+            .iter()
+            .map(|c| (Cursor(*c), GroupMessageProcessingError::InvalidPayload))
+            .collect(),
+        app_data_changes: Vec::new(),
+    });
+    summary
 }
 
 /// Like `generate_errored_summary`, but every success `MessageIdentifier` shares `group_id`
@@ -83,32 +77,29 @@ pub fn generate_errored_summary_with_group(
     error_cursors: &[u64],
     successful_cursors: &[u64],
 ) -> SyncSummary {
-    SyncSummary {
-        publish_errors: vec![],
-        process: ProcessSummary {
-            total_messages: HashSet::from_iter(
-                error_cursors
-                    .iter()
-                    .copied()
-                    .chain(successful_cursors.iter().copied())
-                    .map(Cursor),
-            ),
-            new_messages: successful_cursors
+    let mut summary = SyncSummary::default();
+    summary.add_process(ProcessSummary {
+        total_messages: HashSet::from_iter(
+            error_cursors
                 .iter()
-                .map(|c| {
-                    let m = generate_message(*c, group_id);
-                    MessageIdentifier::from(&m)
-                })
-                .collect(),
-            errored: error_cursors
-                .iter()
-                .map(|c| (Cursor(*c), GroupMessageProcessingError::InvalidPayload))
-                .collect(),
-            app_data_changes: Vec::new(),
-        },
-        post_commit_errors: vec![],
-        other: None,
-    }
+                .copied()
+                .chain(successful_cursors.iter().copied())
+                .map(Cursor),
+        ),
+        new_messages: successful_cursors
+            .iter()
+            .map(|c| {
+                let m = generate_message(*c, group_id);
+                MessageIdentifier::from(&m)
+            })
+            .collect(),
+        errored: error_cursors
+            .iter()
+            .map(|c| (Cursor(*c), GroupMessageProcessingError::InvalidPayload))
+            .collect(),
+        app_data_changes: Vec::new(),
+    });
+    summary
 }
 
 pub fn generate_stored_msg(

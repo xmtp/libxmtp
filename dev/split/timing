@@ -65,20 +65,20 @@ POLL_SECONDS = 1.0
 SCENARIOS = {
     # A production edit in group sync, then the test binary that covers it.
     "production-edit": (
-        "crates/xmtp_mls/src/groups/mls_sync.rs",
-        "xmtp_mls",
-        ["cargo", "nextest", "run", "--locked", "--no-run", "-p", "xmtp_mls"],
+        "crates/xmtp_mls_engine/src/groups/mls_sync.rs",
+        "xmtp_mls_engine",
+        ["cargo", "nextest", "run", "--locked", "--no-run", "-p", "xmtp_mls_engine"],
     ),
     # A test edit, then its test binary.
     "test-edit": (
-        "crates/xmtp_mls/src/groups/tests/test_dm.rs",
-        "xmtp_mls",
-        ["cargo", "nextest", "run", "--locked", "--no-run", "-p", "xmtp_mls"],
+        "crates/xmtp_mls_engine/src/groups/tests/test_dm.rs",
+        "xmtp_mls_engine",
+        ["cargo", "nextest", "run", "--locked", "--no-run", "-p", "xmtp_mls_engine"],
     ),
     # A production edit, then a check of every workspace target.
     "check-tests": (
-        "crates/xmtp_mls/src/groups/mls_sync.rs",
-        "xmtp_mls",
+        "crates/xmtp_mls_engine/src/groups/mls_sync.rs",
+        "xmtp_mls_engine",
         ["cargo", "check", "--locked", "--workspace", "--tests"],
     ),
 }

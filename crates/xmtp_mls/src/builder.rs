@@ -270,8 +270,8 @@ where
             mls_storage_factory: None,
             storage_location_selected: false,
             storage_location_conflict: false,
-            attachments_dir: client.context.features.attachments.dir.clone(),
-            attachment_options: client.context.features.attachments.options.clone(),
+            attachments_dir: client.context.features.attachments.dir().cloned(),
+            attachment_options: client.context.features.attachments.options().clone(),
             api_client: Some(cloned_api),
             identity: Some(client.context.identity.clone()),
             store: Some(client.context.store.clone()),
@@ -282,7 +282,7 @@ where
             fork_recovery_opts: Some(client.context.fork_recovery_opts.clone()),
             change_callbacks: client.context.change_callbacks.clone(),
             stream_policy: client.context.features.incoming.policy().clone(),
-            incoming_factory: client.context.features.incoming.original_factory.clone(),
+            incoming_factory: client.context.features.incoming.original_factory(),
             version_info: client.context.version_info.clone(),
             allow_offline: false,
             disable_commit_log_worker: false,
@@ -852,9 +852,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                     );
                 }
             }
-            if enabled(WorkerKind::AttachmentCleanup)
-                && context.features.attachments.store.is_some()
-            {
+            if enabled(WorkerKind::AttachmentCleanup) && context.features.attachments.has_store() {
                 workers.register_new_worker::<crate::attachments::cleanup::AttachmentCleanup<
                     ContextParts<ApiClient, S, Db>,
                 >, _>(context.clone());
@@ -1449,5 +1447,15 @@ mod worker_registration_tests {
             vec![WorkerKind::HmacEpoch]
         );
         assert!(alix.client.workers.is_running());
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    #[cfg_attr(target_arch = "wasm32", ignore)]
+    async fn registered_worker_kinds_reads_the_registry() {
+        tester!(alix, disable_workers);
+        assert_eq!(
+            alix.client.registered_worker_kinds(),
+            vec![WorkerKind::HmacEpoch]
+        );
     }
 }

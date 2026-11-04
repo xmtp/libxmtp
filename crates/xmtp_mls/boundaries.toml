@@ -10,27 +10,16 @@ source = "crates/xmtp_mls/src"
 # Target crate of each module path; the longest matching prefix wins.
 [modules]
 "" = "facade"
-"attachments" = "attachments"
 "builder" = "facade"
 "client" = "facade"
 "client::notifications" = "notifications"
 "definitions" = "facade"
 "diagnostics" = "facade"
-"groups" = "engine"
-"intents" = "engine"
 "subscriptions" = "streams"
-"subscriptions::barrier" = "engine"
-"subscriptions::connection_state" = "engine"
-"subscriptions::incoming" = "engine"
-"subscriptions::recovery" = "engine"
 "test" = "facade"
 "utils" = "facade"
 "worker::device_sync" = "device_sync"
 "worker::notifications" = "notifications"
-
-# Items that move to a different crate than their module.
-[items]
-"worker::device_sync::is_own_sync_group" = "engine"
 
 # The Target crates table: each crate and the crates it may depend on.
 [allowed]
@@ -57,13 +46,6 @@ facade = [
 
 # Edges that exist today. Each count is exact; lower it when a PR removes
 # references, and delete the waiver when none are left.
-
-[[waivers]]
-from = "engine"
-to = "facade"
-tier = "path"
-count = 6
-reason = "PR 5b (Tasks 12 and 15): engine test helpers outside test suites still build a facade client or name the facade's test utilities."
 
 [naming]
 prefix = "xmtp_mls_"
@@ -101,14 +83,3 @@ existing = [
   "xmtp_rate_limit",
   "xmtp_sdk",
 ]
-
-# The call tier (dev/check-boundaries --full) counts every reference to an
-# item, method calls and inferred types included, so its counts are larger.
-# Each edge has the same cause and owner as its path waiver.
-
-[[waivers]]
-from = "engine"
-to = "facade"
-tier = "call"
-count = 18
-reason = "PR 5b (Tasks 12 and 15): engine test helpers outside test suites still build a facade client or name the facade's test utilities."

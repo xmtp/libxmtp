@@ -1,6 +1,6 @@
 //! Deletions survive archives, re-imports and local removal.
 use super::*;
-use crate::groups::mls_sync::GroupMessageProcessingError;
+use crate::groups::GroupMessageProcessingError;
 use crate::tester;
 use crate::worker::device_sync::{ArchiveOptions, BackupElementSelection};
 use futures::io::{BufReader, Cursor};
@@ -172,7 +172,9 @@ fn receive<C: XmtpSharedContext>(group: &MlsGroup<C>, message: &StoredGroupMessa
         group.context.events(),
         |tx, buffer| {
             let storage = tx.storage();
-            group.store_external_application_message(&storage, message, admin, buffer)?;
+            crate::groups::test_support::store_external_application_message(
+                group, &storage, message, admin, buffer,
+            )?;
             Ok::<_, GroupMessageProcessingError>(Continue(()))
         },
     )

@@ -1,7 +1,7 @@
 #![recursion_limit = "256"]
 #![warn(clippy::unwrap_used)]
 
-pub mod attachments;
+pub use xmtp_mls_attachments as attachments;
 pub mod builder;
 pub mod client;
 /// The client context, at its old path.
@@ -18,7 +18,7 @@ mod definitions;
 #[cfg(any(test, feature = "diagnostics"))]
 pub mod diagnostics;
 pub mod features;
-pub mod groups;
+pub use xmtp_mls_engine::groups;
 /// Core's identity with the identity crate's items, at their old paths.
 pub mod identity {
     pub use xmtp_mls_core::identity::*;
@@ -32,10 +32,9 @@ pub mod identity {
         IdentityStrategy, XmtpKeyPackage, XmtpKeyPackageBuilder,
     };
 }
-pub use xmtp_mls_identity::{identity_lifecycle, identity_updates, inbox_handles};
-mod intents;
 pub use xmtp_mls_core::mls_store;
 use xmtp_mls_core::mutex_registry;
+pub use xmtp_mls_identity::{identity_lifecycle, identity_updates, inbox_handles};
 pub use xmtp_mls_messages as messages;
 pub mod prelude;
 /// The deployment's published configuration, at its old path.
@@ -66,8 +65,6 @@ pub mod test;
 pub use client::{Client, Network};
 pub use xmtp_common as common;
 pub use xmtp_db as db;
-#[cfg(test)]
-use xmtp_db::DuplicateItem;
 use xmtp_db::StorageError;
 pub use xmtp_id::InboxOwner;
 /// The old `xmtp_mls_common` paths, now served by the three crates it split into.
