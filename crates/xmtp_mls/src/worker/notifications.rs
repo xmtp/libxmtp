@@ -71,7 +71,7 @@ pub(crate) fn task_hash() -> TaskDataHash {
 }
 
 /// Only the runner changes its notification deadline. Producers send a memory hint.
-pub(crate) fn wake<Context: XmtpSharedContext>(context: &Context) -> Result<(), StorageError> {
+pub fn wake<Context: XmtpSharedContext>(context: &Context) -> Result<(), StorageError> {
     state_write(context.mls_storage(), |tx| {
         let storage = tx.storage();
         let db = storage.db();
@@ -650,7 +650,7 @@ fn prepare_batch<Context: XmtpSharedContext>(
 }
 
 /// Execute one bounded notification turn. A busy inline request never blocks the task runner.
-pub(crate) async fn run<Context: XmtpSharedContext>(
+pub async fn run<Context: XmtpSharedContext>(
     context: &Context,
 ) -> Result<TaskOutcome, NotificationError> {
     let record = context.db().notification_record()?;

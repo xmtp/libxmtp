@@ -184,7 +184,7 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
     pub(crate) fork_recovery_opts: Option<ForkRecoveryOpts>,
     /// Unstable: group-change callbacks the host registered at construction.
     pub(crate) change_callbacks: UnstableChangeCallbacks,
-    pub(crate) stream_policy: crate::subscriptions::policy::StreamPolicy,
+    pub(crate) stream_policy: xmtp_mls_core::policy::StreamPolicy,
     pub(crate) incoming_factory:
         Option<Arc<dyn crate::subscriptions::incoming::SubscriptionFactory>>,
     pub(crate) version_info: VersionInfo,
@@ -212,7 +212,7 @@ impl Client<()> {
 impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     /// Override internal limits for controlled tests.
     #[cfg(any(test, feature = "test-hooks"))]
-    pub fn stream_policy(mut self, settings: crate::subscriptions::policy::StreamPolicy) -> Self {
+    pub fn stream_policy(mut self, settings: xmtp_mls_core::policy::StreamPolicy) -> Self {
         self.stream_policy = settings;
         self
     }
@@ -237,7 +237,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             device_sync_worker_mode: DeviceSyncMode::Enabled,
             fork_recovery_opts: None,
             change_callbacks: UnstableChangeCallbacks::default(),
-            stream_policy: crate::subscriptions::policy::StreamPolicy::default(),
+            stream_policy: xmtp_mls_core::policy::StreamPolicy::default(),
             incoming_factory: None,
             version_info: VersionInfo::default(),
             allow_offline: false,

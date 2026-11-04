@@ -137,7 +137,7 @@ where
 }
 
 /// `keep_alive` lives until the subscription opens.
-pub(crate) fn stream_all_messages_with_callback_dispatch<C>(
+pub fn stream_all_messages_with_callback_dispatch<C>(
     context: C,
     keep_alive: impl MaybeSend + 'static,
     conversation_type: Option<ConversationType>,
@@ -161,7 +161,7 @@ where
 }
 
 /// `keep_alive` lives until the subscription opens.
-pub(crate) fn stream_conversations_with_callback_dispatch<C>(
+pub fn stream_conversations_with_callback_dispatch<C>(
     context: C,
     keep_alive: impl MaybeSend + 'static,
     conversation_type: Option<ConversationType>,

@@ -28,7 +28,6 @@ pub use xmtp_mls_core::events as internal;
 pub use xmtp_mls_engine::subscriptions::incoming;
 pub mod local_delivery;
 pub mod message_reader;
-pub(crate) use xmtp_mls_core::policy;
 mod stream_all;
 pub mod stream_conversations;
 pub mod stream_failure;
@@ -81,9 +80,14 @@ impl RetryableError for LocalEventError {
     }
 }
 
-pub(crate) trait StreamMessages {
+/// The legacy local streams read from a subscription to the client's
+/// internal events.
+pub trait StreamMessages {
+    /// The consent records of each preference change.
     fn stream_consent_updates(self) -> impl Stream<Item = Result<Vec<StoredConsentRecord>>>;
+    /// The updates of each preference change.
     fn stream_preference_updates(self) -> impl Stream<Item = Result<Vec<PreferenceUpdate>>>;
+    /// Each deleted message, decoded as a deleted message.
     fn stream_message_deletions(self) -> impl Stream<Item = Result<DecodedMessage>>;
 }
 
@@ -354,7 +358,7 @@ impl xmtp_mls_core::worker::NeedsDbReconnect for SubscribeError {
 }
 
 /// Use push metadata as a target. Fetch its complete prefix before processing.
-pub(crate) async fn process_streamed_welcome_message<Context>(
+pub async fn process_streamed_welcome_message<Context>(
     context: &Context,
     envelope_bytes: Vec<u8>,
 ) -> Result<Vec<MlsGroup<Context>>>
@@ -433,8 +437,10 @@ where
         .collect())
 }
 
+/// Stream the conversations of `context` that match `conversation_type`, as
+/// they are created or joined, borrowing the context for the stream's lifetime.
 #[xmtp_common::span(prefix = "stream")]
-pub(crate) async fn stream_conversations<'a, Context>(
+pub async fn stream_conversations<'a, Context>(
     context: &'a Context,
     conversation_type: Option<ConversationType>,
     include_duplicate_dms: bool,
@@ -448,7 +454,7 @@ where
 
 /// Stream conversations but decouple the lifetime of the caller from the stream.
 #[xmtp_common::span(prefix = "stream")]
-pub(crate) async fn stream_conversations_owned<Context>(
+pub async fn stream_conversations_owned<Context>(
     context: Context,
     conversation_type: Option<ConversationType>,
     include_duplicate_dms: bool,
@@ -461,7 +467,7 @@ where
 }
 
 /// `keep_alive` lives as long as the subscribe closure.
-pub(crate) fn stream_conversations_with_callback<Context>(
+pub fn stream_conversations_with_callback<Context>(
     context: Context,
     keep_alive: impl MaybeSend + 'static,
     conversation_type: Option<ConversationType>,
@@ -493,8 +499,11 @@ where
     )
 }
 
+/// Stream the messages of every conversation of `context` that matches
+/// `conversation_type` and `consent_state`, borrowing the context for the
+/// stream's lifetime.
 #[xmtp_common::span(prefix = "stream")]
-pub(crate) async fn stream_all_messages<'a, Context>(
+pub async fn stream_all_messages<'a, Context>(
     context: &'a Context,
     conversation_type: Option<ConversationType>,
     consent_state: Option<Vec<ConsentState>>,
@@ -514,8 +523,9 @@ where
     StreamAllMessages::new(context, conversation_type, consent_state).await
 }
 
+/// As [`stream_all_messages`], with the stream owning `context`.
 #[xmtp_common::span(prefix = "stream")]
-pub(crate) async fn stream_all_messages_owned<Context>(
+pub async fn stream_all_messages_owned<Context>(
     context: Context,
     conversation_type: Option<ConversationType>,
     consent_state: Option<Vec<ConsentState>>,
@@ -536,7 +546,7 @@ where
 }
 
 /// `keep_alive` lives as long as the stream task.
-pub(crate) fn stream_consent_with_callback<Context>(
+pub fn stream_consent_with_callback<Context>(
     context: Context,
     keep_alive: impl MaybeSend + 'static,
     mut callback: impl FnMut(Result<Vec<StoredConsentRecord>>) + MaybeSend + 'static,
@@ -582,7 +592,7 @@ where
 }
 
 /// `keep_alive` lives as long as the stream task.
-pub(crate) fn stream_preferences_with_callback<Context>(
+pub fn stream_preferences_with_callback<Context>(
     context: Context,
     keep_alive: impl MaybeSend + 'static,
     mut callback: impl FnMut(Result<Vec<PreferenceUpdate>>) + MaybeSend + 'static,
@@ -628,7 +638,7 @@ where
 }
 
 /// `keep_alive` lives as long as the stream task.
-pub(crate) fn stream_message_deletions_with_callback<Context>(
+pub fn stream_message_deletions_with_callback<Context>(
     context: Context,
     keep_alive: impl MaybeSend + 'static,
     mut callback: impl FnMut(Result<DecodedMessage>) + MaybeSend + 'static,
@@ -671,9 +681,10 @@ where
     )
 }
 
+/// As [`stream_all_messages_owned`], with the stream's statistics.
 #[tracing::instrument(level = "trace", skip_all)]
 #[cfg(any(test, feature = "test-utils"))]
-pub(crate) async fn stream_all_messages_owned_with_stats<Context>(
+pub async fn stream_all_messages_owned_with_stats<Context>(
     context: Context,
     conversation_type: Option<ConversationType>,
     consent_state: Option<Vec<ConsentState>>,

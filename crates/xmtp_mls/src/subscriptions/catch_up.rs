@@ -69,7 +69,7 @@ impl From<xmtp_mls_server_config::server_configuration::BlockedConnection> for C
 }
 
 /// Process fixed starting targets and only the discoveries from the enrolled Welcomes.
-pub(crate) async fn catch_up_to_live<C: XmtpSharedContext + 'static>(
+pub async fn catch_up_to_live<C: XmtpSharedContext + 'static>(
     context: &C,
     timeout: Option<Duration>,
 ) -> Result<CatchUpSummary, CatchUpError> {

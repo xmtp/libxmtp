@@ -497,7 +497,7 @@ where
 
     /// Add the own installations that sync group `group` lacks. `true` while
     /// it is the selected group and one it can retry still has no leaf.
-    pub(crate) async fn retry_own_installations(
+    pub async fn retry_own_installations(
         &self,
         group: &MlsGroup<Context>,
     ) -> Result<bool, DeviceSyncError> {

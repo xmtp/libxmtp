@@ -178,7 +178,7 @@ pub(crate) fn state(record: &StoredNotification) -> Result<NotificationState, St
 /// Store configuration, then register inline. The task retries transient errors.
 // implements: PUSH-266
 #[xmtp_common::rpc_span]
-pub(crate) async fn enable_notifications<Context: XmtpSharedContext>(
+pub async fn enable_notifications<Context: XmtpSharedContext>(
     context: &Context,
     config: NotificationConfig,
 ) -> Result<NotificationState, NotificationError> {
@@ -241,7 +241,7 @@ pub(crate) async fn enable_notifications<Context: XmtpSharedContext>(
 /// Disable locally before unregistering. The recipient identity and overrides stay.
 /// A failed unregister leaves the client disabled with its recipient reset owed.
 #[xmtp_common::rpc_span]
-pub(crate) async fn disable_notifications<Context: XmtpSharedContext>(
+pub async fn disable_notifications<Context: XmtpSharedContext>(
     context: &Context,
 ) -> Result<(), NotificationError> {
     let record = xmtp_mls_core::state_tx::state_write(context.mls_storage(), |tx| {
@@ -276,7 +276,7 @@ pub(crate) async fn disable_notifications<Context: XmtpSharedContext>(
 }
 
 /// Read the locally stored state without a backend call.
-pub(crate) fn notification_state<Context: XmtpSharedContext>(
+pub fn notification_state<Context: XmtpSharedContext>(
     context: &Context,
 ) -> Result<NotificationState, StorageError> {
     state(&context.db().notification_record()?)
