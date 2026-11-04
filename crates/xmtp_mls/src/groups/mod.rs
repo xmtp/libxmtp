@@ -29,7 +29,7 @@ pub mod oneshot;
 pub mod send_message_opts;
 pub(super) mod subscriptions;
 pub mod summary;
-pub(crate) mod targets;
+pub mod targets;
 #[cfg(any(test, feature = "test-utils"))]
 #[doc(hidden)]
 pub mod test_support;

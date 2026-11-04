@@ -14,6 +14,7 @@ use xmtp_db::TransactionalKeyStore;
 use xmtp_events::EventWriter;
 use xmtp_mls_group_keys::group_keys::{GroupKeys, GroupRoot};
 use xmtp_mls_group_state::app_data::creation::{InitialGroupKind, initial_dictionary};
+use xmtp_mls_group_state::group::DMMetadataOptions;
 
 /// The MLS group id of a group being inserted.
 #[derive(Clone, Copy)]
@@ -624,6 +625,63 @@ where
         Ok(result)
     }
 
+    /// Create an allowed group of this installation's inbox and store it with
+    /// the first add of `inbox_ids` queued. Member identities and key packages
+    /// resolve before anything is stored. Returns the group and the id of its
+    /// first-add intent, which [`Self::sync_first_add`] completes, or `None`
+    /// when the add adds no one.
+    pub async fn create_with_first_add(
+        context: &Context,
+        inbox_ids: &[impl AsIdRef],
+        permissions_policy_set: Option<PolicySet>,
+        opts: Option<GroupMetadataOptions>,
+    ) -> Result<(Self, Option<i32>), GroupError> {
+        let opts = opts.unwrap_or_default();
+        let draft = Self::prepare_new(
+            context,
+            None,
+            ConversationType::Group,
+            permissions_policy_set.unwrap_or_default(),
+            &opts,
+            None,
+        )?;
+        let ids = inbox_ids.iter().map(AsIdRef::as_ref).collect::<Vec<_>>();
+        // implements: GMOD-056
+        let add = Self::initial_add(context, &draft, &ids).await?;
+        let (stored, intent) = Self::store_new(
+            context,
+            draft,
+            GroupMembershipState::Allowed,
+            ConversationType::Group,
+            opts,
+            true,
+            add,
+        )?;
+        let group = Self::new(
+            context.clone(),
+            stored.id,
+            stored.dm_id,
+            stored.conversation_type,
+            stored.created_at_ns,
+        );
+        Ok((group, intent.map(|intent| intent.id)))
+    }
+
+    /// Sync until the first add [`Self::create_with_first_add`] queued
+    /// resolves. A failure that leaves the add pending is logged and a later
+    /// sync finishes the add; any other failure is returned.
+    pub async fn sync_first_add(&self, first_add: Option<i32>) -> Result<(), GroupError> {
+        let Some(intent_id) = first_add else {
+            return Ok(());
+        };
+        match self.sync_until_intent_resolved(intent_id).await {
+            Err(error) if !self.intent_pending(intent_id)? => return Err(error),
+            Err(error) => tracing::warn!(?error, "first add pending; a sync finishes it"),
+            Ok(_) => {}
+        }
+        Ok(())
+    }
+
     #[expect(
         clippy::too_many_arguments,
         reason = "the row stores the creation parameters"
@@ -691,6 +749,56 @@ where
             },
             opts,
             existing_group_id,
+        )
+    }
+
+    /// The active DM between this installation's inbox and `inbox_id`, or
+    /// `None`. A stored DM that lacks the peer gets the peer first, and any
+    /// failure of that add is returned.
+    pub async fn find_active_dm<E>(
+        context: &Context,
+        inbox_id: InboxIdRef<'_>,
+    ) -> Result<Option<Self>, E>
+    where
+        E: From<xmtp_db::ConnectionError> + From<GroupError>,
+    {
+        let stored = context.db().find_active_dm_group(&DmMembers {
+            member_one_inbox_id: context.inbox_id(),
+            member_two_inbox_id: inbox_id,
+        })?;
+        let Some(stored) = stored else {
+            return Ok(None);
+        };
+        let group = Self::new(
+            context.clone(),
+            stored.id,
+            stored.dm_id,
+            stored.conversation_type,
+            stored.created_at_ns,
+        );
+        // implements: DMS-020
+        group.add_missing_dm_peer().await?;
+        Ok(Some(group))
+    }
+
+    /// Create an allowed DM with `peer_inbox_id`, with the disappearing-message
+    /// settings of `opts`, and store it without adding the peer.
+    pub fn create_allowed_dm(
+        context: &Context,
+        peer_inbox_id: InboxId,
+        opts: Option<DMMetadataOptions>,
+    ) -> Result<Self, GroupError> {
+        Self::create_dm_and_insert(
+            context,
+            GroupMembershipState::Allowed,
+            peer_inbox_id,
+            GroupMetadataOptions {
+                message_disappearing_settings: opts
+                    .unwrap_or_default()
+                    .message_disappearing_settings,
+                ..Default::default()
+            },
+            None,
         )
     }
 

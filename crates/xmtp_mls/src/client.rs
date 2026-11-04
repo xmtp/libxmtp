@@ -66,7 +66,7 @@ use xmtp_db::{
     },
     db_connection::DbConnection,
     encrypted_store::conversation_list::ConversationListItem as DbConversationListItem,
-    group::{ConversationType, GroupMembershipState, GroupQueryArgs},
+    group::{ConversationType, GroupQueryArgs},
     group_message::StoredGroupMessage,
     identity::StoredIdentity,
 };
@@ -921,47 +921,15 @@ where
     ) -> Result<MlsGroup<Context>, ClientError> {
         tracing::info!("creating group");
         self.ensure_identity_ready::<ClientError>()?;
-        let opts = opts.unwrap_or_default();
-        let draft = MlsGroup::<Context>::prepare_new(
-            &self.context,
-            None,
-            ConversationType::Group,
-            permissions_policy_set.unwrap_or_default(),
-            &opts,
-            None,
-        )?;
-        let ids = inbox_ids.iter().map(AsIdRef::as_ref).collect::<Vec<_>>();
-        // implements: GMOD-056
-        let add = MlsGroup::<Context>::initial_add(&self.context, &draft, &ids).await?;
-        let (stored, intent) = MlsGroup::<Context>::store_new(
-            &self.context,
-            draft,
-            GroupMembershipState::Allowed,
-            ConversationType::Group,
-            opts,
-            true,
-            add,
-        )?;
-        let group = MlsGroup::new(
-            self.context.clone(),
-            stored.id,
-            stored.dm_id,
-            stored.conversation_type,
-            stored.created_at_ns,
-        );
+        let (group, first_add) =
+            MlsGroup::create_with_first_add(&self.context, inbox_ids, permissions_policy_set, opts)
+                .await?;
         log_event!(
             Event::CreatedGroup,
             self.context.installation_id(),
             group_id = group.group_id
         );
-        let Some(intent) = intent else {
-            return Ok(group);
-        };
-        match group.sync_until_intent_resolved(intent.id).await {
-            Err(error) if !group.intent_pending(intent.id)? => return Err(error.into()),
-            Err(error) => tracing::warn!(?error, "first add pending; a sync finishes it"),
-            Ok(_) => {}
-        }
+        group.sync_first_add(first_add).await?;
 
         Ok(group)
     }
@@ -973,18 +941,8 @@ where
         target_inbox_id: InboxId,
         opts: Option<DMMetadataOptions>,
     ) -> Result<MlsGroup<Context>, ClientError> {
-        let group: MlsGroup<Context> = MlsGroup::create_dm_and_insert(
-            &self.context,
-            GroupMembershipState::Allowed,
-            target_inbox_id.clone(),
-            GroupMetadataOptions {
-                message_disappearing_settings: opts
-                    .unwrap_or_default()
-                    .message_disappearing_settings,
-                ..Default::default()
-            },
-            None,
-        )?;
+        let group: MlsGroup<Context> =
+            MlsGroup::create_allowed_dm(&self.context, target_inbox_id.clone(), opts)?;
 
         log_event!(
             Event::CreatedDM,
@@ -1030,22 +988,9 @@ where
         self.ensure_identity_ready::<ClientError>()?;
         let inbox_id = inbox_id.as_ref();
         tracing::info!("finding or creating dm with inbox_id: {}", inbox_id);
-        let db = self.context.db();
-        let group = db.find_active_dm_group(&DmMembers {
-            member_one_inbox_id: self.inbox_id(),
-            member_two_inbox_id: inbox_id,
-        })?;
-
-        if let Some(group) = group {
-            let group = MlsGroup::new(
-                self.context.clone(),
-                group.id,
-                group.dm_id,
-                group.conversation_type,
-                group.created_at_ns,
-            );
-            // implements: DMS-020
-            group.add_missing_dm_peer().await?;
+        if let Some(group) =
+            MlsGroup::find_active_dm::<ClientError>(&self.context, inbox_id).await?
+        {
             return Ok(group);
         }
         self.create_dm_by_inbox_id(inbox_id.to_string(), opts).await
@@ -1797,8 +1742,9 @@ impl<Context: XmtpSharedContext> Client<Context> {
         permissions_policy_set: Option<PolicySet>,
         opts: Option<GroupMetadataOptions>,
     ) -> Result<MlsGroup<Context>, ClientError> {
-        let inboxes = inbox_handles::resolve_targets_in(&self.context, targets).await?;
-        let inbox_ids = crate::groups::targets::require_account_inboxes(targets, inboxes)?;
+        let inbox_ids =
+            crate::groups::targets::target_inboxes::<_, ClientError>(&self.context, targets)
+                .await?;
         self.create_group_with_members(&inbox_ids, permissions_policy_set, opts)
             .await
     }

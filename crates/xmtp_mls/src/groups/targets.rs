@@ -2,6 +2,7 @@
 
 use super::{GroupError, MlsGroup, UpdateGroupMembershipResult};
 use crate::context::XmtpSharedContext;
+use crate::identity_updates::IdentityUpdateError;
 use crate::inbox_handles::{IdentityTarget, resolve_targets_in};
 use xmtp_id::InboxId;
 
@@ -23,6 +24,22 @@ pub(crate) fn require_account_inboxes(
         return Err(GroupError::AddressNotFound(missing));
     }
     Ok(inboxes.into_iter().flatten().collect())
+}
+
+/// The inbox of each of `targets`, in order, from one verified lookup. A
+/// handle with no inbox fails with
+/// [`HandleError::NotFound`](crate::inbox_handles::HandleError::NotFound),
+/// and accounts with no inbox fail with [`GroupError::AddressNotFound`].
+pub async fn target_inboxes<Context, E>(
+    context: &Context,
+    targets: &[IdentityTarget],
+) -> Result<Vec<InboxId>, E>
+where
+    Context: XmtpSharedContext,
+    E: From<IdentityUpdateError> + From<GroupError>,
+{
+    let inboxes = resolve_targets_in(context, targets).await?;
+    Ok(require_account_inboxes(targets, inboxes)?)
 }
 
 impl<Context: XmtpSharedContext> MlsGroup<Context> {
