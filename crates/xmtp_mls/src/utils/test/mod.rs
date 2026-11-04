@@ -19,8 +19,6 @@ pub mod inbox_handles;
 pub mod preflight;
 
 #[cfg(test)]
-pub(crate) mod crafted_welcome;
-#[cfg(test)]
 pub(crate) mod notifications;
 pub mod test_mocks_helpers;
 mod tester_utils_trait_ext;
@@ -380,29 +378,6 @@ pub async fn wait_for_min_intents<C: ConnectionExt>(
         }
     })
     .await
-}
-
-#[cfg(any(test, feature = "test-utils"))]
-impl<Context: XmtpSharedContext> MlsGroup<Context> {
-    /// Sign `message` under the group signing key of this group's root, as a
-    /// member signs it at preparation. A test that changes a group message
-    /// signs it again, so that admission accepts the changed bytes and the
-    /// change reaches the receiving client.
-    pub fn sign_as_member(&self, message: &mut xmtp_proto::backend_v1::GroupMessage) {
-        let keys = self
-            .with_group_snapshot(|group| {
-                Ok(
-                    xmtp_mls_group_state::app_data::group_root::check_group_root(
-                        group.extensions(),
-                        group.group_id().as_slice(),
-                    ),
-                )
-            })
-            .unwrap()
-            .expect("a keyed group holds the root of its id");
-        xmtp_mls_group_keys::group_keys::sign_group_message(&keys, message)
-            .expect("signing passes the self-check");
-    }
 }
 
 /// Set a pending receipt to test registration recovery after reopen.

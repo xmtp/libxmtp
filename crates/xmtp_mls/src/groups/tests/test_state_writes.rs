@@ -147,7 +147,7 @@ async fn welcome_install_queues_rotation_atomically() {
 /// leaves key-package rotation where it was.
 #[xmtp_common::test(unwrap_try = true)]
 async fn rejected_welcomes_do_not_schedule_key_package_rotation() {
-    use crate::utils::test::crafted_welcome::send_crafted_welcome;
+    use crate::groups::test_support::crafted_welcome::send_crafted_welcome;
     use xmtp_common::{NS_IN_DAY, time::now_ns};
     use xmtp_db::prelude::{QueryIdentity, QueryKeyPackageHistory};
     use xmtp_mls_group_keys::group_keys::{GroupKeys, GroupRoot};

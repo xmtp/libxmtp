@@ -956,7 +956,7 @@ mod tests {
     // verifies: JOIN-083, JOIN-048
     #[xmtp_common::test(unwrap_try = true)]
     async fn a_welcome_joins_only_when_its_root_names_the_group() {
-        use crate::utils::test::crafted_welcome::{
+        use crate::groups::test_support::crafted_welcome::{
             assert_welcome_rejected, send_crafted_welcome, send_crafted_welcome_of_type,
         };
         use xmtp_mls_group_keys::group_keys::{GroupKeys, GroupRoot};
@@ -1040,7 +1040,7 @@ mod tests {
     #[case::current_uncached(ConversationType::Group, false)]
     #[xmtp_common::test(unwrap_try = true)]
     async fn own_adder_must_be_current(#[case] kind: ConversationType, #[case] revoked: bool) {
-        use crate::utils::test::crafted_welcome::{
+        use crate::groups::test_support::crafted_welcome::{
             assert_welcome_rejected, send_crafted_welcome_of_type,
         };
         use diesel::prelude::*;
@@ -1104,7 +1104,9 @@ mod tests {
     // verifies: JOIN-042
     #[xmtp_common::test(unwrap_try = true)]
     async fn inactive_group_rejects_stale_branch_and_keeps_pending_prefix() {
-        use crate::utils::test::crafted_welcome::{CraftedWelcome, send_crafted_welcome_with};
+        use crate::groups::test_support::crafted_welcome::{
+            CraftedWelcome, send_crafted_welcome_with,
+        };
         use xmtp_db::incoming_envelope::QueryIncomingEnvelope;
         use xmtp_mls_group_state::app_data::group_root::read_group_root;
         use xmtp_proto::types::Topic;
@@ -1198,7 +1200,7 @@ mod tests {
     // verifies: JOIN-089
     #[xmtp_common::test(unwrap_try = true)]
     async fn replacement_welcome_cannot_change_conversation_type() {
-        use crate::utils::test::crafted_welcome::{
+        use crate::groups::test_support::crafted_welcome::{
             CraftedWelcome, send_crafted_welcome_of_type, send_crafted_welcome_with,
         };
         use xmtp_mls_group_state::app_data::group_root::read_group_root;
@@ -1285,7 +1287,9 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn live_dm_rejects_welcome_with_another_pair() {
         use crate::groups::DmValidationError;
-        use crate::utils::test::crafted_welcome::{CraftedWelcome, send_crafted_welcome_with};
+        use crate::groups::test_support::crafted_welcome::{
+            CraftedWelcome, send_crafted_welcome_with,
+        };
         use xmtp_mls_group_state::app_data::group_root::read_group_root;
 
         tester!(alix, disable_workers);
@@ -1340,7 +1344,9 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn dm_welcome_with_a_nonstandard_registry_is_rejected() {
         use crate::groups::DmValidationError;
-        use crate::utils::test::crafted_welcome::{CraftedWelcome, send_crafted_welcome_with};
+        use crate::groups::test_support::crafted_welcome::{
+            CraftedWelcome, send_crafted_welcome_with,
+        };
         use xmtp_mls_group_keys::group_keys::{GroupKeys, GroupRoot};
         use xmtp_mls_group_state::app_data::{
             component_id::ComponentId, dm_registry_profile::dm_registry_profiles,
@@ -1402,7 +1408,9 @@ mod tests {
     #[case::no_record(false)]
     #[xmtp_common::test(unwrap_try = true)]
     async fn forged_creator_claim_keeps_prior_consent(#[case] prior_denied: bool) {
-        use crate::utils::test::crafted_welcome::{CraftedWelcome, send_crafted_welcome_with};
+        use crate::groups::test_support::crafted_welcome::{
+            CraftedWelcome, send_crafted_welcome_with,
+        };
         use xmtp_db::consent_record::{ConsentKey, ConsentState, ConsentType, StoredConsentRecord};
         use xmtp_mls_group_keys::group_keys::{GroupKeys, GroupRoot};
 
@@ -1451,7 +1459,9 @@ mod tests {
     // verifies: CONS-058
     #[xmtp_common::test(unwrap_try = true)]
     async fn joining_stores_no_state() {
-        use crate::utils::test::crafted_welcome::{CraftedWelcome, send_crafted_welcome_with};
+        use crate::groups::test_support::crafted_welcome::{
+            CraftedWelcome, send_crafted_welcome_with,
+        };
         use xmtp_db::consent_record::{ConsentKey, ConsentState};
         use xmtp_mls_group_keys::group_keys::{GroupKeys, GroupRoot};
 
@@ -1500,7 +1510,9 @@ mod tests {
     // verifies: CONS-052, CONS-058
     #[xmtp_common::test(unwrap_try = true)]
     async fn forged_dm_with_group_id_reads_its_builder() {
-        use crate::utils::test::crafted_welcome::{CraftedWelcome, send_crafted_welcome_with};
+        use crate::groups::test_support::crafted_welcome::{
+            CraftedWelcome, send_crafted_welcome_with,
+        };
         use xmtp_db::consent_record::{ConsentKey, ConsentState, ConsentType, StoredConsentRecord};
         use xmtp_mls_group_state::app_data::group_root::read_group_root;
 

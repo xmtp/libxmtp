@@ -43,30 +43,32 @@ use xmtp_proto::{
 };
 
 use crate::context::CoreContext;
+use crate::groups::test_support::EnginePeer;
 use crate::groups::{build_group_config, group_permissions::PolicySet, intents::Installation};
-use crate::utils::FullXmtpClient;
+use crate::mls_store::MlsStore;
 
 /// What a crafted Welcome claims besides its group id and root. The default
 /// is a group the creator could have made, at epoch 1 with join anchor 1.
-pub(crate) struct CraftedWelcome<'a> {
-    pub(crate) conversation_type: ConversationType,
+pub struct CraftedWelcome<'a, P> {
+    /// The conversation type of the group the Welcome describes.
+    pub conversation_type: ConversationType,
     /// The `message_cursor` the Welcome names as its join anchor.
-    pub(crate) anchor: u64,
+    pub anchor: u64,
     /// Commits the creator merges before the add; the Welcome's epoch is one more.
-    pub(crate) prior_epoch: u64,
+    pub prior_epoch: u64,
     /// The `CREATOR_INBOX_ID` claim. `None` names the creator's own inbox.
-    pub(crate) claimed_creator: Option<&'a str>,
+    pub claimed_creator: Option<&'a str>,
     /// The DM member other than the creator. `None` names the joiner. A peer
     /// other than the joiner gives a DM pair that excludes the joiner.
-    pub(crate) dm_peer: Option<&'a str>,
+    pub dm_peer: Option<&'a str>,
     /// The `COMPONENT_REGISTRY` value. `None` keeps the creator's registry.
-    pub(crate) registry: Option<&'a ComponentRegistry>,
+    pub registry: Option<&'a ComponentRegistry>,
     /// Another client the commit adds beside the joiner, as a leaf and in
     /// `GROUP_MEMBERSHIP`. Only the joiner receives the Welcome.
-    pub(crate) other_member: Option<&'a FullXmtpClient>,
+    pub other_member: Option<&'a P>,
 }
 
-impl Default for CraftedWelcome<'_> {
+impl<P> Default for CraftedWelcome<'_, P> {
     fn default() -> Self {
         Self {
             conversation_type: ConversationType::Group,
@@ -84,9 +86,9 @@ impl Default for CraftedWelcome<'_> {
 /// (or no root), adds `joiner`'s current key package, and publishes only the
 /// Welcome. Everything else matches a group the creator could have made, so
 /// the root is the only reason a joiner may refuse it.
-pub(crate) async fn send_crafted_welcome(
-    creator: &FullXmtpClient,
-    joiner: &FullXmtpClient,
+pub async fn send_crafted_welcome<P: EnginePeer>(
+    creator: &P,
+    joiner: &P,
     group_id: &[u8],
     root: Option<&GroupRoot>,
 ) {
@@ -95,9 +97,9 @@ pub(crate) async fn send_crafted_welcome(
 
 /// [`send_crafted_welcome`] for a group of `conversation_type`, such as a
 /// one-shot group with no one-shot message.
-pub(crate) async fn send_crafted_welcome_of_type(
-    creator: &FullXmtpClient,
-    joiner: &FullXmtpClient,
+pub(crate) async fn send_crafted_welcome_of_type<P: EnginePeer>(
+    creator: &P,
+    joiner: &P,
     group_id: &[u8],
     root: Option<&GroupRoot>,
     conversation_type: ConversationType,
@@ -114,12 +116,12 @@ pub(crate) async fn send_crafted_welcome_of_type(
 /// package, and publishes only the Welcome.
 // A test drives OpenMLS convenience commits; their GroupInfo never leaves the test.
 #[allow(clippy::disallowed_methods)]
-pub(crate) async fn send_crafted_welcome_with(
-    creator: &FullXmtpClient,
-    joiner: &FullXmtpClient,
+pub async fn send_crafted_welcome_with<P: EnginePeer>(
+    creator: &P,
+    joiner: &P,
     group_id: &[u8],
     root: Option<&GroupRoot>,
-    options: CraftedWelcome<'_>,
+    options: CraftedWelcome<'_, P>,
 ) {
     let CraftedWelcome {
         conversation_type,
@@ -133,7 +135,7 @@ pub(crate) async fn send_crafted_welcome_with(
     let (kind, policies) = match conversation_type {
         ConversationType::Dm => (
             InitialGroupKind::Dm {
-                target_inbox_id: dm_peer.unwrap_or(joiner.inbox_id()),
+                target_inbox_id: dm_peer.unwrap_or(joiner.context().inbox_id()),
             },
             PolicySet::new_dm(),
         ),
@@ -149,7 +151,7 @@ pub(crate) async fn send_crafted_welcome_with(
         kind,
         &policies.to_proto().unwrap(),
         &GroupMetadataOptions::default(),
-        creator.inbox_id(),
+        creator.context().inbox_id(),
         root,
         &[],
     )
@@ -176,12 +178,12 @@ pub(crate) async fn send_crafted_welcome_with(
         .chain(other_member)
         .map(|client| {
             let sequence_id = client
-                .context
+                .context()
                 .db()
-                .get_latest_sequence_id_for_inbox(client.inbox_id())
+                .get_latest_sequence_id_for_inbox(client.context().inbox_id())
                 .unwrap();
             (
-                InboxId::from_hex(client.inbox_id()).unwrap(),
+                InboxId::from_hex(client.context().inbox_id()).unwrap(),
                 GroupMembershipEntry {
                     version: Some(MembershipVersion::V1(MembershipV1 {
                         sequence_id: sequence_id as u64,
@@ -199,8 +201,8 @@ pub(crate) async fn send_crafted_welcome_with(
 
     let mut key_packages = vec![];
     for client in [joiner].into_iter().chain(other_member) {
-        let installation_id = client.context.installation_id().to_vec();
-        let key_package = creator
+        let installation_id = client.context().installation_id().to_vec();
+        let key_package = MlsStore::new(creator.context().clone())
             .get_key_packages_for_installation_ids(vec![installation_id.clone()])
             .await
             .unwrap()
@@ -209,7 +211,7 @@ pub(crate) async fn send_crafted_welcome_with(
             .unwrap();
         key_packages.push(key_package);
     }
-    let identity = creator.context.identity();
+    let identity = creator.context().identity();
     // The crafted group lives in a throwaway store, so the creator's own
     // groups stay as they are and one id can be crafted more than once.
     let provider = openmls_rust_crypto::OpenMlsRustCrypto::default();
@@ -258,7 +260,7 @@ pub(crate) async fn send_crafted_welcome_with(
     )
     .unwrap();
     creator
-        .context
+        .context()
         .api()
         .send_welcome_messages(&[WelcomeMessageInput {
             version: Some(WelcomeMessageInputVersion::V1(WelcomeMessageInputV1 {
@@ -277,11 +279,11 @@ pub(crate) async fn send_crafted_welcome_with(
 /// row, a last rejection coded `invalid_welcome`, and no pending row left at
 /// its cursor. Returns that cursor.
 #[track_caller]
-pub(crate) fn assert_welcome_rejected(client: &FullXmtpClient, group_id: &GroupId) -> Cursor {
-    let db = client.context.db();
+pub fn assert_welcome_rejected(client: &impl EnginePeer, group_id: &GroupId) -> Cursor {
+    let db = client.context().db();
     assert!(db.find_group(group_id).unwrap().is_none());
     let topic = StreamTopic {
-        entity_id: client.context.installation_id().to_vec(),
+        entity_id: client.context().installation_id().to_vec(),
         kind: NetworkEntityKind::Welcome,
     };
     let rejected = db.read_last_rejection(&topic).unwrap().unwrap();

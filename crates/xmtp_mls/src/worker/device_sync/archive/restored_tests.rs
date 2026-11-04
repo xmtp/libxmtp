@@ -692,7 +692,7 @@ async fn restored_history_forged_claim_yields_to_live_permissions_after_activati
 // verifies: JOIN-080, JOIN-083, ARCH-015
 #[xmtp_common::test(unwrap_try = true)]
 async fn restored_placeholder_activates_only_for_its_root() {
-    use crate::utils::test::crafted_welcome::send_crafted_welcome;
+    use crate::groups::test_support::crafted_welcome::send_crafted_welcome;
     use xmtp_mls_group_keys::group_keys::GroupRoot;
     use xmtp_mls_group_state::app_data::{component_id::ComponentId, group_root::read_group_root};
     tester!(alix, disable_workers);

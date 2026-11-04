@@ -2,6 +2,7 @@
 //! runtime, the group operations that engine tests share between that peer and
 //! a client, a mock context with the engine's features, and the engine
 //! internals that tests outside the engine call.
+#![allow(clippy::unwrap_used)]
 
 use crate::context::{CoreContext, test_support::MockContext};
 use crate::core::events::InternalEvent;
@@ -9,15 +10,21 @@ use crate::core::policy::StreamPolicy;
 use crate::groups::context::{EngineFeatures, XmtpSharedContext};
 use crate::groups::mls_sync::GroupMessageProcessingError;
 use crate::groups::welcome_sync::WelcomeService;
-use crate::groups::{GroupError, MlsGroup, group_permissions::PolicySet};
+pub mod crafted_welcome;
+use crate::groups::{
+    GroupError, MlsGroup, group_permissions::PolicySet, send_message_opts::SendMessageOpts,
+};
 use crate::identity_lifecycle::test_support::{PeerApi, PeerContext, PeerFeatures, TestPeer};
 use crate::identity_updates::{IdentityFeatures, IdentityResolutionRegistry};
 use crate::subscriptions::incoming::{IncomingRuntime, streaming_factory};
 use std::sync::Arc;
+use thiserror::Error;
 use xmtp_api::ApiClientWrapper;
+use xmtp_api_backend::envelope::EnvelopeError;
+use xmtp_common::RetryableError;
 use xmtp_db::{
     group::{ConversationType, GroupMembershipState, GroupQueryArgs},
-    group_message::StoredGroupMessage,
+    group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
     prelude::*,
 };
 use xmtp_id::AsIdRef;
@@ -26,6 +33,7 @@ use xmtp_mls_group_state::{
     group_metadata::DmMembers,
 };
 use xmtp_proto::types::GroupId;
+use xmtp_proto::types::GroupMessage;
 
 /// The engine's features: the incoming runtime and identity resolution.
 #[derive(Default, Clone)]
@@ -281,4 +289,100 @@ pub fn store_external_application_message<C: XmtpSharedContext>(
     event_writer: &impl xmtp_events::EventWriter<InternalEvent>,
 ) -> Result<(), GroupMessageProcessingError> {
     group.store_external_application_message(storage, message, super_admin, event_writer)
+}
+
+#[allow(clippy::unwrap_used)]
+impl<Context: XmtpSharedContext> MlsGroup<Context> {
+    /// Sign `message` under the group signing key of this group's root, as a
+    /// member signs it at preparation. A test that changes a group message
+    /// signs it again, so that admission accepts the changed bytes and the
+    /// change reaches the receiving client.
+    pub fn sign_as_member(&self, message: &mut xmtp_proto::backend_v1::GroupMessage) {
+        let keys = self
+            .with_group_snapshot(|group| {
+                Ok(
+                    xmtp_mls_group_state::app_data::group_root::check_group_root(
+                        group.extensions(),
+                        group.group_id().as_slice(),
+                    ),
+                )
+            })
+            .unwrap()
+            .expect("a keyed group holds the root of its id");
+        xmtp_mls_group_keys::group_keys::sign_group_message(&keys, message)
+            .expect("signing passes the self-check");
+    }
+}
+
+/// The error of a group test helper.
+#[derive(Error, Debug)]
+pub enum TestError {
+    #[error("{0}")]
+    Generic(String),
+    #[error(transparent)]
+    Group(#[from] GroupError),
+    /// An error of a caller above the engine, such as a client operation.
+    #[error(transparent)]
+    Other(xmtp_common::BoxDynError),
+    #[error(transparent)]
+    Api(#[from] xmtp_api::ApiError),
+    #[error(transparent)]
+    Envelope(#[from] EnvelopeError),
+}
+
+impl RetryableError for TestError {
+    fn is_retryable(&self) -> bool {
+        true
+    }
+}
+
+#[allow(clippy::unwrap_used)]
+impl<Context> MlsGroup<Context>
+where
+    Context: XmtpSharedContext,
+{
+    // Sends a message to other group and ensures delivery, returning sent message contents.
+    pub async fn test_can_talk_with(&self, other: &Self) -> Result<String, TestError> {
+        let msg = xmtp_common::rand_string::<20>();
+        self.sync().await?;
+        self.send_message(msg.as_bytes(), SendMessageOpts::default())
+            .await?;
+
+        // Sync to pull down the message
+        other.sync().await?;
+        let mut other_msgs = other.find_messages(&MsgQueryArgs::default())?;
+        if msg.as_bytes() != other_msgs.pop().unwrap().decrypted_message_bytes {
+            return Err(TestError::Generic(
+                "Sent message was not received.".to_string(),
+            ));
+        }
+
+        Ok(msg)
+    }
+
+    pub async fn test_get_last_message_from_network(&self) -> Result<GroupMessage, TestError> {
+        let mut messages = self
+            .context
+            .api()
+            .query_group_messages(self.group_id)
+            .await
+            .map_err(xmtp_api::dyn_err)?;
+
+        let last_message = messages
+            .pop()
+            .ok_or(TestError::Generic("No messages found".to_string()))?;
+
+        Ok(last_message)
+    }
+
+    pub async fn test_last_message_bytes(&self) -> Result<Option<Vec<u8>>, TestError> {
+        self.sync().await?;
+        let last = self
+            .find_messages(&MsgQueryArgs {
+                kind: Some(GroupMessageKind::Application),
+                ..Default::default()
+            })?
+            .pop();
+        Ok(last.map(|m| m.decrypted_message_bytes))
+    }
 }

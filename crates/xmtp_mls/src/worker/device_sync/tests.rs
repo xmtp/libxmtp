@@ -1,7 +1,7 @@
 use super::*;
 use crate::client::ConsentAct;
+use crate::groups::test_support::crafted_welcome::assert_welcome_rejected;
 use crate::prelude::*;
-use crate::utils::test::crafted_welcome::assert_welcome_rejected;
 use crate::{groups::send_message_opts::SendMessageOpts, tester};
 use xmtp_common::{NS_IN_DAY, NS_IN_HOUR, time::now_ns};
 use xmtp_db::{
@@ -725,7 +725,7 @@ async fn test_welcome_limits_duplicate_dm_add_installation_tasks(
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn sync_welcome_naming_another_inbox_is_rejected(#[case] own_adder: bool) {
-    use crate::utils::test::crafted_welcome::{CraftedWelcome, send_crafted_welcome_with};
+    use crate::groups::test_support::crafted_welcome::{CraftedWelcome, send_crafted_welcome_with};
     use xmtp_mls_group_keys::group_keys::{GroupKeys, GroupRoot};
     use xmtp_proto::types::Cursor;
 
@@ -743,7 +743,7 @@ async fn sync_welcome_naming_another_inbox_is_rejected(#[case] own_adder: bool) 
     // so the Welcome is crafted. The adder is always a leaf, so no Welcome
     // names only a foreign adder.
     let (adder, other_member) = match &alix2 {
-        Some(alix2) => (alix2, Some(&*eve)),
+        Some(alix2) => (alix2, Some(&eve)),
         None => (&eve, None),
     };
     let options = CraftedWelcome {
