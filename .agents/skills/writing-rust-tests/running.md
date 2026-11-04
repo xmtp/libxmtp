@@ -8,11 +8,16 @@
 just test workspace test_send_message               # by name substring
 just test workspace -p xmtp_mls test_send_message   # by crate and name
 just test crate xmtp_mls xmtp_db                    # whole crates
+just test crate xmtp_mls_streams                    # unit tests and the streams target
 just wasm test test_send_message
 
 # A test the profile's default-filter excludes
-just test workspace -p xmtp_mls --ignore-default-filter test_stream_all_messages_does_not_lose_messages
+just test workspace -p xmtp_mls_streams --ignore-default-filter test_stream_all_messages_does_not_lose_messages
 ```
+
+A `tests/` target of an `xmtp_mls_*` crate requires `test-utils` and
+`test-hooks`. The crate's `xmtp_mls` dev-dependency enables both, so
+`just test crate` runs it without `--features`.
 
 `just` does not preserve shell quoting in `{{ args }}`, so `-E '<expr>'` breaks
 through `just test`. Use `dev/nix-shell` with a quoted string:

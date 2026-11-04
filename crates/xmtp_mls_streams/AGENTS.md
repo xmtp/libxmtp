@@ -20,5 +20,7 @@ dev/nix-shell 'just test crate xmtp_mls_streams'
   dev-dependency, which also enables this crate's `test-utils` and
   `test-hooks`, so the default command builds it. Stream contracts of the
   client itself stay in `crates/xmtp_mls/src/client/tests/`.
+- Reproduce `bidi_fuzz` failures with the logged `XMTP_BIDI_FUZZ_SEED`,
+  default rounds, and `--retries 0`.
 - `test-hooks` changes runtime behavior; enable it only from tests.
   `xmtp_mls` forwards `test-utils` and `test-hooks`.
