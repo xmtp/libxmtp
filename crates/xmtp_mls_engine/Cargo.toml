@@ -128,5 +128,7 @@ xmtp_mls_validation = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils-network"] }
 
 [target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dev-dependencies]
+ctor.workspace = true
+fdlimit.workspace = true
 tempfile = "3.27.0"
 tokio = { workspace = true, features = ["rt-multi-thread", "test-util"] }
