@@ -976,7 +976,12 @@ fn permits_dm_participant_insert(
 /// `membership` is the set of inbox ids the self-owned non-member test reads:
 /// the post-commit membership inside a commit, the committed one for a
 /// standalone proposal.
-// implements: PERM-011, PERM-014, PERM-026, PERM-027, PERM-028
+///
+/// A set or map delta with no mutations is judged as one change of the
+/// whole component with no key: an insert when `old_value` is `None`, an
+/// update otherwise. A proposal that writes `DM_MEMBERS` is always
+/// rejected, because the pair is written only at creation.
+// implements: PERM-011, PERM-014, PERM-026, PERM-027, PERM-028, META-004, META-030
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn validate_one_app_data_update_with_old_value(
     component_id: xmtp_mls_group_state::app_data::component_id::ComponentId,
@@ -989,9 +994,23 @@ pub(crate) fn validate_one_app_data_update_with_old_value(
     membership: Option<&std::collections::HashSet<xmtp_mls_group_state::inbox_id::InboxId>>,
 ) -> Result<(), CommitRuleError> {
     use xmtp_mls_group_state::app_data::{
+        component_id::ComponentId,
+        component_registry::ComponentOp,
         registry_table::lookup_component,
+        typed::ExpandedComponentChange,
         validation::{ComponentChange, validate_component_write},
     };
+
+    // A DM's pair is written in its creation group context, never by a
+    // proposal. A pair in any other conversation fails every metadata read.
+    // implements: META-030
+    if component_id == ComponentId::DM_MEMBERS {
+        tracing::warn!(
+            proposer_inbox_id,
+            "AppDataUpdate proposal rejected: DM_MEMBERS is written only at creation"
+        );
+        return Err(CommitRuleError::InsufficientPermissions);
+    }
 
     // Source-of-truth monotonicity for `MIN_SUPPORTED_PROTOCOL_VERSION`.
     // Runs ahead of the per-element policy loop so a downgrade fails
@@ -1027,7 +1046,7 @@ pub(crate) fn validate_one_app_data_update_with_old_value(
     //   gates the write, so deny-by-default applies.
     let component = lookup_component(component_id);
     // The expanded values can hold the commit-log signer's private key.
-    let changes = if let Some(component) = component {
+    let mut changes = if let Some(component) = component {
         component
             .expand_to_changes(operation, old_value)
             .map(Zeroizing::new)
@@ -1061,6 +1080,21 @@ pub(crate) fn validate_one_app_data_update_with_old_value(
             }
         }
     };
+    // Only a set or map delta with no mutations expands to nothing. It still
+    // writes the component, creating it when absent, so judge it as one
+    // change of the whole component.
+    // implements: PERM-011, META-004
+    if changes.is_empty() {
+        changes.push(ExpandedComponentChange {
+            op: if old_value.is_none() {
+                ComponentOp::Insert
+            } else {
+                ComponentOp::Update
+            },
+            key: None,
+            value: None,
+        });
+    }
 
     // A DM may add its other participant even though its add-member policy
     // denies general additions. Use the same exception as MLS Add validation.

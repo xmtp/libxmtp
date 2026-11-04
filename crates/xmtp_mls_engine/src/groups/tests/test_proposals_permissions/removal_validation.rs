@@ -208,6 +208,96 @@ async fn test_receivers_reject_raw_membership_delete_of_super_admin() {
     }
 }
 
+/// A modified client can publish an empty `DM_MEMBERS` delta in a group,
+/// standalone or inline in its own commit. Every receiver must reject it:
+/// a `DM_MEMBERS` value outside a DM fails every metadata read, and
+/// nothing can remove it.
+// verifies: META-030, PERM-011
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_receivers_reject_empty_dm_members_proposal() {
+    use crate::groups::{
+        GroupError, app_data::accumulate_app_data_updates, mls_ext::commit_without_group_info,
+        mls_sync::generate_prepared_commit,
+    };
+    use openmls::{
+        messages::proposals::{AppDataUpdateOperation, AppDataUpdateProposal},
+        prelude::{Proposal, tls_codec::Serialize},
+    };
+    use openmls_traits::OpenMlsProvider as _;
+    use xmtp_db::{TransactionOutcome::Continue, XmtpOpenMlsProviderRef};
+    use xmtp_mls_core::state_tx::state_write;
+    use xmtp_mls_group_state::{app_data::component_id::ComponentId, inbox_id::InboxId};
+    use xmtp_mls_tls_collections::tls_set::TlsSetDelta;
+
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
+    let alix_group = alix
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.wait_for_welcomes().await?.first()?.clone();
+    let caro_group = caro.wait_for_welcomes().await?.first()?.clone();
+    caro_group.sync().await?;
+
+    let id = ComponentId::DM_MEMBERS;
+    let empty = TlsSetDelta::<InboxId>::new().tls_serialize_detached()?;
+    let operation = || AppDataUpdateOperation::Update(empty.clone().into());
+    for inline in [false, true] {
+        // Build at the epoch the receivers' last commit left.
+        bo_group.sync().await?;
+        let message = state_write(bo.context.mls_storage(), |tx| {
+            tx.with_group(bo_group.group_id, |mls, storage| {
+                let signer = &bo.context.identity().installation_keys;
+                if !inline {
+                    let (message, _) = mls
+                        .propose_app_data_update(
+                            &XmtpOpenMlsProviderRef::new(storage),
+                            signer,
+                            id.as_u16(),
+                            operation(),
+                        )
+                        .map_err(GroupError::Proposal)?;
+                    return Ok::<_, GroupError>(Continue(message.tls_serialize_detached()?));
+                }
+                let (message, _, _) = generate_prepared_commit(storage, mls, |mls, provider| {
+                    let updates =
+                        accumulate_app_data_updates(mls, [(id.as_u16(), &operation())]).unwrap();
+                    let proposal = Proposal::AppDataUpdate(Box::new(
+                        AppDataUpdateProposal::update(id.as_u16(), empty.clone()),
+                    ));
+                    let mut stage = commit_without_group_info(mls, provider.storage(), |builder| {
+                        builder.consume_proposal_store(false).add_proposal(proposal)
+                    })
+                    .unwrap();
+                    stage.with_app_data_dictionary_updates(updates);
+                    let bundle = stage
+                        .build(provider.rand(), provider.crypto(), signer, |_| true)
+                        .unwrap()
+                        .stage_commit(provider)
+                        .unwrap();
+                    bundle.into_messages().0.tls_serialize_detached()
+                })?;
+                Ok(Continue(message))
+            })
+        })?
+        .into_continued();
+        let messages = bo_group.prepare_group_messages(vec![(message.as_slice(), false)])?;
+        bo.context.api().send_group_messages(messages).await?;
+
+        for group in [&alix_group, &caro_group] {
+            group.sync().await?;
+            assert_eq!(
+                group.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?,
+                0,
+                "inline: {inline}: a receiver must not keep the proposal"
+            );
+            group.metadata().await?;
+            group.send_message(b"after", Default::default()).await?;
+            group.update_group_name(format!("renamed {inline}")).await?;
+        }
+    }
+}
+
 /// Test that an admin can propose removing a member and a non-admin can commit it.
 /// This is the remove counterpart to test_non_admin_commits_admin_proposals_in_admin_group.
 #[xmtp_common::test(unwrap_try = true)]

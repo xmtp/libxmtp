@@ -137,6 +137,7 @@ A proposal that writes a component is an `AppDataUpdate` proposal, defined in [d
 | A scalar (`COMPONENT_TYPE_BYTES`, `COMPONENT_TYPE_STRING`) | `Update` | One update, whether or not the component already has a value |
 | A scalar | `Remove` | One delete |
 | A set or a map | `Update` carrying a delta | One change per mutation in the delta: an insert for an insert, an update for an update, a delete for a remove, a remove-by-hash, or a delete |
+| A set or a map | `Update` carrying a delta with no mutations | One insert of the whole component, with no key, when the component has no value; one update of the whole component, with no key, when it has one |
 | A set or a map | `Remove` | One delete |
 
 META section 1 owns component id ranges. META-004 rejects writes to an existing immutable component, including insertion into an existing immutable collection. META-014 and META-015 own registry structure and immutable registry entries. These checks apply before policy evaluation; an allowing policy cannot bypass them.
