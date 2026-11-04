@@ -414,6 +414,60 @@ class Links(Table):
             # A link token only counts inside a comment.
             ("string literal", 'const NOTE: &str = "verifies: JOIN-001";\n', 0),
             ("raw string", 'const DOC: &str = r#"\n// verifies: JOIN-001\n"#;\n', 0),
+            (
+                "byte raw string",
+                'const B: &[u8] = br#"\n"\n// verifies: JOIN-001\n"#;\n',
+                0,
+            ),
+            # A string ending in `r` closes there; it opens no raw string.
+            (
+                "string ending in r",
+                'let name = "test four";\n// verifies: JOIN-001\nfn t() {}\n',
+                1,
+            ),
+            (
+                "continued string ending in r",
+                'let s = "one\n    test four";\n// verifies: JOIN-001\nfn t() {}\n',
+                1,
+            ),
+            ("escaped r", 'let cr = "\\r";\n// verifies: JOIN-001\nfn t() {}\n', 1),
+            ("escaped quote", 'let q = "a \\" four";\n// verifies: JOIN-001\n', 1),
+            # A raw string after a string, a comment, or a quote char still opens.
+            (
+                "raw after multi-line string",
+                'let s = ("one\ntwo", r#"\n// verifies: JOIN-001\n"#);\n',
+                0,
+            ),
+            (
+                "raw after quote in comment",
+                '// a "quote\nlet s = r#"\n// verifies: JOIN-001\n"#;\n',
+                0,
+            ),
+            (
+                "raw after quote in block comment",
+                '/* a "quote\n*/\nlet s = r#"\n// verifies: JOIN-001\n"#;\n',
+                0,
+            ),
+            (
+                "multi-line string",
+                'let s = "one\n// verifies: JOIN-001\n";\n',
+                0,
+            ),
+            (
+                "raw after string",
+                'let s = ("four", r#"\n// verifies: JOIN-001\n"#);\n',
+                0,
+            ),
+            (
+                "raw after escaped backslash",
+                'let s = ("a\\\\", r"\n// verifies: JOIN-001\n");\n',
+                0,
+            ),
+            (
+                "raw after quote char",
+                'let c = (\'"\', r"\n// verifies: JOIN-001\n");\n',
+                0,
+            ),
             ("malformed link token", "// verifies: JOIN-0010\nfn t() {}\n", 0),
             ("hash comment", {"src/b.py": "# verifies: JOIN-001\nx\n"}, 1),
             ("dash comment", {"src/c.sql": "-- verifies: JOIN-001\nx\n"}, 1),
