@@ -6,7 +6,7 @@
 
 ```bash
 just test workspace test_send_message               # by name substring
-just test workspace -p xmtp_mls test_send_message   # by crate and name
+just test workspace -p xmtp_mls_engine test_send_message   # by crate and name
 just test crate xmtp_mls xmtp_db                    # whole crates
 just test crate xmtp_mls_streams                    # unit tests and the streams target
 just wasm test test_send_message
@@ -24,7 +24,7 @@ through `just test`. Use `dev/nix-shell` with a quoted string:
 
 ```bash
 dev/nix-shell "cargo nextest run --profile ci -E 'test(test_send_message)'"
-dev/nix-shell "cargo nextest run --profile ci -p xmtp_mls -E 'test(/groups::tests/)'"
+dev/nix-shell "cargo nextest run --profile ci -p xmtp_mls_engine -E 'test(/groups::tests/)'"
 dev/nix-shell "cargo nextest run --profile ci -E 'package(xmtp_mls)'"
 ```
 
@@ -35,7 +35,7 @@ Wrap in `dev/nix-shell '<cmd>'` so the pinned toolchain is used.
 ```bash
 dev/nix-shell 'cargo nextest run --profile ci test_send_message'
 NIX_DEVSHELL=wasm dev/nix-shell 'cargo nextest run --profile ci --cargo-profile wasm-test \
-  --target wasm32-unknown-unknown -p xmtp_mls test_send_message'
+  --target wasm32-unknown-unknown -p xmtp_mls_engine test_send_message'
 ```
 
 ## Filter expression syntax
