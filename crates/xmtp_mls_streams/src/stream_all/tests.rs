@@ -13,7 +13,7 @@ use xmtp_mls_engine::groups::{
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn watchdog_trips_on_idle_real_stream() {
-    use crate::subscriptions::{SubscribeError, stream_all_messages, watchdog::WatchdogStream};
+    use crate::{SubscribeError, stream_all_messages, watchdog::WatchdogStream};
 
     let alix = EngineTestPeer::new().await;
     let bo = EngineTestPeer::new().await;

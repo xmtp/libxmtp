@@ -36,7 +36,7 @@ becomes terminal, or how an app opens a replacement stream:
 - The recovery budget, outage, or healthy-period rules in
   `crates/xmtp_mls_engine/src/subscriptions/recovery.rs`.
 - Reader failure and fencing in
-  `crates/xmtp_mls/src/subscriptions/message_reader.rs` or `local_delivery/`,
+  `crates/xmtp_mls_streams/src/message_reader.rs` or `local_delivery/`,
   or in `crates/xmtp_mls_engine/src/subscriptions/incoming.rs` or
   `incoming/controller*`.
 - The `NetworkRecoveryExhausted` error, its message, or its mapping in

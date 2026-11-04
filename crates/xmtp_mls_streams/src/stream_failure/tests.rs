@@ -84,7 +84,7 @@ fn published_failure_without_barrier_keeps_intent_identity() {
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
 fn catch_up_failure_keeps_partial_summary_and_all_barriers() {
-    use crate::subscriptions::catch_up::CatchUpSummary;
+    use crate::catch_up::CatchUpSummary;
     let error = CatchUpError::Incomplete {
         summary: CatchUpSummary {
             messages: u64::MAX,

@@ -595,6 +595,9 @@ suites:
           - xmtp_mls_identity
           - xmtp_mls_engine
           - xmtp_mls_attachments
+          - xmtp_mls_streams
+          - xmtp_mls_device_sync
+          - xmtp_mls_notifications
           - xmtp_cryptography
           - xmtp_common
           - xmtp_api

@@ -1,5 +1,5 @@
 use super::*;
-use crate::client::notifications::{NotificationOverride, NotificationState, encode_config};
+use crate::client::{NotificationOverride, NotificationState, encode_config};
 use std::sync::Arc;
 use xmtp_common::{
     RetryableError, StreamHandle,
@@ -9,10 +9,10 @@ use xmtp_common::{
 use xmtp_db::{consent_record::ConsentState, group::GroupMembershipState};
 
 pub(crate) mod support {
-    pub(crate) use crate::client::notifications::test_support::*;
-    pub(crate) use crate::worker::notifications::test_hooks::on_before_request;
+    pub(crate) use crate::client::test_support::*;
+    pub(crate) use crate::worker::test_hooks::on_before_request;
 }
-pub(crate) use crate::client::notifications::test_support::config;
+pub(crate) use crate::client::test_support::config;
 use support::{Call, NotificationPeer};
 use xmtp_mls_core::context::CoreContext;
 use xmtp_mls_engine::groups::test_support::{

@@ -15,11 +15,8 @@ const DEFAULT_STREAM_CONSENT_STATES: [ConsentState; 2] =
     [ConsentState::Allowed, ConsentState::Unknown];
 
 // One-shot bounded catch-up through the shared receiver.
-pub use xmtp_mls_engine::subscriptions::barrier;
+use xmtp_mls_engine::subscriptions::barrier;
 pub mod catch_up;
-#[doc(hidden)]
-pub use xmtp_mls_core::events as internal;
-pub use xmtp_mls_engine::subscriptions::incoming;
 pub mod local_delivery;
 pub mod message_reader;
 mod stream_all;
@@ -27,15 +24,12 @@ pub mod stream_conversations;
 pub mod stream_failure;
 pub mod stream_messages;
 // Native callback adapters over the shared backend transport.
-// A message stream against a backend that charges stream rent.
-#[cfg(all(test, not(target_arch = "wasm32")))]
-mod rate_limit_tests;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod router_callbacks;
 pub(crate) mod watchdog;
 
 #[cfg(any(test, feature = "test-utils"))]
-use crate::subscriptions::stream_messages::stream_stats::{StreamStatsWrapper, StreamWithStats};
+use crate::stream_messages::stream_stats::{StreamStatsWrapper, StreamWithStats};
 use xmtp_mls_messages::enrichment::EnrichMessageError;
 
 use thiserror::Error;

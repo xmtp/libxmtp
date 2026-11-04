@@ -38,6 +38,9 @@ let
     "xmtp_mls_identity"
     "xmtp_mls_engine"
     "xmtp_mls_attachments"
+    "xmtp_mls_streams"
+    "xmtp_mls_device_sync"
+    "xmtp_mls_notifications"
     "xmtp_cryptography"
     "xmtp_common"
     "xmtp_api"
@@ -69,7 +72,7 @@ let
         extra = [
           (root + /.config/nextest.toml)
           # db snapshots
-          (fileFilter (file: file.hasExt "xmtp") (root + /crates/xmtp_mls/tests/assets))
+          (fileFilter (file: file.hasExt "xmtp") (root + /crates/xmtp_mls_device_sync/tests/assets))
           (fileFilter (file: file.hasExt "json") (root + /crates))
         ];
       }

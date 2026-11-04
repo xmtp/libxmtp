@@ -1,6 +1,6 @@
 //! Test diagnostics from the shared receiver status.
 
-use crate::subscriptions::{Result, stream_all::StreamAllMessages};
+use crate::{Result, stream_all::StreamAllMessages};
 use futures::{Stream, StreamExt};
 use std::{
     ops::Range,

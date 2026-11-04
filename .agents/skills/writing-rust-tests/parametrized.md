@@ -23,7 +23,7 @@ Named cases show in output as `test_group_sizes::case_1_one_member`.
 `#[awt]` on the function.
 
 ```rust
-// crates/xmtp_mls/src/subscriptions/stream_conversations.rs
+// crates/xmtp_mls_streams/tests/streams/stream_conversations.rs
 #[rstest]
 #[case::five_dms(5)]
 #[xmtp_common::test]

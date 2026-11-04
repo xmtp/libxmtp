@@ -3,7 +3,7 @@
 //! native pool errors. Browser connection lifecycle tests cover closed
 //! persistent handles in the WASM database module.
 
-use crate::subscriptions::SubscribeError;
+use crate::SubscribeError;
 use xmtp_db::{ConnectionError, PlatformStorageError, StorageError};
 use xmtp_mls_core::reconnect::NeedsDbReconnect;
 use xmtp_mls_engine::groups::GroupError;

@@ -1,7 +1,7 @@
 use super::*;
-use crate::worker::{
-    notifications,
-    notifications::tests::{config, support},
+use crate::{
+    worker as notifications,
+    worker::tests::{config, support},
 };
 use support::NotificationPeer;
 use xmtp_db::consent_record::ConsentState;

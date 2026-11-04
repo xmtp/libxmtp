@@ -13260,12 +13260,15 @@ dependencies = [
  "xmtp_macro",
  "xmtp_mls_attachments",
  "xmtp_mls_core",
+ "xmtp_mls_device_sync",
  "xmtp_mls_engine",
  "xmtp_mls_group_keys",
  "xmtp_mls_group_state",
  "xmtp_mls_identity",
  "xmtp_mls_messages",
+ "xmtp_mls_notifications",
  "xmtp_mls_server_config",
+ "xmtp_mls_streams",
  "xmtp_mls_tls_collections",
  "xmtp_mls_validation",
  "xmtp_proto",
@@ -13373,6 +13376,56 @@ dependencies = [
  "xmtp_mls_server_config",
  "xmtp_proto",
  "xmtp_push_types",
+]
+
+[[package]]
+name = "xmtp_mls_device_sync"
+version = "8.0.0"
+dependencies = [
+ "aes-gcm",
+ "async-trait",
+ "bytes",
+ "const-hex",
+ "ctor",
+ "diesel",
+ "fdlimit",
+ "futures",
+ "futures-util",
+ "openmls",
+ "openmls_traits",
+ "parking_lot",
+ "prost",
+ "rstest",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
+ "wasm-bindgen-test",
+ "xmtp-workspace-hack",
+ "xmtp_api",
+ "xmtp_api_grpc",
+ "xmtp_archive",
+ "xmtp_common",
+ "xmtp_configuration",
+ "xmtp_content_types",
+ "xmtp_cryptography",
+ "xmtp_db",
+ "xmtp_events",
+ "xmtp_id",
+ "xmtp_legacy_migration",
+ "xmtp_logging",
+ "xmtp_macro",
+ "xmtp_mls",
+ "xmtp_mls_core",
+ "xmtp_mls_engine",
+ "xmtp_mls_group_keys",
+ "xmtp_mls_group_state",
+ "xmtp_mls_identity",
+ "xmtp_mls_messages",
+ "xmtp_mls_validation",
+ "xmtp_proto",
+ "zeroize",
 ]
 
 [[package]]
@@ -13553,6 +13606,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "xmtp_mls_notifications"
+version = "8.0.0"
+dependencies = [
+ "async-trait",
+ "ctor",
+ "diesel",
+ "fdlimit",
+ "futures",
+ "parking_lot",
+ "prost",
+ "serde",
+ "thiserror 2.0.19",
+ "tokio",
+ "tonic",
+ "tracing",
+ "wasm-bindgen-test",
+ "xmtp-workspace-hack",
+ "xmtp_api",
+ "xmtp_api_grpc",
+ "xmtp_common",
+ "xmtp_configuration",
+ "xmtp_cryptography",
+ "xmtp_db",
+ "xmtp_events",
+ "xmtp_mls_core",
+ "xmtp_mls_engine",
+ "xmtp_proto",
+]
+
+[[package]]
 name = "xmtp_mls_server_config"
 version = "8.0.0"
 dependencies = [
@@ -13586,6 +13669,55 @@ dependencies = [
  "xmtp_id",
  "xmtp_mls",
  "xmtp_mls_validation",
+ "xmtp_proto",
+]
+
+[[package]]
+name = "xmtp_mls_streams"
+version = "8.0.0"
+dependencies = [
+ "async-trait",
+ "const-hex",
+ "ctor",
+ "diesel",
+ "fdlimit",
+ "futures",
+ "futures-test",
+ "http",
+ "openmls",
+ "parking_lot",
+ "pin-project",
+ "proptest",
+ "prost",
+ "rand 0.10.2",
+ "rstest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
+ "tokio-util",
+ "tonic",
+ "tracing",
+ "wasm-bindgen-test",
+ "xmtp-workspace-hack",
+ "xmtp_api",
+ "xmtp_api_backend",
+ "xmtp_api_grpc",
+ "xmtp_common",
+ "xmtp_configuration",
+ "xmtp_content_types",
+ "xmtp_cryptography",
+ "xmtp_db",
+ "xmtp_events",
+ "xmtp_id",
+ "xmtp_macro",
+ "xmtp_mls",
+ "xmtp_mls_core",
+ "xmtp_mls_engine",
+ "xmtp_mls_group_state",
+ "xmtp_mls_identity",
+ "xmtp_mls_messages",
+ "xmtp_mls_server_config",
  "xmtp_proto",
 ]
 

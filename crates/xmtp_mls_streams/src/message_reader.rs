@@ -266,9 +266,7 @@ impl<C: XmtpSharedContext> Drop for MessageReader<C> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::subscriptions::local_delivery::{
-        DeliveryScope, LocalDeliveryError, LocalDeliveryFilter,
-    };
+    use crate::local_delivery::{DeliveryScope, LocalDeliveryError, LocalDeliveryFilter};
     use xmtp_common::time::Duration;
     use xmtp_db::Store;
     use xmtp_mls_engine::groups::test_support::{

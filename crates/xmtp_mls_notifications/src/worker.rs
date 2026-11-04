@@ -1,6 +1,6 @@
 //! One durable task owns notification registration, renewal, and subscription sync.
 
-use crate::client::notifications::{
+use crate::client::{
     NotificationConfig, NotificationError, decode, effective, encode, recipient_secret,
     stored_config,
 };

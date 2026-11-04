@@ -133,7 +133,7 @@ impl Drop for ReceivedContent {
 /// The id of the group [`DeviceSyncClient::primary_sync_group`] selects,
 /// read in the caller's write.
 // implements: SYNC-002, SYNC-010
-pub(super) fn selected_sync_group_in<T: TransactionalKeyStore>(
+pub(crate) fn selected_sync_group_in<T: TransactionalKeyStore>(
     tx: &mut StateTx<'_, T>,
     own_inbox_id: &str,
 ) -> Result<Option<GroupId>, GroupError> {
@@ -666,7 +666,7 @@ impl Drop for SyncPayload {
 
 /// Decode a received sync message: the outer `EncodedContent`, then the
 /// supported device-sync content inside it.
-pub(super) fn decode_sync_message(plaintext: &[u8]) -> Option<ReceivedContent> {
+pub(crate) fn decode_sync_message(plaintext: &[u8]) -> Option<ReceivedContent> {
     let payload = SyncPayload::decode(decode_buffer(plaintext)).ok()?;
     decode_supported_content(&payload.content)
 }

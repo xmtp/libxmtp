@@ -3,15 +3,15 @@
 //! notification modules.
 
 use super::{NotificationError, NotificationState};
-use crate::core::notifications::{NotificationChannel, NotificationConfig};
 use parking_lot::Mutex;
 use std::{collections::BTreeMap, sync::Arc};
 use tokio::sync::Notify;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_db::{DefaultDbConnection, tasks::TaskDataHash};
+use xmtp_mls_core::notifications::{NotificationChannel, NotificationConfig};
 use xmtp_mls_core::{context::CoreContext, policy::StreamPolicy};
 use xmtp_mls_engine::groups::test_support::{EngineTestFeatures, EngineTestPeer};
-use xmtp_mls_identity::identity_lifecycle::test_support::{PeerApi, PeerFeatures, TestPeer};
+use xmtp_mls_engine::groups::test_support::{PeerApi, PeerFeatures, TestPeer};
 use xmtp_proto::{api::ApiClientError, api_client::XmtpBackendClient, backend_v1 as wire};
 
 /// An HTTP channel for tests that read only the peer's subscriptions.
@@ -24,11 +24,11 @@ pub fn config() -> NotificationConfig {
 
 /// The data hash of the notification runner's task.
 pub fn task_hash() -> TaskDataHash {
-    crate::worker::notifications::task_hash()
+    crate::worker::task_hash()
 }
 
 /// The notification task's first retry backoff.
-pub const RETRY_NS: i64 = crate::worker::notifications::RETRY_NS;
+pub const RETRY_NS: i64 = crate::worker::RETRY_NS;
 
 /// The lifetime of a registration the scripted peer confirms.
 pub const TEST_TTL_NS: i64 = 4 * xmtp_common::NS_IN_DAY;

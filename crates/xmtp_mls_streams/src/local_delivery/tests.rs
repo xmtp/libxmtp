@@ -1,5 +1,5 @@
 use super::*;
-use crate::subscriptions::message_reader::MessageReader;
+use crate::message_reader::MessageReader;
 use futures::{FutureExt, StreamExt};
 use xmtp_common::{
     ErrorCode,
@@ -1033,9 +1033,7 @@ async fn all_reader_and_snapshot_hide_sync_without_consuming_internal_messages()
 /// route that opens one. The refusal is not retried and needs no reconnect.
 #[xmtp_common::test(unwrap_try = true)]
 async fn subscribe_error_code_reaches_stream_storage_code() {
-    use crate::subscriptions::{
-        stream_all::StreamAllMessages, stream_messages::StreamGroupMessages,
-    };
+    use crate::{stream_all::StreamAllMessages, stream_messages::StreamGroupMessages};
     use xmtp_common::RetryableError;
     use xmtp_mls_core::worker::NeedsDbReconnect;
     let alix = EngineTestPeer::new().await;

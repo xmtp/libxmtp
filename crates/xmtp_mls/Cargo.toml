@@ -32,6 +32,9 @@ test-hooks = [
   "xmtp_mls_engine/test-hooks",
   "xmtp_mls_identity/test-hooks",
   "xmtp_mls_server_config/test-hooks",
+  "xmtp_mls_device_sync/test-hooks",
+  "xmtp_mls_notifications/test-hooks",
+  "xmtp_mls_streams/test-hooks",
 ]
 test-utils = [
   "diagnostics",
@@ -55,6 +58,9 @@ test-utils = [
   "dep:futures-executor",
   "dep:mockall",
   "dep:rstest",
+  "xmtp_mls_device_sync/test-utils",
+  "xmtp_mls_notifications/test-utils",
+  "xmtp_mls_streams/test-utils",
 ]
 bench = [
   "test-utils",
@@ -123,12 +129,15 @@ xmtp_id.workspace = true
 xmtp_macro.workspace = true
 xmtp_mls_attachments.workspace = true
 xmtp_mls_core.workspace = true
+xmtp_mls_device_sync.workspace = true
 xmtp_mls_engine.workspace = true
 xmtp_mls_group_keys.workspace = true
 xmtp_mls_group_state.workspace = true
 xmtp_mls_identity.workspace = true
 xmtp_mls_messages.workspace = true
+xmtp_mls_notifications.workspace = true
 xmtp_mls_server_config.workspace = true
+xmtp_mls_streams.workspace = true
 xmtp_mls_tls_collections.workspace = true
 xmtp_mls_validation.workspace = true
 xmtp_proto.workspace = true
@@ -208,6 +217,10 @@ xmtp_mls_attachments = { workspace = true, features = [
   "test-utils",
 ] }
 xmtp_mls_core = { workspace = true, features = ["test-hooks", "test-utils"] }
+xmtp_mls_device_sync = { workspace = true, features = [
+  "test-hooks",
+  "test-utils",
+] }
 xmtp_mls_engine = { workspace = true, features = [
   "diagnostics",
   "test-hooks",
@@ -218,10 +231,15 @@ xmtp_mls_identity = { workspace = true, features = [
   "test-utils",
 ] }
 xmtp_mls_messages = { workspace = true, features = ["test-utils"] }
+xmtp_mls_notifications = { workspace = true, features = [
+  "test-hooks",
+  "test-utils",
+] }
 xmtp_mls_server_config = { workspace = true, features = [
   "test-hooks",
   "test-utils",
 ] }
+xmtp_mls_streams = { workspace = true, features = ["test-hooks", "test-utils"] }
 xmtp_mls_validation = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils-network"] }
 # Required for traced_test! macro
@@ -247,16 +265,6 @@ required-features = ["test-utils"]
 [[test]]
 name = "openmls_host_logging"
 required-features = ["test-utils"]
-
-[[test]]
-name = "device_sync"
-path = "tests/device_sync/main.rs"
-required-features = ["test-hooks", "test-utils"]
-
-[[test]]
-name = "streams"
-path = "tests/streams/main.rs"
-required-features = ["test-hooks", "test-utils"]
 
 [[bench]]
 harness = false

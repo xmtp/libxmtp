@@ -1,6 +1,6 @@
 //! Local notification settings and the native notification API.
 
-use crate::worker::notifications as worker;
+use crate::worker;
 use serde::{Deserialize, Serialize};
 use xmtp_common::{ErrorCode, RetryableError};
 use xmtp_db::{
