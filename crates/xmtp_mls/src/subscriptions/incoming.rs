@@ -609,16 +609,32 @@ impl Drop for IncomingLease {
     }
 }
 
-#[cfg(test)]
-mod lease_observer_tests {
-    use super::*;
+/// A topics lease whose scope was replaced while one of its topics was
+/// unfinished, beside a sibling lease of the same coordinator. Stream failure
+/// tests read how the barrier failure reports the cancelled scope.
+#[cfg(any(test, feature = "test-utils"))]
+#[doc(hidden)]
+pub struct ReplacedScope {
+    /// The lease's scope generation before the replacement.
+    pub old_generation: u64,
+    /// The status that the replacement returned.
+    pub previous: IncomingStatus,
+    /// The lease's status after the replacement.
+    pub current: IncomingStatus,
+    /// The unfinished topic, with the scope generation it captured from
+    /// `previous`.
+    pub unfinished: super::barrier::BarrierTopic,
+    sibling: IncomingLease,
+    lease: IncomingLease,
+    coordinator: Arc<IncomingCoordinator>,
+}
 
-    // verifies: PROC-018
-    #[xmtp_common::test(unwrap_try = true)]
-    fn replacement_failure_keeps_cancelled_scope_generation() {
-        use crate::subscriptions::barrier::{
-            BarrierCause, BarrierError, BarrierFailure, BarrierTopic,
-        };
+#[cfg(any(test, feature = "test-utils"))]
+impl ReplacedScope {
+    /// Replace the scope of a lease whose topic received through 9 and
+    /// processed through 8 of target 9.
+    pub fn create() -> Self {
+        use super::barrier::{BarrierCause, BarrierTopic};
         use xmtp_proto::types::Cursor;
 
         let (commands, _receiver) = mpsc::unbounded_channel();
@@ -635,7 +651,8 @@ mod lease_observer_tests {
             .state
             .statuses
             .lock()
-            .get_mut(&lease.id)?
+            .get_mut(&lease.id)
+            .expect("the lease's status")
             .topics
             .push(IncomingTopicStatus {
                 topic: topic.clone(),
@@ -653,12 +670,6 @@ mod lease_observer_tests {
             [8; 32],
         )]));
         let current = lease.snapshot();
-        assert_eq!(previous.scope_generation, old_generation);
-        assert_eq!(previous.processing, IncomingProcessing::Cancelled);
-        assert_eq!(previous.topics[0].scope_generation, old_generation);
-        assert_eq!(previous.topics[0].processing, IncomingProcessing::Cancelled);
-        assert!(current.scope_generation > old_generation);
-        assert_eq!(current.previous.as_ref()?.scope_generation, old_generation);
         let mut unfinished = BarrierTopic {
             topic,
             scope_generation: None,
@@ -670,28 +681,34 @@ mod lease_observer_tests {
             cause: Some(BarrierCause::ProcessingPending),
         };
         unfinished.capture_scope_generation(&previous);
-        let details = crate::subscriptions::stream_failure::StreamBarrierFailure::from(
-            &BarrierError::Incomplete {
-                reason: BarrierFailure::Cancelled,
-                unfinished: vec![unfinished],
-            },
-        );
-        let reported = &details.unfinished[0];
-        assert_eq!(
-            reported.scope_generation.as_deref(),
-            Some(old_generation.to_string().as_str())
-        );
-        assert_ne!(
-            reported.scope_generation.as_deref(),
-            Some(current.scope_generation.to_string().as_str())
-        );
-        assert_eq!(reported.target.as_deref(), Some("9"));
-        assert_eq!(reported.received, "9");
-        assert_eq!(reported.processed, "8");
-        lease.close();
-        assert_eq!(sibling.snapshot().processing, IncomingProcessing::Pending);
-        assert!(coordinator.state.statuses.lock().contains_key(&sibling.id));
+        Self {
+            old_generation,
+            previous,
+            current,
+            unfinished,
+            sibling,
+            lease,
+            coordinator,
+        }
     }
+
+    /// Close the replaced lease, then the sibling's status and whether the
+    /// coordinator still holds it.
+    pub fn close(&self) -> (IncomingStatus, bool) {
+        self.lease.close();
+        let registered = self
+            .coordinator
+            .state
+            .statuses
+            .lock()
+            .contains_key(&self.sibling.id);
+        (self.sibling.snapshot(), registered)
+    }
+}
+
+#[cfg(test)]
+mod lease_observer_tests {
+    use super::*;
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn lease_change_after_snapshot_is_not_lost() {

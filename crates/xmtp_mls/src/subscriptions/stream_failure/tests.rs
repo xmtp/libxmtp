@@ -167,3 +167,41 @@ fn ordinary_and_invalid_errors_have_no_details() {
     assert!(decode_stream_failure("[GenericError::Generic] ordinary error").is_none());
     assert!(decode_stream_failure(&format!("{STREAM_FAILURE_MARKER}invalid-json")).is_none());
 }
+
+// verifies: PROC-018
+#[xmtp_common::test(unwrap_try = true)]
+fn replacement_failure_keeps_cancelled_scope_generation() {
+    use crate::subscriptions::incoming::{IncomingProcessing, ReplacedScope};
+
+    let replaced = ReplacedScope::create();
+    let (old_generation, previous, current) = (
+        replaced.old_generation,
+        &replaced.previous,
+        &replaced.current,
+    );
+    assert_eq!(previous.scope_generation, old_generation);
+    assert_eq!(previous.processing, IncomingProcessing::Cancelled);
+    assert_eq!(previous.topics[0].scope_generation, old_generation);
+    assert_eq!(previous.topics[0].processing, IncomingProcessing::Cancelled);
+    assert!(current.scope_generation > old_generation);
+    assert_eq!(current.previous.as_ref()?.scope_generation, old_generation);
+    let details = StreamBarrierFailure::from(&BarrierError::Incomplete {
+        reason: BarrierFailure::Cancelled,
+        unfinished: vec![replaced.unfinished.clone()],
+    });
+    let reported = &details.unfinished[0];
+    assert_eq!(
+        reported.scope_generation.as_deref(),
+        Some(old_generation.to_string().as_str())
+    );
+    assert_ne!(
+        reported.scope_generation.as_deref(),
+        Some(current.scope_generation.to_string().as_str())
+    );
+    assert_eq!(reported.target.as_deref(), Some("9"));
+    assert_eq!(reported.received, "9");
+    assert_eq!(reported.processed, "8");
+    let (sibling, registered) = replaced.close();
+    assert_eq!(sibling.processing, IncomingProcessing::Pending);
+    assert!(registered);
+}
