@@ -1,7 +1,7 @@
 //! Consent from archives written before 8.0, and the 16-byte rule.
 use super::*;
-use crate::tester;
 use xmtp_db::consent_record::{ConsentKey, ConsentState, ConsentValue};
+use xmtp_mls::tester;
 use xmtp_mls_group_state::group_metadata::DmMembers;
 use xmtp_proto::xmtp::device_sync::{
     consent_backup::{ConsentSave, ConsentStateSave, ConsentTypeSave},

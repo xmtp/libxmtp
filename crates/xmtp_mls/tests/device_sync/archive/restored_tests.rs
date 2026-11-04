@@ -1,8 +1,5 @@
 //! Transaction boundaries and inactive groups after archive import.
 use super::*;
-use crate::prelude::*;
-use crate::tester;
-use crate::worker::device_sync::{ArchiveOptions, BackupElementSelection};
 use futures::io::{BufReader, Cursor};
 use std::collections::HashMap;
 use xmtp_db::{
@@ -10,6 +7,9 @@ use xmtp_db::{
     consent_record::{ConsentKey, ConsentState, ConsentType, StoredConsentRecord},
     group::{GroupMembershipState, GroupQueryArgs},
 };
+use xmtp_mls::prelude::*;
+use xmtp_mls::tester;
+use xmtp_mls::worker::device_sync::{ArchiveOptions, BackupElementSelection};
 use xmtp_mls_engine::groups::{DeleteMessageError, GroupError};
 use xmtp_mls_group_state::group_metadata::DmMembers;
 use xmtp_proto::{
@@ -436,16 +436,16 @@ async fn import_skips_internal_conversations() {
     let sync = alix.device_sync_client().get_sync_group().await?;
     let db = alix.db();
     let held = StoredUserPreferences::load(&db)?.hmac_key;
-    let content = crate::worker::device_sync::sync_message_bytes(Content::PreferenceUpdates(
-        PreferenceUpdates {
+    let content = xmtp_mls::worker::device_sync::test_support::sync_message_bytes(
+        Content::PreferenceUpdates(PreferenceUpdates {
             updates: vec![PreferenceUpdate {
                 update: Some(Update::Hmac(HmacKeyUpdate {
                     key: vec![0x5a; 42],
                     cycled_at_ns: i64::MAX,
                 })),
             }],
-        },
-    ));
+        }),
+    );
     let mut message = stored_message(sync.group_id, alix.inbox_id().to_string(), 0x51);
     message.sender_installation_id = alix.context.installation_id().to_vec();
     message.sent_at_ns = i64::MAX;

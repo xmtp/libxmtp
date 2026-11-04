@@ -48,12 +48,12 @@ use xmtp_proto::xmtp::{
 
 pub mod archive;
 pub mod preference_sync;
+#[cfg(any(test, feature = "test-utils"))]
+#[doc(hidden)]
+pub mod test_support;
 pub mod worker;
 
 pub use xmtp_archive::archive_options::{ArchiveOptions, BackupElementSelection};
-
-#[cfg(test)]
-mod tests;
 
 /// Encode sync content as the `EncodedContent` bytes of a sync message.
 ///
@@ -116,7 +116,13 @@ fn with_plaintext(rows: Vec<StoredGroupMessage>) -> Vec<(StoredGroupMessage, Zer
 
 /// Sync content decoded from a received message. Its HMAC root keys are wiped
 /// on drop, on every path out of processing.
-pub(super) struct ReceivedContent(pub(super) ContentProto);
+pub struct ReceivedContent(
+    /// The decoded content. Suites outside the crate read it under
+    /// `test-utils`.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub ContentProto,
+    #[cfg(not(any(test, feature = "test-utils")))] pub(crate) ContentProto,
+);
 
 impl Drop for ReceivedContent {
     fn drop(&mut self) {
@@ -365,7 +371,7 @@ where
     /// published.
     // implements: SYNC-004, SYNC-034, SYNC-029, SYNC-033
     #[tracing::instrument(level = "debug", skip_all, fields(operation = "publish_outbox"))]
-    pub(super) async fn publish_outbox(&self) -> Result<(), DeviceSyncError> {
+    pub async fn publish_outbox(&self) -> Result<(), DeviceSyncError> {
         // A quarter of the deployment's envelope, so MLS and envelope framing fit.
         let max_bytes = (self.context.api().limits().max_envelope_bytes / 4).min(PAGE_BYTES);
         self.get_sync_group().await?;
@@ -432,7 +438,7 @@ where
                 drop(take_plaintext(&mut sent));
                 sent.delivery_status
             });
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-hooks"))]
             let status = UNCONFIRMED_NEXT_PAGE
                 .lock()
                 .take_if(|installation| *installation == self.installation_id().as_slice())
@@ -576,7 +582,7 @@ where
 
     /// Arm the sync group's reconcile task for `group_id`, due once `delay`
     /// has passed. It is kept until it finishes, whatever its failures.
-    pub(crate) fn schedule_add_missing_installations_task(
+    pub fn schedule_add_missing_installations_task(
         &self,
         group_id: GroupId,
         delay: Option<xmtp_common::time::Duration>,
@@ -610,8 +616,9 @@ struct MembershipGap {
 
 /// Test-only fault: the next outbox page of this installation reads back as
 /// not published, as when its confirmation fails after the backend took it.
-#[cfg(test)]
-pub(super) static UNCONFIRMED_NEXT_PAGE: parking_lot::Mutex<Option<Vec<u8>>> =
+#[cfg(any(test, feature = "test-hooks"))]
+#[doc(hidden)]
+pub static UNCONFIRMED_NEXT_PAGE: parking_lot::Mutex<Option<Vec<u8>>> =
     parking_lot::Mutex::new(None);
 
 /// Records per sync message the outbox sends.

@@ -7,6 +7,9 @@ pub mod backend;
 pub mod tester_utils;
 
 #[cfg(any(test, feature = "test-utils"))]
+pub mod device_sync;
+
+#[cfg(any(test, feature = "test-utils"))]
 pub mod fixtures;
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -50,8 +53,9 @@ use super::VersionInfo;
 /// take: the group root and each private or symmetric key of the group key
 /// table, as raw bytes and as lowercase and uppercase hex. The keys derive
 /// here from the spec's salt and `info` labels, not through `GroupKeys`.
-#[cfg(test)]
-pub(crate) fn group_secret_encodings(
+#[cfg(any(test, feature = "test-utils"))]
+#[doc(hidden)]
+pub fn group_secret_encodings(
     root: &xmtp_mls_group_keys::group_keys::GroupRoot,
 ) -> Vec<(String, Vec<u8>)> {
     let hkdf = hkdf::Hkdf::<sha2::Sha256>::new(Some(b"xmtp group root"), root.as_bytes());

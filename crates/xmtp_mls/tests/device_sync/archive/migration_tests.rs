@@ -1,6 +1,5 @@
 //! The legacy exporter must feed the existing SDK importer.
 use super::*;
-use crate::tester;
 use diesel::{connection::SimpleConnection, prelude::*};
 use prost::Message as _;
 use xmtp_db::{
@@ -11,6 +10,7 @@ use xmtp_db::{
     schema::{group_messages, groups},
 };
 use xmtp_legacy_migration::{PrepareMigrationArchiveArgs, prepare_migration_archive};
+use xmtp_mls::tester;
 use xmtp_proto::xmtp::message_contents::{ContentTypeId, EncodedContent};
 
 const KEY: [u8; 32] = [7; 32];
@@ -107,7 +107,7 @@ async fn legacy_migration_imports_into_empty_and_populated_stores_and_retries() 
     )
     .bind::<diesel::sql_types::Binary, _>(context_key)
     .bind::<diesel::sql_types::Binary, _>(
-        include_bytes!("../../../../../xmtp_legacy_migration/fixtures/appdata-context.bincode")
+        include_bytes!("../../../../xmtp_legacy_migration/fixtures/appdata-context.bincode")
             .as_slice(),
     )
     .execute(&mut legacy)?;

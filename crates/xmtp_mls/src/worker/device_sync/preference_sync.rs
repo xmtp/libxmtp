@@ -63,13 +63,15 @@ pub(super) fn apply_preference_updates(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tester;
     use xmtp_common::time::now_ns;
     use xmtp_db::consent_record::{
         ConsentKey, ConsentState, ConsentType, ConsentValue, MAX_AHEAD_NS,
     };
     use xmtp_db::group::{ConversationType, GroupMembershipState, StoredGroup};
     use xmtp_db::user_preferences::StoredUserPreferences;
+    use xmtp_mls_engine::groups::test_support::{
+        EngineTestPeer, message_rows::generate_stored_msg,
+    };
     use xmtp_proto::types::GroupId;
     use xmtp_proto::xmtp::device_sync::{consent_backup::ConsentSave, content::HmacKeyUpdate};
 
@@ -119,7 +121,7 @@ mod tests {
     fn message(group_id: GroupId, sent_at_ns: i64) -> StoredGroupMessage {
         StoredGroupMessage {
             sent_at_ns,
-            ..crate::test::mock::generate_stored_msg(xmtp_proto::types::Cursor(1), group_id)
+            ..generate_stored_msg(xmtp_proto::types::Cursor(1), group_id)
         }
     }
 
@@ -148,7 +150,7 @@ mod tests {
         #[case] entity_type: i32,
         #[case] state: i32,
     ) {
-        tester!(alix, disable_workers);
+        let alix = EngineTestPeer::new().await;
         let db = alix.context.db();
         let now = now_ns();
         let bad = if (entity_type, state) == (2, 2) {
@@ -182,9 +184,9 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn received_values_are_capped_keyed_and_marked() {
         use xmtp_db::Store;
-        tester!(alix, disable_workers);
+        let alix = EngineTestPeer::new().await;
         let db = alix.context.db();
-        let own = alix.inbox_id();
+        let own = alix.context.inbox_id();
         let envelope = now_ns();
         let older = sync_group(&db, 1, envelope - 10)?;
         let selected = sync_group(&db, 2, envelope)?;

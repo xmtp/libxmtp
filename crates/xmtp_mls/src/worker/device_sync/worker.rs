@@ -424,7 +424,7 @@ where
     /// Apply every unprocessed sync message whose sender was an own
     /// installation at its envelope time.
     // implements: SYNC-016, SYNC-030
-    pub(super) async fn process_sync_group_messages(&self) -> Result<(), DeviceSyncError> {
+    pub async fn process_sync_group_messages(&self) -> Result<(), DeviceSyncError> {
         let mut after = None;
         loop {
             let page = self
@@ -558,8 +558,10 @@ where
 #[cfg(test)]
 mod startup_tests {
     use super::*;
-    use crate::prelude::*;
-    use crate::tester;
+    use xmtp_mls_core::context::CoreContext;
+    use xmtp_mls_engine::groups::test_support::{
+        EngineTestPeer, message_rows::generate_stored_msg,
+    };
 
     fn idle_worker<C: XmtpSharedContext + 'static>(context: C) -> SyncWorker<C> {
         SyncWorker::new(context, None, SharedPasses::default())
@@ -595,7 +597,7 @@ mod startup_tests {
     // verifies: RATE-041
     #[xmtp_common::test(unwrap_try = true)]
     async fn a_rate_limited_pass_waits_out_its_delay() {
-        tester!(alix, disable_workers);
+        let alix = EngineTestPeer::new().await;
         let delay = Duration::from_secs(300);
         let refused = |method| {
             xmtp_api::ApiError::Api(xmtp_proto::api::NetworkError::new(
@@ -655,7 +657,7 @@ mod startup_tests {
             sender_inbox_id: inbox.into(),
             sender_installation_id: vec![installation],
             sent_at_ns,
-            ..crate::test::mock::generate_stored_msg(
+            ..generate_stored_msg(
                 xmtp_proto::types::Cursor(1),
                 xmtp_proto::types::GroupId::from([1; 16]),
             )
@@ -699,11 +701,11 @@ mod startup_tests {
     async fn timeline_states_match_each_prefix() {
         use diesel::prelude::*;
         use xmtp_db::{ConnectionExt, schema::association_state::dsl};
-        tester!(alix1, disable_workers);
-        tester!(alix2, from: alix1, disable_workers);
-        tester!(alix3, from: alix1, disable_workers);
+        let alix1 = EngineTestPeer::new().await;
+        let alix2 = alix1.new_installation().await;
+        let alix3 = alix1.new_installation().await;
         let db = alix1.context.db();
-        let inbox_id = alix1.inbox_id();
+        let inbox_id = alix1.context.inbox_id();
         load_identity_updates_for_client(&alix1.context, &db, &[inbox_id]).await?;
         let updates = db.get_identity_updates(inbox_id, None, None)?;
         assert!(updates.len() >= 3);
@@ -733,7 +735,7 @@ mod startup_tests {
     /// Closing the subscription stops the worker after its owed passes.
     #[xmtp_common::test(unwrap_try = true)]
     async fn closing_subscription_stops_worker() {
-        tester!(alix, disable_workers);
+        let alix = EngineTestPeer::new().await;
         let mut worker = idle_worker(alix.context.clone());
         let (filter, depth) = SyncWorker::factory(alix.context.clone())
             .event_interest()
@@ -742,49 +744,24 @@ mod startup_tests {
         worker.set_subscription(subscription.clone());
         subscription.close();
         xmtp_common::time::timeout(Duration::from_secs(60), worker.run_internal()).await??;
-        alix.close().await?;
-    }
-
-    /// The publish span carries no root key, also when a root key is owed.
-    #[cfg(not(target_arch = "wasm32"))]
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn publish_span_omits_hmac_key() {
-        tester!(alix, disable_workers);
-        let db = alix.context.db();
-        let (key, _) = xmtp_db::user_preferences::ensure_root_key(&db)?;
-        let key_debug = format!("{:?}", key.as_slice());
-        let client = alix.device_sync_client();
-        let (result, spans) =
-            xmtp_logging::test_logging::with_trace_layer_async(true, client.publish_outbox()).await;
-        result?;
-        let span = spans
-            .iter()
-            .find(|span| span.name == "publish_outbox")
-            .expect("the outbox exports its span");
-        let fields = format!("{:?}", span.attributes);
-        assert!(fields.contains("publish_outbox"));
-        assert!(
-            !fields.contains(&key_debug),
-            "the publish span must not export the HMAC root key"
-        );
-        assert!(!has_owed(&db)?, "the root key was published");
-        alix.close().await?;
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::SyncWorker;
-    use crate::test::mock::{NewMockContext, context};
     use xmtp_events::{EventBus, EventWriter};
+    use xmtp_mls_core::context::test_support::mock_context;
     use xmtp_mls_core::events::InternalEvent;
     use xmtp_mls_core::worker::{NewWorker, WorkerFactory, WorkerKind};
+    use xmtp_mls_engine::groups::test_support::{EngineTestFeatures, MockEngineContext};
 
     /// The sync worker's event interest, as the runner subscribes with it.
     fn worker_event_filter(
         kind: WorkerKind,
     ) -> Option<(xmtp_events::EventFilter<InternalEvent>, Option<usize>)> {
-        let factory = SyncWorker::<NewMockContext>::factory(context());
+        let factory =
+            SyncWorker::<MockEngineContext>::factory(mock_context::<EngineTestFeatures>());
         assert_eq!(factory.kind(), kind);
         factory.event_interest()
     }

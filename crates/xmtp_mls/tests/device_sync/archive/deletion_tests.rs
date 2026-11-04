@@ -1,12 +1,12 @@
 //! Deletions survive archives, re-imports and local removal.
 use super::*;
-use crate::tester;
-use crate::worker::device_sync::{ArchiveOptions, BackupElementSelection};
 use futures::io::{BufReader, Cursor};
 use xmtp_content_types::{ContentCodec, delete_message::DeleteMessageCodec, text::TextCodec};
 use xmtp_db::Store;
 use xmtp_db::group_message::{ContentType, DeliveryStatus, GroupMessageKind};
 use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
+use xmtp_mls::tester;
+use xmtp_mls::worker::device_sync::{ArchiveOptions, BackupElementSelection};
 use xmtp_mls_engine::groups::GroupMessageProcessingError;
 use xmtp_proto::xmtp::device_sync::message_backup::GroupMessageSave;
 use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;

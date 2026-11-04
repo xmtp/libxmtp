@@ -249,6 +249,11 @@ name = "openmls_host_logging"
 required-features = ["test-utils"]
 
 [[test]]
+name = "device_sync"
+path = "tests/device_sync/main.rs"
+required-features = ["test-hooks", "test-utils"]
+
+[[test]]
 name = "streams"
 path = "tests/streams/main.rs"
 required-features = ["test-hooks", "test-utils"]
