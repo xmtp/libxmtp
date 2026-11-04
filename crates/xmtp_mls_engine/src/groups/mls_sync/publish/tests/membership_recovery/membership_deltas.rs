@@ -274,16 +274,16 @@ async fn uncommittable_membership_delta_is_omitted_whole(
     let alix = EngineTestPeer::new().await;
     let bo = EngineTestPeer::new().await;
     let caro = EngineTestPeer::new().await;
-    // Markers are real absent installations. The omitted markers belong to
-    // the two inboxes whose entries the uncommittable cases can replace, one
-    // each, since an installation belongs to one inbox.
+    // Markers are real absent installations. Each inbox whose entry the
+    // uncommittable cases can replace has its own: one key never belongs to
+    // two member inboxes.
     let kept_key = XmtpInstallationCredential::new();
-    let omitted_key = XmtpInstallationCredential::new();
-    let caro_omitted_key = XmtpInstallationCredential::new();
+    let alix_marker_key = XmtpInstallationCredential::new();
+    let caro_marker_key = XmtpInstallationCredential::new();
     for (client, installation) in [
         (&alix, &kept_key),
-        (&alix, &omitted_key),
-        (&caro, &caro_omitted_key),
+        (&alix, &alix_marker_key),
+        (&caro, &caro_marker_key),
     ] {
         let mut request = SignatureRequestBuilder::new(client.inbox_id())
             .add_association(
@@ -308,11 +308,12 @@ async fn uncommittable_membership_delta_is_omitted_whole(
             .await?;
     }
     let kept_marker = kept_key.public_slice().to_vec();
-    let omitted_marker = omitted_key.public_slice().to_vec();
-    let caro_omitted_marker = caro_omitted_key.public_slice().to_vec();
+    let alix_marker = alix_marker_key.public_slice().to_vec();
+    let caro_marker = caro_marker_key.public_slice().to_vec();
     let [group, bo_group, caro_group] = group_of_three(&alix, &bo, &caro).await?;
     assert!(!has_leaf(&group, &kept_marker));
-    assert!(!has_leaf(&group, &omitted_marker));
+    assert!(!has_leaf(&group, &alix_marker));
+    assert!(!has_leaf(&group, &caro_marker));
     let members = [&group, &bo_group, &caro_group];
 
     // A commit raises Caro from S1 to S2, so S1 is a real stale sequence.
@@ -336,33 +337,38 @@ async fn uncommittable_membership_delta_is_omitted_whole(
 
     // Alix may add and remove members. A same-sequence entry and a raised
     // entry write no committed inbox lower, so the commit must keep them.
+    // Every marker stays listed: each is leafless and still associated, so
+    // dropping one would leave it unaccounted and receivers would reject the
+    // commit.
     let kept = TlsMapDelta::new()
         .update(
             key(alix.inbox_id()),
-            membership_entry(alix_sequence, vec![kept_marker.clone()]),
+            membership_entry(
+                alix_sequence,
+                vec![kept_marker.clone(), alix_marker.clone()],
+            ),
         )
         .update(
             key(bo.inbox_id()),
             membership_entry(raised, vec![bo2.context.installation_id().to_vec()]),
         )
-        // Clear the second marker here too so the final assertions detect
-        // any retained marker write from the uncommittable delta.
         .update(
             key(caro.inbox_id()),
-            membership_entry(caro_sequence, vec![]),
+            membership_entry(caro_sequence, vec![caro_marker.clone()]),
         );
     let caro_key = key(caro.inbox_id());
     let uncommittable = match uncommittable {
         // Keeping this delta would replace Alix's kept entry.
+        // It also drops the kept marker from Alix's entry.
         UncommittableDelta::StaleAfterValidUpdate => TlsMapDelta::new()
             .update(
                 key(alix.inbox_id()),
-                membership_entry(alix_sequence, vec![omitted_marker.clone()]),
+                membership_entry(alix_sequence, vec![alix_marker.clone()]),
             )
             .update(caro_key, membership_entry(caro_stale, vec![])),
         UncommittableDelta::StaleInsertAfterDelete => TlsMapDelta::new().delete(caro_key).insert(
             caro_key,
-            membership_entry(caro_stale, vec![caro_omitted_marker.clone()]),
+            membership_entry(caro_stale, vec![caro_marker.clone()]),
         ),
         // Field 1 announces five bytes and ends.
         UncommittableDelta::UndecodableEntry => {
@@ -411,12 +417,8 @@ async fn uncommittable_membership_delta_is_omitted_whole(
         assert_eq!(membership.get(caro.inbox_id()), Some(&caro_sequence));
         assert_eq!(membership.members.len(), 3);
         assert!(membership.failed_installations.contains(&kept_marker));
-        assert!(!membership.failed_installations.contains(&omitted_marker));
-        assert!(
-            !membership
-                .failed_installations
-                .contains(&caro_omitted_marker)
-        );
+        assert!(membership.failed_installations.contains(&alix_marker));
+        assert!(membership.failed_installations.contains(&caro_marker));
         assert!(has_leaf(peer, caro2.context.installation_id().as_slice()));
         assert_eq!(
             peer.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?,

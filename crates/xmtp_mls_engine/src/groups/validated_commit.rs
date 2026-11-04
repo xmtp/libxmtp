@@ -42,6 +42,10 @@ use xmtp_mls_validation::{
     },
     group_membership::{FailedInstallations, GroupMembership},
     group_permissions::{GroupMutablePermissionsError, MembershipPolicy, PolicySet},
+    membership_accounting::{
+        MembershipChange, leaf_owners_after_commit, validate_membership_accounting,
+        validate_unshared_installations,
+    },
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     GroupMembershipChanges, GroupUpdated as GroupUpdatedProto,
@@ -157,6 +161,7 @@ from_rule_error!(
  * 6. Only Add, Update, Remove, and AppDataUpdate proposals are allowed, in a valid list
  * 7. New installations may be missing from the commit but still be present in the expected diff.
  * 8. Confirms metadata character limit is not exceeded
+ * 9. The commit leaves no installation key unaccounted that was accounted for before it
  */
 #[derive(Debug, Clone, Serialize)]
 pub struct ValidatedCommit {
@@ -485,6 +490,24 @@ impl ValidatedCommit {
                 ));
             }
         }
+        // After every other check, so their rejections and the floor pause keep
+        // precedence.
+        validate_accounting(
+            conn,
+            &MembershipChange {
+                old: &old_group_membership,
+                new: &new_group_membership,
+                old_failed: &old_failed,
+                new_failed: &new_failed,
+                leaves_before: &leaf_owners,
+                leaves_after: &leaf_owners_after_commit(
+                    staged_commit,
+                    openmls_group,
+                    committer_leaf_index,
+                    &leaf_owners,
+                )?,
+            },
+        )?;
         // Component policies have already checked each authenticated proposer.
         // Build the change summary after authorization, so legacy actor-based
         // checks do not reject a valid proposal committed by another member.
@@ -821,5 +844,6 @@ mod membership_log_tests;
 mod expected_diff;
 
 use expected_diff::{
-    ExpectedDiff, expected_diff_matches_commit, validate_new_failed_installations,
+    ExpectedDiff, expected_diff_matches_commit, validate_accounting,
+    validate_new_failed_installations,
 };

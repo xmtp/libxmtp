@@ -170,6 +170,37 @@ pub(super) fn validate_new_failed_installations(
     Ok(())
 }
 
+/// Apply the sharing and accounting rules with the cached identity states
+/// they read. A missing state holds the commit instead of rejecting it.
+// implements: GMOD-057, GMOD-060
+pub(super) fn validate_accounting(
+    conn: &impl DbQuery,
+    change: &MembershipChange<'_>,
+) -> Result<(), CommitValidationError> {
+    let mut missing = MissingProofs::default();
+    let mut states = HashMap::new();
+    for (inbox, sequence_id) in change.references() {
+        let requirement = IdentityRequirement {
+            inbox_id: inbox.to_string(),
+            sequence_id,
+        };
+        if let Some(state) = missing.read(conn, &requirement)? {
+            let installations: HashSet<_> = state.installation_ids().into_iter().collect();
+            states.insert(requirement, installations);
+        }
+    }
+    missing.check()?;
+    let associated = |inbox_id: &str, sequence_id| {
+        states.get(&IdentityRequirement {
+            inbox_id: inbox_id.to_string(),
+            sequence_id,
+        })
+    };
+    validate_unshared_installations(change, associated)?;
+    validate_membership_accounting(change, associated)?;
+    Ok(())
+}
+
 /// Compare the list of installations added and removed in the commit to the expected diff based on the changes
 /// to the inbox state.
 /// Satisfies Rule 3 and Rule 7

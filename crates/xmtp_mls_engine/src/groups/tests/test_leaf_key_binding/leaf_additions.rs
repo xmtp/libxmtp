@@ -145,7 +145,8 @@ enum Leafless {
     ListedBoRefreshes,
     /// Alix's refresh lists Bo2 as failed, then Alix refreshes.
     ListedAlixRefreshes,
-    /// Caro raises Bo's entry without adding or listing Bo2, then Bo1 refreshes.
+    /// Caro raises Bo's entry without adding or listing Bo2, which Alix
+    /// rejects because it leaves Bo2 unaccounted, then Bo1 refreshes.
     Omitted,
 }
 
@@ -153,7 +154,9 @@ enum Leafless {
 /// an expected addition. Bo1's refresh adds it back and Alix accepts the
 /// commit. Alix's refresh does not retry another inbox's key. The floor
 /// gate is covered by `retry_waits_for_the_floor`: every new group starts at it.
-// verifies: GMOD-055, GMOD-010, PERM-023
+/// A raise that leaves Bo2 neither added nor listed is rejected, so in that
+/// row Bo1's refresh adds Bo2 as a new installation.
+// verifies: GMOD-055, GMOD-010, PERM-023, GMOD-057
 #[rstest::rstest]
 #[case::listed_bo_refreshes(Leafless::ListedBoRefreshes)]
 #[case::listed_alix_refreshes(Leafless::ListedAlixRefreshes)]
@@ -174,6 +177,7 @@ async fn own_inbox_retries_leafless_key(
     let bo2_id = bo2.context.installation_id().to_vec();
     let bo_inbox_id = bo.inbox_id().to_string();
 
+    let mut rejected_at = None;
     if row == Leafless::Omitted {
         let caro_group = joined(&caro, &alix_group).await;
         caro.inbox_state(true).await?;
@@ -183,7 +187,7 @@ async fn own_inbox_retries_leafless_key(
             .get_latest_sequence_id_for_inbox(&bo_inbox_id)? as u64;
         let signer = caro.context.identity().installation_keys.clone();
         let caro_client = &caro;
-        publish_raw!(caro_client, caro_group, |mls, provider| {
+        let raw = publish_raw!(caro_client, caro_group, |mls, provider| {
             let db = provider.storage().db();
             let old = extract_group_membership(mls.extensions()).unwrap();
             let mut new = old.clone();
@@ -208,11 +212,20 @@ async fn own_inbox_retries_leafless_key(
         xmtp_common::wait_for_eq(
             || async {
                 alix_group.receive().await.unwrap();
-                membership(&alix_group).await.get(&bo_inbox_id).copied()
+                alix.context
+                    .db()
+                    .read_last_rejection(&StreamTopic::group(alix_group.group_id))
+                    .unwrap()
+                    .map(|rejection| rejection.sequence_id)
             },
-            Some(bo_sequence),
+            Some(raw.2),
         )
         .await?;
+        assert_ne!(
+            membership(&alix_group).await.get(&bo_inbox_id).copied(),
+            Some(bo_sequence)
+        );
+        rejected_at = Some(raw.2);
     } else {
         set_test_mode_upload_malformed_keypackage(true, Some(vec![bo2_id.clone()]));
         let refresh = alix_group.update_installations().await;
@@ -246,11 +259,12 @@ async fn own_inbox_retries_leafless_key(
             .contains(&bo2_id),
         !added
     );
-    assert!(
+    assert_eq!(
         alix.context
             .db()
             .read_last_rejection(&StreamTopic::group(alix_group.group_id))?
-            .is_none()
+            .map(|rejection| rejection.sequence_id),
+        rejected_at
     );
     Ok(())
 }

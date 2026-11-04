@@ -20,10 +20,13 @@ fn log_missing_installations(
     );
 }
 
+/// `holders` names, for each installation key, the member inboxes that hold
+/// it through a leaf or a failure listing.
 pub(crate) async fn membership_update_intent(
     context: &impl XmtpSharedContext,
     group_id: &GroupId,
     existing_group_membership: &GroupMembership,
+    holders: &HashMap<Vec<u8>, BTreeSet<String>>,
     retry_leaves: Option<&[Vec<u8>]>,
     inbox_ids_to_add: &[InboxIdRef<'_>],
     inbox_ids_to_remove: &[InboxIdRef<'_>],
@@ -69,6 +72,13 @@ pub(crate) async fn membership_update_intent(
 
                 Ok(updates)
             })?;
+    unshared_entries(
+        context,
+        existing_group_membership,
+        holders,
+        &mut changed_inbox_ids,
+    )
+    .await?;
     let old_group_membership = existing_group_membership.clone();
     let mut new_membership = old_group_membership.clone();
     for (inbox_id, sequence_id) in changed_inbox_ids.iter() {
@@ -126,6 +136,74 @@ pub(crate) async fn membership_update_intent(
         changes_with_kps.failed_installations,
     )
     .with_refreshed_members(refreshed_members))
+}
+
+/// Keep each changed entry from making its inbox newly hold an installation
+/// key that another member inbox holds. A request that adds such an inbox
+/// fails before anything is published; a refreshed inbox keeps its previous
+/// sequence id. Keys the inbox's previous referenced state associated stay
+/// held.
+// implements: GMOD-060
+async fn unshared_entries(
+    context: &impl XmtpSharedContext,
+    existing: &GroupMembership,
+    holders: &HashMap<Vec<u8>, BTreeSet<String>>,
+    changed: &mut HashMap<String, u64>,
+) -> Result<(), GroupError> {
+    let conn = context.db();
+    let identity = IdentityUpdates::new(context);
+    let state = |inbox_id: String, sequence_id: u64| {
+        let identity = &identity;
+        let conn = &conn;
+        async move {
+            Ok::<_, GroupError>(
+                identity
+                    .get_association_state(conn, &inbox_id, Some(sequence_id as i64))
+                    .await?
+                    .installation_ids()
+                    .into_iter()
+                    .collect::<HashSet<_>>(),
+            )
+        }
+    };
+    let mut held = holders.clone();
+    let mut entries: Vec<_> = changed
+        .iter()
+        .map(|(inbox, sequence)| (inbox.clone(), *sequence))
+        .collect();
+    // Existing members' entries first, so an added inbox never holds back a
+    // member's own update.
+    entries.sort_by_key(|(inbox, _)| (existing.get(inbox).is_none(), inbox.clone()));
+    for (inbox_id, sequence_id) in entries {
+        let associated = state(inbox_id.clone(), sequence_id).await?;
+        let previous = match existing.get(&inbox_id) {
+            Some(&old) if old != 0 => state(inbox_id.clone(), old).await?,
+            _ => HashSet::new(),
+        };
+        let shares = associated.iter().any(|key| {
+            !previous.contains(key)
+                && held
+                    .get(key)
+                    .is_some_and(|inboxes| inboxes.iter().any(|holder| *holder != inbox_id))
+        });
+        if !shares {
+            for key in associated {
+                held.entry(key).or_default().insert(inbox_id.clone());
+            }
+            continue;
+        }
+        if existing.get(&inbox_id).is_none() {
+            return Err(
+                CommitValidationError::Rule(CommitRuleError::SharedInstallation(inbox_id)).into(),
+            );
+        }
+        tracing::warn!(
+            inbox_id,
+            "refresh keeps an inbox whose new state shares an installation key"
+        );
+        changed.remove(&inbox_id);
+    }
+    Ok(())
 }
 
 impl<Context> MlsGroup<Context>
@@ -225,16 +303,29 @@ where
         inbox_ids_to_add: &[InboxIdRef<'_>],
         inbox_ids_to_remove: &[InboxIdRef<'_>],
     ) -> Result<UpdateGroupMembershipIntentData, GroupError> {
-        let (existing_group_membership, retry_leaves) = self.with_group_snapshot(|group| {
-            Ok::<_, GroupError>((
-                extract_group_membership(group.extensions())?,
-                retry_leaves(group.extensions(), group.members()),
-            ))
-        })?;
+        let (existing_group_membership, holders, retry_leaves) =
+            self.with_group_snapshot(|group| {
+                let (membership, failed) =
+                    xmtp_mls_validation::commit::extract_group_membership_with_failures(
+                        group.extensions(),
+                    )?;
+                let leaves = xmtp_mls_validation::commit::leaf_owners(group.members())?;
+                let holders = xmtp_mls_validation::membership_accounting::key_holders(
+                    &membership,
+                    &leaves,
+                    &failed,
+                );
+                Ok::<_, GroupError>((
+                    membership,
+                    holders,
+                    retry_leaves(group.extensions(), group.members()),
+                ))
+            })?;
         membership_update_intent(
             &self.context,
             &self.group_id,
             &existing_group_membership,
+            &holders,
             retry_leaves.as_deref(),
             inbox_ids_to_add,
             inbox_ids_to_remove,
@@ -260,8 +351,25 @@ where
         let existing = extract_group_membership(extensions)?;
         let leaves = retry_leaves(extensions, std::iter::empty())
             .map(|_| vec![context.installation_id().to_vec()]);
-        let add =
-            membership_update_intent(context, &id, &existing, leaves.as_deref(), ids, &[]).await?;
+        // The creator's leaf is the only one; nothing is listed as failed.
+        let holders = xmtp_mls_validation::membership_accounting::key_holders(
+            &existing,
+            &HashMap::from([(
+                context.installation_id().to_vec(),
+                context.inbox_id().to_string(),
+            )]),
+            &Default::default(),
+        );
+        let add = membership_update_intent(
+            context,
+            &id,
+            &existing,
+            &holders,
+            leaves.as_deref(),
+            ids,
+            &[],
+        )
+        .await?;
         if add.is_empty() {
             return Ok(None);
         }

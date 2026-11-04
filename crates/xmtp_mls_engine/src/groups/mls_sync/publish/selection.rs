@@ -21,8 +21,14 @@ use xmtp_mls_identity::identity_updates::{
 };
 use xmtp_mls_tls_collections::tls_map::{TlsMapDelta, TlsMapError, TlsMapMutation};
 use xmtp_mls_validation::{
-    commit::{CommitRuleError, extract_group_membership_with_failures, membership_entries},
+    commit::{
+        CommitRuleError, extract_group_membership_with_failures, inbox_id_from_credential,
+        membership_entries,
+    },
     group_membership::FailedInstallations,
+    membership_accounting::{
+        MembershipChange, validate_membership_accounting, validate_unshared_installations,
+    },
 };
 use xmtp_proto::xmtp::mls::message_contents::ConversationType as ConversationTypeProto;
 
@@ -728,6 +734,68 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             }
             if changed {
                 continue;
+            }
+            // implements: GMOD-047, GMOD-057, GMOD-060
+            // Receivers reject a commit that leaves a key unaccounted or makes
+            // two inboxes hold one key. Omit the other members' deltas that do
+            // so; an own change that does so fails the intent.
+            let mut leaves_after = owners.clone();
+            for (index, proposal) in requirements.proposals.iter().enumerate() {
+                if let Proposal::Remove(remove) = proposal.proposal()
+                    && !selection.omitted.contains(&index)
+                    && let Some((id, _)) = requirements.leaves.get(&remove.removed())
+                {
+                    leaves_after.remove(id);
+                }
+            }
+            for id in &own_removals {
+                leaves_after.remove(id);
+            }
+            for (index, id, inbox, _) in &pending {
+                if !selection.omitted.contains(index) {
+                    leaves_after.insert(id.clone(), inbox.clone());
+                }
+            }
+            for package in replacements
+                .iter()
+                .chain(own_changes.into_iter().flat_map(|c| &c.new_key_packages))
+            {
+                let leaf = package.leaf_node();
+                leaves_after.insert(
+                    leaf.signature_key().as_slice().to_vec(),
+                    inbox_id_from_credential(leaf.credential())?,
+                );
+            }
+            let change = MembershipChange {
+                old: &requirements.old,
+                new: &target,
+                old_failed: &requirements.old_failed,
+                new_failed: &new_failed,
+                leaves_before: &owners,
+                leaves_after: &leaves_after,
+            };
+            let mut states = HashMap::new();
+            for (inbox, sequence_id) in change.references() {
+                let state = identity
+                    .get_association_state(&self.context.db(), inbox, Some(sequence_id as i64))
+                    .await?;
+                let installations: HashSet<_> = state.installation_ids().into_iter().collect();
+                states.insert((inbox.to_string(), sequence_id), installations);
+            }
+            let associated =
+                |inbox: &str, sequence_id| states.get(&(inbox.to_string(), sequence_id));
+            if let Err(error) = validate_unshared_installations(&change, associated)
+                .and_then(|()| validate_membership_accounting(&change, associated))
+            {
+                let (CommitRuleError::SharedInstallation(inbox)
+                | CommitRuleError::UnaccountedInstallation(inbox)) = &error
+                else {
+                    return Err(CommitValidationError::Rule(error).into());
+                };
+                if requirements.omit_dependencies(inbox, &mut selection.omitted)? {
+                    continue;
+                }
+                return Err(CommitValidationError::Rule(error).into());
             }
             selection.omitted.extend(conflicts);
             selection.replacements = replacements;
