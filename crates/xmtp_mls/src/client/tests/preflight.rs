@@ -9,6 +9,7 @@ use tokio::sync::oneshot;
 use xmtp_db::prelude::*;
 
 mod native_wire;
+mod subscription_factory;
 mod sync_barrier;
 
 #[xmtp_common::test(unwrap_try = true)]

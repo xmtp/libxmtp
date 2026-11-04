@@ -665,6 +665,11 @@ pub fn parse_canonical_dm_id(dm_id: Option<&str>) -> Result<DmMembers<String>, G
     crate::groups::parse_canonical_dm_id(dm_id)
 }
 
+/// Publish `group`'s queued intents, as its own publication does.
+pub async fn publish_intents<C: XmtpSharedContext>(group: &MlsGroup<C>) -> Result<(), GroupError> {
+    group.publish_intents().await
+}
+
 /// Store `message` on `group` as processing an external application
 /// message does, with the sender's `super_admin` status.
 pub fn store_external_application_message<C: XmtpSharedContext>(

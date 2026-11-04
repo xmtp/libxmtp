@@ -1,7 +1,7 @@
-use crate::client::notifications::{
+use crate::context::CoreContext;
+use crate::core::notifications::{
     NotificationChannel, NotificationConfig, NotificationOverride, encode_config,
 };
-use crate::context::CoreContext;
 use crate::groups::test_support::{EnginePeer, EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
 use crate::groups::{GroupError, SendMessageOpts, UpdateAdminListType};
 use xmtp_content_types::{

@@ -1,16 +1,15 @@
 use crate::groups::GroupError;
 use crate::groups::error::DeleteMessageError;
 use crate::groups::send_message_opts::SendMessageOpts;
+use crate::groups::test_support::message_rows::cached_text_row;
 use crate::groups::test_support::{EnginePeer, EngineTestPeer, EngineTestPeerOps};
 use crate::messages::decoded_message::{DeletedBy, MessageBody};
 use xmtp_content_types::{ContentCodec, compression::compress, text::TextCodec};
 use xmtp_db::Store;
 use xmtp_db::group_message::{
     ContentType, DeliveryStatus, GroupMessageKind, MsgQueryArgs, QueryGroupMessage,
-    StoredGroupMessage,
 };
 use xmtp_db::message_deletion::QueryMessageDeletion;
-use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::mls::message_contents::Compression;
 
 /// The inbox that marked `id` deleted, or `None` while it is unmarked.
@@ -18,45 +17,6 @@ fn mark_of(db: &impl QueryGroupMessage, id: &[u8]) -> Option<String> {
     db.get_group_message(id)
         .expect("message read")
         .and_then(|message| message.deleted_by_inbox_id)
-}
-
-fn cached_text_row(
-    group_id: GroupId,
-    id: Vec<u8>,
-    sender_inbox_id: &str,
-    raw_authority: &str,
-) -> Result<StoredGroupMessage, xmtp_content_types::CodecError> {
-    let mut encoded = TextCodec::encode("stored text".into())?;
-    encoded
-        .r#type
-        .as_mut()
-        .expect("text has a type")
-        .authority_id = raw_authority.into();
-    let idempotency_key = hex::encode(&id);
-    Ok(StoredGroupMessage {
-        id,
-        group_id,
-        decrypted_message_bytes: xmtp_content_types::encoded_content_to_bytes(encoded),
-        sent_at_ns: xmtp_common::time::now_ns(),
-        kind: GroupMessageKind::Application,
-        sender_installation_id: vec![1, 2, 3],
-        sender_inbox_id: sender_inbox_id.into(),
-        delivery_status: DeliveryStatus::Published,
-        content_type: ContentType::Text,
-        version_major: 1,
-        version_minor: 0,
-        authority_id: "xmtp.org".into(),
-        reference_id: None,
-        expiry_unknown: false,
-        deleted_by_inbox_id: None,
-        expire_at_ns: None,
-        sequence_id: 900_001,
-        envelope_hash: None,
-        expiry_ns: None,
-        inserted_at_ns: 0,
-        should_push: false,
-        idempotency_key,
-    })
 }
 
 // verifies: CTYPE-018, PROC-037
@@ -432,72 +392,6 @@ async fn test_out_of_order_deletion() {
         mark_of(&bo_conn, &message_id).as_deref(),
         Some(alix.inbox_id())
     );
-}
-
-/// An admin delete of a stored message that has already expired names the
-/// admin and carries no body.
-// verifies: META-051
-#[xmtp_common::test(unwrap_try = true)]
-async fn admin_delete_of_expired_message_names_the_admin() {
-    use crate::context::CoreContext;
-    use crate::subscriptions::{StreamMessages, internal::InternalEvent};
-    use futures::StreamExt;
-    use xmtp_content_types::delete_message::DeleteMessageCodec;
-    use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
-
-    let alix = EngineTestPeer::new().await;
-    let alix_group = alix.create_group(None, None)?;
-    let target_id = vec![0xAD, 0x01];
-    let target = StoredGroupMessage {
-        expire_at_ns: Some(xmtp_common::time::now_ns() - 1),
-        ..cached_text_row(alix_group.group_id, target_id.clone(), "sender", "xmtp.org")?
-    };
-    target.store(&alix.context.db())?;
-    let delete = DeleteMessageCodec::encode(DeleteMessage {
-        message_id: hex::encode(&target_id),
-    })?;
-    let deletion = StoredGroupMessage {
-        content_type: ContentType::DeleteMessage,
-        reference_id: Some(target_id.clone()),
-        decrypted_message_bytes: xmtp_content_types::encoded_content_to_bytes(delete),
-        ..cached_text_row(
-            alix_group.group_id,
-            vec![0xAD, 0x02],
-            alix.inbox_id(),
-            "xmtp.org",
-        )?
-    };
-    let deletions = alix
-        .context
-        .events()
-        .subscribe(
-            xmtp_events::EventFilter::default().with_internal(InternalEvent::is_message_deletion),
-            Some(8),
-        )
-        .stream_message_deletions();
-    futures::pin_mut!(deletions);
-
-    crate::state_tx::state_write_with_events(
-        alix.context.mls_storage(),
-        alix.context.events(),
-        |tx, buffer| {
-            let storage = tx.storage();
-            alix_group.store_external_application_message(&storage, &deletion, true, buffer)?;
-            Ok::<_, crate::groups::mls_sync::GroupMessageProcessingError>(
-                xmtp_db::TransactionOutcome::Continue(()),
-            )
-        },
-    )?;
-
-    let deleted = xmtp_common::time::timeout(std::time::Duration::from_secs(5), deletions.next())
-        .await?
-        .expect("a deletion item")?;
-    assert_eq!(deleted.metadata.id, target_id);
-    assert_eq!(deleted.fallback_text, None);
-    let MessageBody::DeletedMessage { deleted_by } = &deleted.content else {
-        panic!("the deletion item carried a body: {:?}", deleted.content);
-    };
-    assert_eq!(*deleted_by, DeletedBy::Admin(alix.inbox_id().to_string()));
 }
 
 // verifies: PROC-056

@@ -77,7 +77,7 @@ impl Script {
 
 #[derive(Clone)]
 pub(super) struct ScriptedApi {
-    inner: crate::utils::TestClient,
+    inner: crate::identity_lifecycle::test_support::PeerApi,
     script: Arc<Mutex<Script>>,
 }
 

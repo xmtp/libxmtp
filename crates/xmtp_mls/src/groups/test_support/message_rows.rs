@@ -3,6 +3,7 @@
 use crate::groups::QueryableContentFields;
 use crate::messages::decoded_message::DecodedMessage;
 use xmtp_common::time::now_ns;
+use xmtp_content_types::{ContentCodec, text::TextCodec};
 use xmtp_db::Store;
 use xmtp_db::group_message::{
     ContentType as DbContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage,
@@ -117,4 +118,45 @@ pub fn ids(messages: &[DecodedMessage]) -> Vec<u8> {
         .iter()
         .map(|message| message.metadata.id[0])
         .collect()
+}
+
+/// A stored, published text message row of `group_id` sent by
+/// `sender_inbox_id`, whose encoded content type names `raw_authority`.
+pub fn cached_text_row(
+    group_id: GroupId,
+    id: Vec<u8>,
+    sender_inbox_id: &str,
+    raw_authority: &str,
+) -> Result<StoredGroupMessage, xmtp_content_types::CodecError> {
+    let mut encoded = TextCodec::encode("stored text".into())?;
+    encoded
+        .r#type
+        .as_mut()
+        .expect("text has a type")
+        .authority_id = raw_authority.into();
+    let idempotency_key = hex::encode(&id);
+    Ok(StoredGroupMessage {
+        id,
+        group_id,
+        decrypted_message_bytes: xmtp_content_types::encoded_content_to_bytes(encoded),
+        sent_at_ns: xmtp_common::time::now_ns(),
+        kind: GroupMessageKind::Application,
+        sender_installation_id: vec![1, 2, 3],
+        sender_inbox_id: sender_inbox_id.into(),
+        delivery_status: DeliveryStatus::Published,
+        content_type: DbContentType::Text,
+        version_major: 1,
+        version_minor: 0,
+        authority_id: "xmtp.org".into(),
+        reference_id: None,
+        expiry_unknown: false,
+        deleted_by_inbox_id: None,
+        expire_at_ns: None,
+        sequence_id: 900_001,
+        envelope_hash: None,
+        expiry_ns: None,
+        inserted_at_ns: 0,
+        should_push: false,
+        idempotency_key,
+    })
 }

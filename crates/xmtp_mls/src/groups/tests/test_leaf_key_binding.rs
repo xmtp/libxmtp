@@ -421,7 +421,7 @@ enum Leafless {
 async fn own_inbox_retries_leafless_key(
     #[case] row: Leafless,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
+    use crate::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage;
     let alix = EngineTestPeer::new().await;
     let bo = EngineTestPeer::new().await;
     let caro = EngineTestPeer::new().await;

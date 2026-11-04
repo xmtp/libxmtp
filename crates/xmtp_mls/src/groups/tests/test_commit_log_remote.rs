@@ -814,7 +814,7 @@ async fn a_failed_publish_ends_the_turn_not_the_worker() {
     const INTERVAL: Duration = Duration::from_secs(10);
     const AFTER_PUBLISH: Duration = Duration::from_secs(2);
     let alix = EngineTestPeer::new_with(|o| {
-        o.fork_recovery_opts = crate::builder::ForkRecoveryOpts {
+        o.fork_recovery_opts = crate::core::config::ForkRecoveryOpts {
             worker_interval_ns: Some(INTERVAL.as_nanos() as u64),
             ..Default::default()
         }
