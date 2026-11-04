@@ -414,6 +414,12 @@ class Links(Table):
             # A link token only counts inside a comment.
             ("string literal", 'const NOTE: &str = "verifies: JOIN-001";\n', 0),
             ("raw string", 'const DOC: &str = r#"\n// verifies: JOIN-001\n"#;\n', 0),
+            # The quote in its payload would close an ordinary string.
+            (
+                "raw string holding a quote",
+                'let s = r#"\n"\n// verifies: JOIN-001\n"#;\n',
+                0,
+            ),
             (
                 "byte raw string",
                 'const B: &[u8] = br#"\n"\n// verifies: JOIN-001\n"#;\n',
@@ -467,6 +473,12 @@ class Links(Table):
                 "raw after quote char",
                 'let c = (\'"\', r"\n// verifies: JOIN-001\n");\n',
                 0,
+            ),
+            # Only LF ends a Rust line comment, so its quote opens nothing.
+            (
+                "quote in comment before a form feed",
+                '// a\x0c"quote\n// verifies: JOIN-001\nfn t() {}\n',
+                1,
             ),
             ("malformed link token", "// verifies: JOIN-0010\nfn t() {}\n", 0),
             ("hash comment", {"src/b.py": "# verifies: JOIN-001\nx\n"}, 1),

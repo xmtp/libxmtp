@@ -837,10 +837,13 @@ class Checker:
         in_string = False
         raw_closer: str | None = None
         comment_depth = 0
-        for i, line in enumerate(text.splitlines(), start=1):
+        # Only LF ends a line comment, but splitlines() also splits on form
+        # feeds and Unicode separators, so a comment can span several lines.
+        in_line_comment = False
+        for i, line in enumerate(text.splitlines(keepends=True), start=1):
             starts_inside = in_string or raw_closer is not None
             pos = 0
-            while True:
+            while not in_line_comment:
                 if in_string:
                     m = RUST_STRING_RE.search(line, pos)
                     if m is None:
@@ -859,15 +862,18 @@ class Checker:
                     comment_depth += 1 if m.group(0) == "/*" else -1
                 else:
                     m = RUST_CODE_RE.search(line, pos)
-                    if m is None or m.group(0) == "//":
+                    if m is None:
                         break
-                    if m.group(0) == "/*":
+                    if m.group(0) == "//":
+                        in_line_comment = True
+                    elif m.group(0) == "/*":
                         comment_depth = 1
                     elif m.group(0) == '"':
                         in_string = True
                     elif m.group("hashes") is not None:
                         raw_closer = '"' + m.group("hashes")
                 pos = m.end()
+            in_line_comment = in_line_comment and not line.endswith("\n")
             if starts_inside or in_string or raw_closer is not None:
                 hidden.add(i)
         return hidden
