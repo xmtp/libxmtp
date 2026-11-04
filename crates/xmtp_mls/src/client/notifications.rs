@@ -1,22 +1,21 @@
 //! Local notification settings and the native notification API.
 
-pub use crate::core::notifications::{
-    NotificationChannel, NotificationConfig, NotificationOverride,
-};
-pub(crate) use crate::core::notifications::{
-    decode, effective, encode, encode_config, notification_settings_changed, recipient_secret,
-    stored_config,
-};
-use crate::{
-    context::XmtpSharedContext,
-    worker::{WorkerKind, notifications as worker},
-};
+use crate::worker::notifications as worker;
 use serde::{Deserialize, Serialize};
 use xmtp_common::{ErrorCode, RetryableError};
 use xmtp_db::{
     StorageError, TransactionOutcome::Continue, XmtpMlsStorageProvider,
     notifications::StoredNotification, prelude::*,
 };
+pub use xmtp_mls_core::notifications::{
+    NotificationChannel, NotificationConfig, NotificationOverride,
+};
+pub(crate) use xmtp_mls_core::notifications::{
+    decode, effective, encode, encode_config, notification_settings_changed, recipient_secret,
+    stored_config,
+};
+use xmtp_mls_core::worker::WorkerKind;
+use xmtp_mls_engine::groups::context::XmtpSharedContext;
 
 /// The locally stored notification state. This getter does not make a request.
 #[derive(Debug)]
@@ -65,7 +64,7 @@ pub enum NotificationError {
     Storage(#[from] StorageError),
     #[error(transparent)]
     #[error_code(inherit)]
-    Group(#[from] crate::groups::GroupError),
+    Group(#[from] xmtp_mls_engine::groups::GroupError),
 }
 
 impl std::fmt::Debug for NotificationError {
@@ -198,7 +197,7 @@ pub(crate) async fn enable_notifications<Context: XmtpSharedContext>(
     if !valid_channel {
         return Err(NotificationError::InvalidArgument);
     }
-    let generation = crate::state_tx::state_write(context.mls_storage(), |tx| {
+    let generation = xmtp_mls_core::state_tx::state_write(context.mls_storage(), |tx| {
         let storage = tx.storage();
         let db = storage.db();
         let mut record = db.notification_record()?;
@@ -245,7 +244,7 @@ pub(crate) async fn enable_notifications<Context: XmtpSharedContext>(
 pub(crate) async fn disable_notifications<Context: XmtpSharedContext>(
     context: &Context,
 ) -> Result<(), NotificationError> {
-    let record = crate::state_tx::state_write(context.mls_storage(), |tx| {
+    let record = xmtp_mls_core::state_tx::state_write(context.mls_storage(), |tx| {
         let storage = tx.storage();
         let db = storage.db();
         // Deadlines that cannot be decoded hold nothing, so they never

@@ -1,6 +1,5 @@
 //! Deletions survive archives, re-imports and local removal.
 use super::*;
-use crate::groups::GroupMessageProcessingError;
 use crate::tester;
 use crate::worker::device_sync::{ArchiveOptions, BackupElementSelection};
 use futures::io::{BufReader, Cursor};
@@ -8,6 +7,7 @@ use xmtp_content_types::{ContentCodec, delete_message::DeleteMessageCodec, text:
 use xmtp_db::Store;
 use xmtp_db::group_message::{ContentType, DeliveryStatus, GroupMessageKind};
 use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
+use xmtp_mls_engine::groups::GroupMessageProcessingError;
 use xmtp_proto::xmtp::device_sync::message_backup::GroupMessageSave;
 use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 
@@ -167,12 +167,12 @@ async fn import(context: &impl XmtpSharedContext, elements: Vec<BackupElement>) 
 
 /// Process `message` as the receive path processes a network copy.
 fn receive<C: XmtpSharedContext>(group: &MlsGroup<C>, message: &StoredGroupMessage, admin: bool) {
-    crate::state_tx::state_write_with_events(
+    xmtp_mls_core::state_tx::state_write_with_events(
         group.context.mls_storage(),
         group.context.events(),
         |tx, buffer| {
             let storage = tx.storage();
-            crate::groups::test_support::store_external_application_message(
+            xmtp_mls_engine::groups::test_support::store_external_application_message(
                 group, &storage, message, admin, buffer,
             )?;
             Ok::<_, GroupMessageProcessingError>(Continue(()))

@@ -1,7 +1,7 @@
 use super::*;
 use crate::client::ClientError;
-use crate::groups::summary::ProcessSummary;
 use std::sync::Arc;
+use xmtp_mls_engine::groups::summary::ProcessSummary;
 use xmtp_proto::types::{Cursor, Topic};
 
 fn barrier(target: Option<u64>, reason: BarrierFailure) -> BarrierError {
@@ -171,7 +171,7 @@ fn ordinary_and_invalid_errors_have_no_details() {
 // verifies: PROC-018
 #[xmtp_common::test(unwrap_try = true)]
 fn replacement_failure_keeps_cancelled_scope_generation() {
-    use crate::subscriptions::incoming::{IncomingProcessing, ReplacedScope};
+    use xmtp_mls_engine::subscriptions::incoming::{IncomingProcessing, ReplacedScope};
 
     let replaced = ReplacedScope::create();
     let (old_generation, previous, current) = (

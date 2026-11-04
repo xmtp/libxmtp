@@ -1,19 +1,19 @@
 //! Deletion items for expired messages: whatever removes the message, the
 //! deletion stream reports which message went, never what it said.
 
-use crate::context::CoreContext;
-use crate::core::events::InternalEvent;
-use crate::messages::decoded_message::{DecodedMessage, DeletedBy, MessageBody};
 use crate::tester;
-use crate::worker::disappearing_messages::{
-    DisappearingMessagesWorker, test_support::delete_expired_messages,
-};
 use xmtp_common::time::{Duration, now_ns};
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_db::prelude::*;
 use xmtp_events::{EventBus, EventFilter, EventWriter};
+use xmtp_mls_core::context::CoreContext;
+use xmtp_mls_core::events::InternalEvent;
+use xmtp_mls_core::worker::disappearing_messages::{
+    DisappearingMessagesWorker, test_support::delete_expired_messages,
+};
 use xmtp_mls_group_state::group::GroupMetadataOptions;
 use xmtp_mls_group_state::group_mutable_metadata::MessageDisappearingSettings;
+use xmtp_mls_messages::decoded_message::{DecodedMessage, DeletedBy, MessageBody};
 use xmtp_proto::types::GroupId;
 
 /// The longest a test waits for a stored expiry.
@@ -52,7 +52,7 @@ fn assert_no_body(
     sender_inbox_id: &str,
     deleted_by: &DeletedBy,
 ) {
-    use crate::messages::enrichment::deleted_message_content_type;
+    use xmtp_mls_messages::enrichment::deleted_message_content_type;
 
     assert_eq!(deleted.metadata.group_id, *group_id);
     assert_eq!(deleted.metadata.id, message_id);
@@ -171,9 +171,10 @@ async fn expired_message_deletion_event_carries_no_body(
 // verifies: META-051
 #[xmtp_common::test(unwrap_try = true)]
 async fn deletion_that_expires_before_delivery_carries_no_body() {
-    use crate::subscriptions::{StreamMessages, internal::DeletedMessages};
+    use crate::subscriptions::StreamMessages;
     use futures::StreamExt;
     use xmtp_db::group_message::{ContentType, DeliveryStatus, GroupMessageKind};
+    use xmtp_mls_core::events::DeletedMessages;
 
     let bus = EventBus::new();
     let deletions = bus

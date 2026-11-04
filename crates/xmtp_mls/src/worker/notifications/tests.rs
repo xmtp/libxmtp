@@ -96,7 +96,8 @@ fn synthetic_desired(count: u128) -> Desired {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn notification_repair_reaches_2500_topics_in_three_turns() {
-    use crate::{task_handlers::MlsTaskHandlers, worker::tasks::TaskWorker};
+    use crate::task_handlers::MlsTaskHandlers;
+    use xmtp_mls_core::worker::tasks::TaskWorker;
     let (client, peer) = support::client().await;
     // The welcome topic and 2,499 real MLS groups form the desired set.
     for _ in 0..2499 {
@@ -114,7 +115,7 @@ async fn notification_repair_reaches_2500_topics_in_three_turns() {
             .find(|task| task.data_hash == task_hash().as_ref())
             .unwrap()
     };
-    crate::worker::tasks::test_support::run_and_reschedule_task(
+    xmtp_mls_core::worker::tasks::test_support::run_and_reschedule_task(
         &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
         next_task(),
     )
@@ -128,12 +129,12 @@ async fn notification_repair_reaches_2500_topics_in_three_turns() {
             .count(),
         1000
     );
-    crate::worker::tasks::test_support::run_and_reschedule_task(
+    xmtp_mls_core::worker::tasks::test_support::run_and_reschedule_task(
         &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
         next_task(),
     )
     .await?;
-    crate::worker::tasks::test_support::run_and_reschedule_task(
+    xmtp_mls_core::worker::tasks::test_support::run_and_reschedule_task(
         &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
         next_task(),
     )
@@ -151,7 +152,7 @@ async fn notification_repair_reaches_2500_topics_in_three_turns() {
             .count(),
         500
     );
-    crate::worker::tasks::test_support::run_and_reschedule_task(
+    xmtp_mls_core::worker::tasks::test_support::run_and_reschedule_task(
         &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
         next_task(),
     )
@@ -162,7 +163,7 @@ async fn notification_repair_reaches_2500_topics_in_three_turns() {
         peer.state.lock().batches,
         vec![(1000, 0), (1000, 0), (1000, 0), (500, 0)]
     );
-    crate::worker::tasks::test_support::run_and_reschedule_task(
+    xmtp_mls_core::worker::tasks::test_support::run_and_reschedule_task(
         &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
         next_task(),
     )
@@ -181,7 +182,7 @@ async fn notification_repair_stale_marks_survive_database_restore() {
         .keys()
         .map(|topic| UploadedTopic {
             topic: topic.clone(),
-            hmac_epoch_base: Some(crate::utils::time::hmac_epoch() - 1),
+            hmac_epoch_base: Some(xmtp_mls_core::hmac_epoch::hmac_epoch() - 1),
             include_commits: false,
             root_key_fingerprint: vec![3; 32],
             stale: true,
@@ -217,7 +218,7 @@ async fn notification_repair_stale_marks_survive_database_restore() {
     let (next, _, _) = diff(
         &desired,
         &uploaded,
-        crate::utils::time::hmac_epoch(),
+        xmtp_mls_core::hmac_epoch::hmac_epoch(),
         &[3; 32],
         false,
     );
@@ -310,7 +311,7 @@ async fn notification_desired_set_uses_real_membership_and_each_rule() {
     bo.sync_welcomes().await?;
     let bo_group = bo.group(&group.group_id)?;
     bo_group.update_consent_state(ConsentState::Allowed)?;
-    let sync = crate::groups::MlsGroup::create_and_insert(
+    let sync = xmtp_mls_engine::groups::MlsGroup::create_and_insert(
         alix.context.clone(),
         xmtp_proto::types::ConversationType::Sync,
         Default::default(),
@@ -373,7 +374,7 @@ async fn notification_reuploads_keys_flags_and_root_from_request_snapshot() {
             .collect::<Vec<_>>()
     );
     let mut old_window = uploaded[0].clone();
-    old_window.hmac_epoch_base = Some(crate::utils::time::hmac_epoch() - 2);
+    old_window.hmac_epoch_base = Some(xmtp_mls_core::hmac_epoch::hmac_epoch() - 2);
     client.db().confirm_uploaded_topics(&[old_window], &[])?;
     run(&client.context).await?;
     assert_eq!(peer.calls(Call::Update), 2);
@@ -581,7 +582,8 @@ async fn notification_stale_failure_cannot_fail_a_new_configuration() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds() {
-    use crate::{task_handlers::MlsTaskHandlers, worker::tasks::TaskWorker};
+    use crate::task_handlers::MlsTaskHandlers;
+    use xmtp_mls_core::worker::tasks::TaskWorker;
     let (client, peer) = support::client().await;
     client.enable_notifications(config()).await?;
     for _ in 0..20 {
@@ -606,7 +608,7 @@ async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds(
     };
     peer.state.lock().next_error = Some(tonic::Code::Unavailable);
     let before = time::now_ns();
-    crate::worker::tasks::test_support::run_and_reschedule_task(
+    xmtp_mls_core::worker::tasks::test_support::run_and_reschedule_task(
         &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
         rows[0].clone(),
     )
@@ -622,7 +624,7 @@ async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds(
     }
     let row = task();
     assert_eq!(row.next_attempt_at_ns, retry_at);
-    crate::worker::tasks::test_support::run_and_reschedule_task(
+    xmtp_mls_core::worker::tasks::test_support::run_and_reschedule_task(
         &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
         row.clone(),
     )
@@ -634,7 +636,7 @@ async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds(
         .update_task(row.id, row.attempts, before, before)?;
     let mut due = row;
     due.next_attempt_at_ns = before;
-    crate::worker::tasks::test_support::run_and_reschedule_task(
+    xmtp_mls_core::worker::tasks::test_support::run_and_reschedule_task(
         &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
         due,
     )
@@ -670,7 +672,7 @@ async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds(
     client.db().mark_uploaded_topics_stale()?;
     wake(&client.context)?;
     let before = time::now_ns();
-    crate::worker::tasks::test_support::run_and_reschedule_task(
+    xmtp_mls_core::worker::tasks::test_support::run_and_reschedule_task(
         &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
         task(),
     )
@@ -685,7 +687,7 @@ async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds(
     group.set_notifications(NotificationOverride::Disabled)?;
     wake(&client.context)?;
     assert_eq!(task().next_attempt_at_ns, refused.next_attempt_at_ns);
-    crate::worker::tasks::test_support::run_and_reschedule_task(
+    xmtp_mls_core::worker::tasks::test_support::run_and_reschedule_task(
         &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
         task(),
     )
@@ -695,7 +697,7 @@ async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds(
     client
         .db()
         .update_task(refused.id, refused.attempts, before, before)?;
-    crate::worker::tasks::test_support::run_and_reschedule_task(
+    xmtp_mls_core::worker::tasks::test_support::run_and_reschedule_task(
         &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
         task(),
     )
@@ -708,7 +710,8 @@ async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds(
 // verifies: PUSH-267, RATE-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn notification_rate_limit_keeps_state_enabled_and_waits_the_delay() {
-    use crate::{task_handlers::MlsTaskHandlers, worker::tasks::TaskWorker};
+    use crate::task_handlers::MlsTaskHandlers;
+    use xmtp_mls_core::worker::tasks::TaskWorker;
     let delay = Duration::from_secs(120);
     let mapped = NotificationError::from(xmtp_api::dyn_err(
         xmtp_proto::api::ApiClientError::client(xmtp_api_grpc::error::GrpcError::Status(
@@ -739,7 +742,7 @@ async fn notification_rate_limit_keeps_state_enabled_and_waits_the_delay() {
     peer.state.lock().rate_limit = Some((Call::Update, delay));
     let calls = peer.calls(Call::Update);
     let before = time::now_ns();
-    crate::worker::tasks::test_support::run_and_reschedule_task(
+    xmtp_mls_core::worker::tasks::test_support::run_and_reschedule_task(
         &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
         due,
     )
@@ -1073,7 +1076,8 @@ async fn notification_registration_after_a_slow_reset_keeps_its_rate_limit() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn notification_successful_reenable_resets_old_retry_backoff() {
-    use crate::{task_handlers::MlsTaskHandlers, worker::tasks::TaskWorker};
+    use crate::task_handlers::MlsTaskHandlers;
+    use xmtp_mls_core::worker::tasks::TaskWorker;
     let (client, peer) = support::client().await;
     client.create_group(None, None)?;
     client.enable_notifications(config()).await?;
@@ -1088,7 +1092,7 @@ async fn notification_successful_reenable_resets_old_retry_backoff() {
             .unwrap()
     };
     peer.state.lock().next_error = Some(tonic::Code::Unavailable);
-    crate::worker::tasks::test_support::run_and_reschedule_task(
+    xmtp_mls_core::worker::tasks::test_support::run_and_reschedule_task(
         &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
         task(),
     )
@@ -1116,7 +1120,7 @@ async fn notification_successful_reenable_resets_old_retry_backoff() {
     wake(&client.context)?;
     assert_eq!(task().attempts, 0);
     assert!(task().next_attempt_at_ns <= time::now_ns());
-    crate::worker::tasks::test_support::run_and_reschedule_task(
+    xmtp_mls_core::worker::tasks::test_support::run_and_reschedule_task(
         &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
         task(),
     )
@@ -1128,7 +1132,8 @@ async fn notification_successful_reenable_resets_old_retry_backoff() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn notification_later_failure_cancels_registration_retry_reset() {
-    use crate::{task_handlers::MlsTaskHandlers, worker::tasks::TaskWorker};
+    use crate::task_handlers::MlsTaskHandlers;
+    use xmtp_mls_core::worker::tasks::TaskWorker;
     let (client, peer) = support::client().await;
     client.enable_notifications(config()).await?;
     wake(&client.context)?;
@@ -1141,7 +1146,7 @@ async fn notification_later_failure_cancels_registration_retry_reset() {
         .find(|row| row.data_hash == task_hash().as_ref())
         .unwrap();
     peer.state.lock().next_error = Some(tonic::Code::Unavailable);
-    crate::worker::tasks::test_support::run_and_reschedule_task(
+    xmtp_mls_core::worker::tasks::test_support::run_and_reschedule_task(
         &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
         row,
     )
@@ -1592,7 +1597,8 @@ xmtp_common::if_native! {
     #[xmtp_common::test(unwrap_try = true)]
     async fn notification_stalled_request_bounds_runner_delay_and_keeps_messaging_live() {
         use crate::task_handlers::MlsTaskHandlers;
-        use crate::worker::{key_package_maintenance as kp, tasks::TaskWorker};
+        use xmtp_mls_identity::key_package_maintenance as kp;
+use xmtp_mls_core::worker::tasks::TaskWorker;
         const PHASE_DELAY: Duration = Duration::from_secs(20);
         const MAINTENANCE_WAIT: Duration = Duration::from_secs(42);
 
@@ -1636,7 +1642,7 @@ xmtp_common::if_native! {
                 invited.add_members(&[client.inbox_id()]).await?;
                 let welcomes = client.sync_welcomes().await?;
                 assert!(welcomes.iter().any(|item| item.group_id == invited.group_id));
-                Ok::<_, crate::groups::GroupError>(())
+                Ok::<_, xmtp_mls_engine::groups::GroupError>(())
             }).await??;
             assert!(client.db().next_key_package_rotation_ns()?.unwrap() < now + NS_IN_HOUR);
             // Let both requests finish on the weaker code, then check the bound
@@ -1680,7 +1686,7 @@ xmtp_common::if_native! {
 /// only the rest.
 #[xmtp_common::test]
 fn diff_keeps_adds_and_removes_within_the_batch_bound() {
-    let epoch = crate::utils::time::hmac_epoch();
+    let epoch = xmtp_mls_core::hmac_epoch::hmac_epoch();
     let topics = synthetic_desired(2100);
     let uploaded = |list: &[&Vec<u8>], stale| -> Vec<_> {
         list.iter()

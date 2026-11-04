@@ -1,15 +1,3 @@
-use crate::core::sync_tasks::schedule_add_missing_installations;
-use crate::groups::is_own_sync_group;
-use crate::state_tx::StateTx;
-use crate::{
-    context::XmtpSharedContext,
-    groups::{
-        GroupError, MlsGroup, PreconfiguredPolicies, send_message_opts, summary::SyncSummary,
-    },
-    identity_updates::{IdentityUpdateError, IdentityUpdates},
-    mls_store::MlsStoreError,
-    worker::{NeedsDbReconnect, metrics::WorkerMetrics},
-};
 use prost::Message;
 use std::sync::Arc;
 use thiserror::Error;
@@ -31,9 +19,21 @@ use xmtp_db::{
 };
 use xmtp_db::{XmtpDb, group::ConversationType, prelude::*};
 use xmtp_id::{InboxIdRef, associations::DeserializationError};
+use xmtp_mls_core::state_tx::StateTx;
+use xmtp_mls_core::sync_tasks::schedule_add_missing_installations;
+use xmtp_mls_core::{
+    mls_store::MlsStoreError,
+    worker::{NeedsDbReconnect, metrics::WorkerMetrics},
+};
+use xmtp_mls_engine::groups::is_own_sync_group;
+use xmtp_mls_engine::groups::{
+    GroupError, MlsGroup, PreconfiguredPolicies, context::XmtpSharedContext, send_message_opts,
+    summary::SyncSummary,
+};
 use xmtp_mls_group_state::app_data::protocol_floor::committed_floor_at_least;
 use xmtp_mls_group_state::group::GroupMetadataOptions;
 use xmtp_mls_group_state::libxmtp_version::LibXMTPVersion;
+use xmtp_mls_identity::identity_updates::{IdentityUpdateError, IdentityUpdates};
 use xmtp_proto::ShortHex;
 use xmtp_proto::types::{GroupId, InstallationId};
 use xmtp_proto::xmtp::{
@@ -593,7 +593,7 @@ where
     /// Schedule the adds to the user's conversations for a new installation.
     #[cfg(any(test, feature = "test-utils"))]
     pub fn schedule_add_installations_to_groups(&self) -> Result<usize, DeviceSyncError> {
-        Ok(crate::core::sync_tasks::schedule_newcomer_adds(
+        Ok(xmtp_mls_core::sync_tasks::schedule_newcomer_adds(
             &self.context.db(),
             self.context.events(),
         )?)

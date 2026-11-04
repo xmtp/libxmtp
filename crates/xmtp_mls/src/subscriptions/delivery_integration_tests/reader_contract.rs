@@ -1,10 +1,10 @@
 //! Fixed reader selection and shared network interest proofs.
 
 use super::*;
-use crate::subscriptions::incoming::{IncomingRegistration, SubscriptionFuture};
 use std::sync::Arc;
 use tokio::sync::Notify;
 use xmtp_db::{consent_record::ConsentState, delivery::QueryDelivery, prelude::*};
+use xmtp_mls_engine::subscriptions::incoming::{IncomingRegistration, SubscriptionFuture};
 use xmtp_proto::types::Topic;
 
 // verifies: PROC-046

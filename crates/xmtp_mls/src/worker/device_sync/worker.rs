@@ -2,22 +2,6 @@ use super::{
     DeviceSyncClient, DeviceSyncError, ReceivedContent, decode_sync_message,
     preference_sync::apply_preference_updates, selected_sync_group_in, with_plaintext,
 };
-pub use crate::core::metrics::SyncMetric;
-use crate::{
-    context::XmtpSharedContext,
-    identity::IdentityExt,
-    identity_updates::{
-        IdentityUpdateError, load_identity_updates_for_client, store_association_state,
-    },
-    subscriptions::{
-        incoming::{IncomingCoordinator, IncomingScope},
-        internal::{InternalEvent, emit_consent_changes, emit_root_key_changed},
-    },
-    worker::{
-        BoxedWorker, NeedsDbReconnect, NewWorker, Worker, WorkerFactory, WorkerKind, WorkerResult,
-        metrics::WorkerMetrics,
-    },
-};
 use futures::TryFutureExt;
 use std::{collections::HashSet, sync::Arc, time::Duration};
 use tokio::sync::OnceCell;
@@ -31,6 +15,24 @@ use xmtp_db::{StorageError, TransactionOutcome::Continue, sync_outbox::has_owed}
 use xmtp_events::{EventFilter, Subscription};
 use xmtp_id::associations::{AssociationState, IdentityAction, verify_updates};
 use xmtp_macro::log_event;
+pub use xmtp_mls_core::metrics::SyncMetric;
+use xmtp_mls_core::{
+    events::{InternalEvent, emit_consent_changes, emit_root_key_changed},
+    worker::{
+        BoxedWorker, NeedsDbReconnect, NewWorker, Worker, WorkerFactory, WorkerKind, WorkerResult,
+        metrics::WorkerMetrics,
+    },
+};
+use xmtp_mls_engine::{
+    groups::context::XmtpSharedContext,
+    subscriptions::incoming::{IncomingCoordinator, IncomingScope},
+};
+use xmtp_mls_identity::{
+    identity_ext::IdentityExt,
+    identity_updates::{
+        IdentityUpdateError, load_identity_updates_for_client, store_association_state,
+    },
+};
 use xmtp_proto::ShortHex;
 use xmtp_proto::xmtp::device_sync::content::{
     DeviceSyncAcknowledge, PreferenceUpdates as PreferenceUpdatesProto,
@@ -522,7 +524,7 @@ where
         }
         // implements: PROC-036
         tracing::info!(update_count = updates.len(), "storing preference updates");
-        crate::state_tx::state_write_with_events(
+        xmtp_mls_core::state_tx::state_write_with_events(
             self.context.mls_storage(),
             self.context.events(),
             |tx, events| {
@@ -538,7 +540,7 @@ where
                     emit_root_key_changed(events, &db, marked)?;
                 }
                 db.mark_device_sync_msg_as_processed(&msg.id)?;
-                Ok::<_, crate::groups::GroupError>(Continue(()))
+                Ok::<_, xmtp_mls_engine::groups::GroupError>(Continue(()))
             },
         )?;
         for update in updates.iter().filter_map(|update| update.update.as_ref()) {
@@ -602,10 +604,13 @@ mod startup_tests {
                 )),
             ))
         };
-        let publish =
-            DeviceSyncError::Group(crate::groups::GroupError::WrappedApi(refused("publish")));
+        let publish = DeviceSyncError::Group(xmtp_mls_engine::groups::GroupError::WrappedApi(
+            refused("publish"),
+        ));
         let identity = DeviceSyncError::IdentityUpdate(
-            crate::identity_updates::IdentityUpdateError::Api(refused("get_identity_updates")),
+            xmtp_mls_identity::identity_updates::IdentityUpdateError::Api(refused(
+                "get_identity_updates",
+            )),
         );
         for error in [&publish, &identity] {
             assert_eq!(RetryableError::rate_limit_delay(error), Some(delay));
@@ -704,7 +709,7 @@ mod startup_tests {
         assert!(updates.len() >= 3);
         let mut expected = vec![];
         for update in &updates {
-            let state = crate::identity_updates::IdentityUpdates::new(&alix1.context)
+            let state = xmtp_mls_identity::identity_updates::IdentityUpdates::new(&alix1.context)
                 .get_association_state(&db, inbox_id, Some(update.sequence_id))
                 .await?;
             let installations: HashSet<_> = state.installation_ids().into_iter().collect();
@@ -770,10 +775,10 @@ mod startup_tests {
 #[cfg(test)]
 mod tests {
     use super::SyncWorker;
-    use crate::core::events::InternalEvent;
     use crate::test::mock::{NewMockContext, context};
-    use crate::worker::{NewWorker, WorkerFactory, WorkerKind};
     use xmtp_events::{EventBus, EventWriter};
+    use xmtp_mls_core::events::InternalEvent;
+    use xmtp_mls_core::worker::{NewWorker, WorkerFactory, WorkerKind};
 
     /// The sync worker's event interest, as the runner subscribes with it.
     fn worker_event_filter(

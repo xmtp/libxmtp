@@ -7,26 +7,27 @@ use xmtp_common::StreamHandle;
 use xmtp_db::group_message::{GroupMessageKind, StoredGroupMessage};
 
 use crate::Client;
-use crate::context::CoreContext;
-use crate::subscriptions::incoming::stream_api::shared_wires::shared_transport;
 use crate::subscriptions::router_callbacks::{
     resume_bidi_streams, shared_transport_count,
     stream_conversation_messages_with_callback_dispatch, suspend_bidi_streams,
 };
 use crate::tester;
 use crate::utils::MlsGroupExt;
+use xmtp_mls_core::context::CoreContext;
+use xmtp_mls_engine::subscriptions::incoming::stream_api::shared_wires::shared_transport;
 
 const WAIT: Duration = Duration::from_secs(20);
 
 // verifies: PROC-040
 #[xmtp_common::test(unwrap_try = true)]
 async fn conversation_startup_storage_error_reaches_callback_once_before_close() {
-    use crate::subscriptions::{SubscribeError, incoming::IncomingCoordinator};
+    use crate::subscriptions::SubscribeError;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use xmtp_db::{
         ConnectionExt,
         group::{GroupQueryArgs, QueryGroup},
     };
+    use xmtp_mls_engine::subscriptions::incoming::IncomingCoordinator;
 
     tester!(alix, persistent_db, disable_workers);
     let coordinator = IncomingCoordinator::for_context(&alix.context);
@@ -492,9 +493,9 @@ async fn lifecycle_helpers_are_noops_without_a_transport() {
 /// conversation messages.
 #[xmtp_common::test(unwrap_try = true)]
 async fn sync_group_messages_are_intercepted_not_delivered() {
-    use crate::context::CoreContext;
-    use crate::subscriptions::internal::InternalEvent;
     use xmtp_events::EventFilter;
+    use xmtp_mls_core::context::CoreContext;
+    use xmtp_mls_core::events::InternalEvent;
     tester!(alix, sync_worker);
 
     // The device-sync worker creates the sync group in the background.
@@ -672,9 +673,9 @@ async fn transport_registry_releases_api_after_last_owner() {
 /// Returned subscriptions keep one shared wire alive after their factories drop.
 #[xmtp_common::test(unwrap_try = true)]
 async fn subscription_keeps_transport_shared_after_factory_drop() {
-    use crate::subscriptions::incoming::{BidiSubscriptionFactory, SubscriptionFactory};
     use futures::{StreamExt, stream::BoxStream};
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use xmtp_mls_engine::subscriptions::incoming::{BidiSubscriptionFactory, SubscriptionFactory};
     use xmtp_proto::{
         api::ApiClientError,
         backend_v1::SubscribeRequest,
@@ -749,9 +750,9 @@ async fn subscription_keeps_transport_shared_after_factory_drop() {
 // verifies: PROC-021, PROC-039
 #[xmtp_common::test(unwrap_try = true)]
 async fn cached_factory_opens_a_new_stream_after_a_nonretryable_reconnect() {
-    use crate::subscriptions::incoming::{BidiSubscriptionFactory, SubscriptionFactory};
     use futures::{StreamExt, stream::BoxStream};
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use xmtp_mls_engine::subscriptions::incoming::{BidiSubscriptionFactory, SubscriptionFactory};
     use xmtp_proto::{
         api::ApiClientError,
         backend_v1::SubscribeResponse,

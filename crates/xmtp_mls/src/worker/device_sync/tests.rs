@@ -1,8 +1,7 @@
 use super::*;
 use crate::client::ConsentAct;
-use crate::groups::test_support::crafted_welcome::assert_welcome_rejected;
 use crate::prelude::*;
-use crate::{groups::send_message_opts::SendMessageOpts, tester};
+use crate::tester;
 use xmtp_common::{NS_IN_DAY, NS_IN_HOUR, time::now_ns};
 use xmtp_db::{
     ConnectionExt,
@@ -18,6 +17,8 @@ use xmtp_db::{
 use xmtp_id::utils::test::docker_smart_wallet;
 #[cfg(not(target_arch = "wasm32"))]
 use xmtp_logging::{LogRecord, LogSinkTarget, SinkError};
+use xmtp_mls_engine::groups::send_message_opts::SendMessageOpts;
+use xmtp_mls_engine::groups::test_support::crafted_welcome::assert_welcome_rejected;
 use xmtp_proto::xmtp::mls::database::{Task as TaskProto, task::Task as TaskKindProto};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -543,7 +544,8 @@ fn add_task_group_ids(client: &crate::utils::Tester) -> Vec<Vec<u8>> {
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn sync_group_creation_add_survives_exit_and_spent_attempts() {
-    use crate::{task_handlers::MlsTaskHandlers, worker::tasks::TaskWorker};
+    use crate::task_handlers::MlsTaskHandlers;
+    use xmtp_mls_core::worker::tasks::TaskWorker;
     tester!(alix1, disable_workers);
     tester!(alix2, from: alix1, disable_workers);
     // Stop after the insert, before get_sync_group's inline add.
@@ -564,7 +566,7 @@ async fn sync_group_creation_add_survives_exit_and_spent_attempts() {
     );
     assert!(task.next_attempt_at_ns >= before + 60 * xmtp_common::NS_IN_SEC);
     let task = db.update_task(task.id, 25, now_ns(), now_ns())?;
-    crate::worker::tasks::test_support::run_and_reschedule_task(
+    xmtp_mls_core::worker::tasks::test_support::run_and_reschedule_task(
         &TaskWorker::new(alix1.context.clone(), MlsTaskHandlers),
         task,
     )
@@ -580,8 +582,9 @@ async fn sync_group_creation_add_survives_exit_and_spent_attempts() {
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn sync_group_inline_add_keeps_retry_until_membership_complete() {
+    use crate::task_handlers::MlsTaskHandlers;
     use crate::utils::test_mocks_helpers as kp;
-    use crate::{task_handlers::MlsTaskHandlers, worker::tasks::TaskWorker};
+    use xmtp_mls_core::worker::tasks::TaskWorker;
 
     tester!(alix1, disable_workers);
     tester!(alix2, from: alix1, disable_workers);
@@ -595,7 +598,7 @@ async fn sync_group_inline_add_keeps_retry_until_membership_complete() {
     let db = alix1.context.db();
     let [task] = db.get_tasks()?.try_into().unwrap();
     let task = db.update_task(task.id, 0, now_ns(), now_ns())?;
-    crate::worker::tasks::test_support::run_and_reschedule_task(
+    xmtp_mls_core::worker::tasks::test_support::run_and_reschedule_task(
         &TaskWorker::new(alix1.context.clone(), MlsTaskHandlers),
         task,
     )
@@ -611,7 +614,7 @@ async fn sync_group_inline_add_keeps_retry_until_membership_complete() {
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_welcome_schedules_add_installation_tasks() {
-    use crate::worker::{WorkerConfig, WorkerKind};
+    use xmtp_mls_core::worker::{WorkerConfig, WorkerKind};
 
     // TaskRunner disabled so enqueued rows are observable (not consumed).
     let mut cfg = WorkerConfig::default();
@@ -725,7 +728,9 @@ async fn test_welcome_limits_duplicate_dm_add_installation_tasks(
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn sync_welcome_naming_another_inbox_is_rejected(#[case] own_adder: bool) {
-    use crate::groups::test_support::crafted_welcome::{CraftedWelcome, send_crafted_welcome_with};
+    use xmtp_mls_engine::groups::test_support::crafted_welcome::{
+        CraftedWelcome, send_crafted_welcome_with,
+    };
     use xmtp_mls_group_keys::group_keys::{GroupKeys, GroupRoot};
     use xmtp_proto::types::Cursor;
 
@@ -1052,7 +1057,7 @@ async fn sender_judged_at_envelope_time() {
 pub(super) async fn revoke(
     owner: &crate::utils::Tester,
     revoked: &crate::utils::Tester,
-) -> Result<(), crate::identity_updates::IdentityUpdateError> {
+) -> Result<(), xmtp_mls_identity::identity_updates::IdentityUpdateError> {
     use xmtp_id::associations::test_utils::add_wallet_signature;
 
     let identity = owner.identity_updates();
@@ -1187,11 +1192,12 @@ async fn publish_adds_the_installation_the_selected_group_lacks(
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn publish_reaches_present_leaves_and_retries_a_missing_one() {
+    use crate::task_handlers::MlsTaskHandlers;
     use crate::utils::test_mocks_helpers::{
         RestoreKeyPackages, set_test_mode_upload_malformed_keypackage,
     };
-    use crate::{task_handlers::MlsTaskHandlers, worker::tasks::TaskWorker};
     use xmtp_db::tasks::QueryTasks;
+    use xmtp_mls_core::worker::tasks::TaskWorker;
 
     tester!(alix1, disable_workers);
     tester!(alix2, from: alix1, disable_workers);
@@ -1236,7 +1242,7 @@ async fn publish_reaches_present_leaves_and_retries_a_missing_one() {
     );
     let task = db.update_task(task.id, 0, now_ns(), published_at + interval)?;
     xmtp_common::time::sleep(std::time::Duration::from_nanos(interval as u64)).await;
-    crate::worker::tasks::test_support::run_and_reschedule_task(
+    xmtp_mls_core::worker::tasks::test_support::run_and_reschedule_task(
         &TaskWorker::new(alix1.context.clone(), MlsTaskHandlers),
         task.clone(),
     )
@@ -1248,7 +1254,7 @@ async fn publish_reaches_present_leaves_and_retries_a_missing_one() {
     xmtp_common::time::sleep(std::time::Duration::from_nanos(interval as u64)).await;
     crate::task_handlers::test_hooks::fail_next_sync_retry();
     let failed_at = now_ns();
-    crate::worker::tasks::test_support::run_and_reschedule_task(
+    xmtp_mls_core::worker::tasks::test_support::run_and_reschedule_task(
         &TaskWorker::new(alix1.context.clone(), MlsTaskHandlers),
         kept,
     )
@@ -1270,7 +1276,7 @@ async fn publish_reaches_present_leaves_and_retries_a_missing_one() {
     let sequence = db.get_latest_sequence_id_for_inbox(alix1.inbox_id())?;
     let _restarted = crate::builder::ClientBuilder::from_client(alix1.client.clone())
         .with_disable_workers(false)
-        .worker_config(crate::worker::WorkerConfig::default())
+        .worker_config(xmtp_mls_core::worker::WorkerConfig::default())
         .device_sync_worker_mode(crate::builder::DeviceSyncMode::Enabled)
         .build()
         .await?;
@@ -1356,8 +1362,9 @@ async fn arming_a_retry_makes_an_older_expiring_row_durable() {
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn newcomer_added_by_a_publish_joins_quiet_conversations() {
-    use crate::{task_handlers::MlsTaskHandlers, worker::tasks::TaskWorker};
+    use crate::task_handlers::MlsTaskHandlers;
     use xmtp_db::tasks::QueryTasks;
+    use xmtp_mls_core::worker::tasks::TaskWorker;
 
     tester!(alix1, disable_workers);
     tester!(bo, disable_workers);
@@ -1376,7 +1383,7 @@ async fn newcomer_added_by_a_publish_joins_quiet_conversations() {
     publish(&alix1).await?;
 
     for task in alix1.context.db().get_tasks()? {
-        crate::worker::tasks::test_support::run_and_reschedule_task(
+        xmtp_mls_core::worker::tasks::test_support::run_and_reschedule_task(
             &TaskWorker::new(alix1.context.clone(), MlsTaskHandlers),
             task,
         )
@@ -1394,8 +1401,9 @@ async fn newcomer_added_by_a_publish_joins_quiet_conversations() {
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn creation_task_adds_peers_after_its_group_loses_selection() {
-    use crate::{task_handlers::MlsTaskHandlers, worker::tasks::TaskWorker};
+    use crate::task_handlers::MlsTaskHandlers;
     use xmtp_db::tasks::QueryTasks;
+    use xmtp_mls_core::worker::tasks::TaskWorker;
 
     tester!(alix1, disable_workers);
     let older = alix1.device_sync_client().get_sync_group().await?;
@@ -1423,7 +1431,7 @@ async fn creation_task_adds_peers_after_its_group_loses_selection() {
             .context
             .db()
             .update_task(task.id, 0, now_ns(), now_ns())?;
-        crate::worker::tasks::test_support::run_and_reschedule_task(
+        xmtp_mls_core::worker::tasks::test_support::run_and_reschedule_task(
             &TaskWorker::new(alix2.context.clone(), MlsTaskHandlers),
             task,
         )
@@ -1724,7 +1732,7 @@ async fn root_key_made_in_a_rolled_back_write_is_not_reported() {
         .context
         .events()
         .subscribe_app(EventFilter::new([EventKind::HmacKeysUpdated]))?;
-    crate::state_tx::state_write_with_events(
+    xmtp_mls_core::state_tx::state_write_with_events(
         alix.context.mls_storage(),
         alix.context.events(),
         |tx, events| {
@@ -1841,8 +1849,8 @@ async fn unpublished_page_stays_owed_until_sent_again() {
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn revocation_key_beats_delayed_pre_revocation_key() {
-    use crate::identity_updates::load_identity_updates_for_client;
     use xmtp_db::user_preferences::{RootKeyWrite, write_root_key};
+    use xmtp_mls_identity::identity_updates::load_identity_updates_for_client;
     // alix1 cycles, then applies; alix2 is revoked; alix3 revokes; alix4
     // applies, then cycles.
     tester!(alix1, disable_workers);
@@ -1958,14 +1966,14 @@ async fn an_own_state_disconnect_keeps_the_reconnect_signal(
     #[future] docker_smart_wallet: xmtp_id::utils::test::SmartWalletContext,
 ) {
     use crate::{
-        identity_updates::IdentityUpdateError,
         task_handlers::MlsTaskHandlers,
         test::builder_native_only::{HookedVerifier, register_scw_client},
-        worker::{NeedsDbReconnect, tasks::TaskWorker},
     };
     use prost::Message;
     use std::sync::{Arc, OnceLock, atomic::AtomicUsize, atomic::Ordering};
     use xmtp_db::{diesel::RunQueryDsl, tasks::QueryTasks};
+    use xmtp_mls_core::worker::{NeedsDbReconnect, tasks::TaskWorker};
+    use xmtp_mls_identity::identity_updates::IdentityUpdateError;
     let before = Arc::new(OnceLock::<Box<dyn Fn() + Send + Sync>>::new());
     let calls = Arc::new(AtomicUsize::new(0));
     let wallet = docker_smart_wallet.await;
@@ -2051,7 +2059,7 @@ async fn an_own_state_disconnect_keeps_the_reconnect_signal(
         "the retry task is not due"
     );
     let verified = calls.load(Ordering::SeqCst);
-    let error = crate::worker::tasks::test_support::run_and_reschedule_task(
+    let error = xmtp_mls_core::worker::tasks::test_support::run_and_reschedule_task(
         &TaskWorker::new(alix.context.clone(), MlsTaskHandlers),
         task,
     )
@@ -2082,11 +2090,11 @@ async fn an_own_state_disconnect_keeps_the_reconnect_signal(
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn device_sync_publish_failures_keep_reconnect_signal() {
-    use crate::{
-        groups::GroupError, identity_updates::IdentityUpdateError, task_handlers::TaskWorkerError,
-        worker::NeedsDbReconnect,
-    };
+    use crate::task_handlers::TaskWorkerError;
     use xmtp_db::PlatformStorageError;
+    use xmtp_mls_core::worker::NeedsDbReconnect;
+    use xmtp_mls_engine::groups::GroupError;
+    use xmtp_mls_identity::identity_updates::IdentityUpdateError;
     tester!(alix, persistent_db, disable_workers);
     alix.device_sync_client().get_sync_group().await?;
     decide_at(
@@ -2146,11 +2154,11 @@ async fn device_sync_publish_failures_keep_reconnect_signal() {
 mod disconnect_propagation {
     //! Pins that a dropped-pool signal survives `DeviceSyncError`, so the sync
     //! worker's `needs_db_reconnect()` stays `true`.
-    use crate::core::reconnect::NeedsDbReconnect;
-    use crate::groups::GroupError;
-    use crate::mls_store::MlsStoreError;
     use crate::worker::device_sync::DeviceSyncError;
     use xmtp_db::{ConnectionError, PlatformStorageError, StorageError};
+    use xmtp_mls_core::mls_store::MlsStoreError;
+    use xmtp_mls_core::reconnect::NeedsDbReconnect;
+    use xmtp_mls_engine::groups::GroupError;
 
     /// A `StorageError` that signals the connection pool was dropped.
     fn disconnect_storage() -> StorageError {

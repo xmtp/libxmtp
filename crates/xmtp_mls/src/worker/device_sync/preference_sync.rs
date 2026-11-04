@@ -1,10 +1,10 @@
 use super::*;
-pub use crate::core::events::PreferenceUpdate;
 use xmtp_db::consent_record::{
     ConsentChange, ConsentWrite, Owed, parse_consent_save, write_consent,
 };
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_db::user_preferences::{RootKeyWrite, write_root_key};
+pub use xmtp_mls_core::events::PreferenceUpdate;
 use xmtp_proto::xmtp::device_sync::content::{
     PreferenceUpdate as PreferenceUpdateProto, preference_update::Update as UpdateProto,
 };

@@ -245,9 +245,9 @@ async fn legacy_migration_imports_into_empty_and_populated_stores_and_retries() 
                 if deleter.is_some() {
                     assert!(message.decrypted_message_bytes.is_empty());
                     assert!(matches!(
-                        crate::messages::decoded_message::DecodedMessage::from(message.clone())
+                        xmtp_mls_messages::decoded_message::DecodedMessage::from(message.clone())
                             .content,
-                        crate::messages::decoded_message::MessageBody::DeletedMessage { .. }
+                        xmtp_mls_messages::decoded_message::MessageBody::DeletedMessage { .. }
                     ));
                 }
             }

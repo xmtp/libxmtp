@@ -13,7 +13,7 @@ use xmtp_db::{
 use xmtp_proto::types::GroupId;
 
 use super::{LocalDeliveryControl, LocalDeliveryError, Result};
-use crate::context::XmtpSharedContext;
+use xmtp_mls_engine::groups::context::XmtpSharedContext;
 
 pub(super) struct DeliverySession<Context: XmtpSharedContext> {
     pub(super) context: Context,
@@ -327,9 +327,9 @@ impl<Context: XmtpSharedContext> DeliveryAcknowledgement<Context> {
 
     /// Read and enrich the queued item without starting dispatch or hiding storage errors.
     /// The host must still call `check_owner` immediately before its handoff.
-    pub fn enriched_message(&self) -> Result<crate::messages::decoded_message::DecodedMessage> {
-        use crate::messages::enrichment::{EnrichMessageError, enrich_messages};
+    pub fn enriched_message(&self) -> Result<xmtp_mls_messages::decoded_message::DecodedMessage> {
         use xmtp_db::group_message::QueryGroupMessage;
+        use xmtp_mls_messages::enrichment::{EnrichMessageError, enrich_messages};
         let result = (|| {
             self.check_dispatch(false)?;
             let db = self.session.context.db();

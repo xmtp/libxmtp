@@ -1,12 +1,6 @@
 //! Live conversation notifications from committed group discovery.
 
-use super::{
-    Result,
-    incoming::{IncomingCoordinator, IncomingLease, IncomingScope, stream_api::GroupSetGate},
-    internal::InternalEvent,
-    local_delivery::LocalDeliveryError,
-};
-use crate::{context::XmtpSharedContext, groups::MlsGroup};
+use super::{Result, local_delivery::LocalDeliveryError};
 use futures::Stream;
 use std::{
     collections::{HashMap, VecDeque},
@@ -21,6 +15,11 @@ use xmtp_db::{
     prelude::*,
 };
 use xmtp_events::EventFilter;
+use xmtp_mls_core::events::InternalEvent;
+use xmtp_mls_engine::groups::{MlsGroup, context::XmtpSharedContext};
+use xmtp_mls_engine::subscriptions::incoming::{
+    IncomingCoordinator, IncomingLease, IncomingScope, stream_api::GroupSetGate,
+};
 use xmtp_proto::{
     api_client::XmtpMlsStreams,
     types::{GroupId, Topic},
@@ -250,10 +249,10 @@ mod test {
 
     use super::*;
     use crate::builder::ClientBuilder;
-    use crate::groups::send_message_opts::SendMessageOpts;
     use crate::tester;
     use crate::utils::fixtures::{alix, bo};
     use xmtp_db::group::GroupQueryArgs;
+    use xmtp_mls_engine::groups::send_message_opts::SendMessageOpts;
 
     use futures::StreamExt;
     use std::cell::Cell;
@@ -286,7 +285,8 @@ mod test {
     // verifies: CONF-075
     #[xmtp_common::test(unwrap_try = true)]
     async fn a_blocked_connection_fences_queued_conversations() {
-        use crate::{server_configuration::BlockedConnection, subscriptions::SubscribeError};
+        use crate::subscriptions::SubscribeError;
+        use xmtp_mls_server_config::server_configuration::BlockedConnection;
 
         tester!(alix, disable_workers);
         let mut stream = StreamConversations::new(&alix.context, None, false, None).await?;

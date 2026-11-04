@@ -1,6 +1,5 @@
 use super::*;
 use crate::context::XmtpMlsLocalContext;
-use crate::identity::IdentityStrategy;
 use futures::StreamExt;
 use prost::Message;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -12,6 +11,7 @@ use xmtp_common::{
 use xmtp_configuration::{ConfigProvider, StaticConfigProvider};
 use xmtp_db::XmtpTestDb;
 use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
+use xmtp_mls_identity::identity_lifecycle::IdentityStrategy;
 use xmtp_proto::{
     api::{ApiClientError, BytesStream, Client as WireClient, NetworkError},
     backend_v1::{
@@ -125,7 +125,7 @@ async fn client_with_snapshot(api: Api, strict: bool) -> Client<Context> {
             configuration.limits.max_update_burst = if strict { 1 } else { 100 };
         }));
     Client::builder(IdentityStrategy::ExternalIdentity(
-        crate::context::test_support::mock_identity(),
+        xmtp_mls_core::context::test_support::mock_identity(),
     ))
     .api_client_with_streams(api)
     .store(xmtp_db::TestDb::create_ephemeral_store().await)

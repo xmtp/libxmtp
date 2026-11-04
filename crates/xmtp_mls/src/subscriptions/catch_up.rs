@@ -1,7 +1,5 @@
 //! Bounded catch-up through the shared receiver and fixed processing barriers.
 
-use super::barrier::{BarrierError, receive_with_welcomes_until};
-use crate::{context::XmtpSharedContext, groups::GroupError};
 use std::collections::{HashMap, HashSet};
 use xmtp_common::{
     ErrorCode, RetryableError,
@@ -13,6 +11,8 @@ use xmtp_db::{
     incoming_envelope::{QueryIncomingEnvelope, StreamTopic},
     prelude::*,
 };
+use xmtp_mls_engine::groups::{GroupError, context::XmtpSharedContext};
+use xmtp_mls_engine::subscriptions::barrier::{BarrierError, receive_with_welcomes_until};
 
 /// Committed catch-up observations; fixed processing predicates determine completion.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -62,8 +62,8 @@ impl RetryableError for CatchUpError {
     }
 }
 
-impl From<crate::server_configuration::BlockedConnection> for CatchUpError {
-    fn from(error: crate::server_configuration::BlockedConnection) -> Self {
+impl From<xmtp_mls_server_config::server_configuration::BlockedConnection> for CatchUpError {
+    fn from(error: xmtp_mls_server_config::server_configuration::BlockedConnection) -> Self {
         Self::Group(error.into())
     }
 }
@@ -271,9 +271,9 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn blocked_connection_fails_catch_up_before_any_request() {
         use super::CatchUpError;
-        use crate::{
-            context::CoreContext, groups::GroupError, server_configuration::BlockedConnection,
-        };
+        use xmtp_mls_core::context::CoreContext;
+        use xmtp_mls_engine::groups::GroupError;
+        use xmtp_mls_server_config::server_configuration::BlockedConnection;
         use xmtp_proto::api::HasStats;
         tester!(alix, disable_workers);
         alix.context.server_configuration().block_connection(

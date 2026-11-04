@@ -1,14 +1,8 @@
 //! One durable task owns notification registration, renewal, and subscription sync.
 
-use crate::{
-    client::notifications::{
-        NotificationConfig, NotificationError, decode, effective, encode, recipient_secret,
-        stored_config,
-    },
-    context::XmtpSharedContext,
-    groups::MlsGroup,
-    state_tx::{state_write, state_write_with_events},
-    worker::tasks::TaskOutcome,
+use crate::client::notifications::{
+    NotificationConfig, NotificationError, decode, effective, encode, recipient_secret,
+    stored_config,
 };
 use prost::Message;
 use serde::{Deserialize, Serialize};
@@ -27,6 +21,11 @@ use xmtp_db::{
     user_preferences::{StoredUserPreferences, ensure_root_key},
 };
 use xmtp_events::{ClientEvent, EventWriter, NotificationsFailed};
+use xmtp_mls_core::{
+    state_tx::{state_write, state_write_with_events},
+    worker::tasks::TaskOutcome,
+};
+use xmtp_mls_engine::groups::{MlsGroup, context::XmtpSharedContext};
 use xmtp_proto::{
     backend_v1::{RecipientState, Subscription, UnregisterRequest, UpdateSubscriptionsRequest},
     types::{GroupId, Topic},
@@ -581,13 +580,13 @@ fn prepare_batch<Context: XmtpSharedContext>(
             None if desired.values().any(|topic| topic.group_id.is_some()) => {
                 let (key, made) = ensure_root_key(&db)?;
                 if made {
-                    crate::subscriptions::internal::emit_root_key_changed(events, &db, true)?;
+                    xmtp_mls_core::events::emit_root_key_changed(events, &db, true)?;
                 }
                 xmtp_common::sha256_array(key.as_slice()).to_vec()
             }
             None => Vec::new(),
         };
-        let epoch = crate::utils::time::hmac_epoch();
+        let epoch = xmtp_mls_core::hmac_epoch::hmac_epoch();
         let (adds, removes, adds_new_topic) = diff(
             desired,
             &db.uploaded_topics()?,

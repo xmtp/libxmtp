@@ -1,10 +1,6 @@
 //! Test diagnostics from the shared receiver status.
 
-use crate::subscriptions::{
-    Result,
-    incoming::{IncomingConnection, IncomingProcessing, IncomingRegistration},
-    stream_all::StreamAllMessages,
-};
+use crate::subscriptions::{Result, stream_all::StreamAllMessages};
 use futures::{Stream, StreamExt};
 use std::{
     ops::Range,
@@ -17,6 +13,9 @@ use tokio::sync::Notify;
 use tokio::sync::oneshot;
 use xmtp_common::{StreamHandle, time::now_ns};
 use xmtp_db::group_message::StoredGroupMessage;
+use xmtp_mls_engine::subscriptions::incoming::{
+    IncomingConnection, IncomingProcessing, IncomingRegistration,
+};
 
 pub trait StreamWithStats: Stream<Item = Result<StoredGroupMessage>> {
     fn stats(&self) -> Arc<StreamStats>;

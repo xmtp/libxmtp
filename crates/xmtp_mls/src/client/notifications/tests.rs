@@ -1,13 +1,13 @@
 use super::*;
 use crate::{
-    groups::MlsGroup,
     tester,
-    worker::notifications::{
-        self,
-        tests::{config, support},
+    worker::{
+        notifications,
+        notifications::tests::{config, support},
     },
 };
 use xmtp_db::consent_record::ConsentState;
+use xmtp_mls_engine::groups::MlsGroup;
 
 #[xmtp_common::test(unwrap_try = true)]
 fn notification_error_debug_does_not_expose_backend_text() {
@@ -203,7 +203,7 @@ async fn notification_disable_keeps_identity_and_conversation_override() {
     let calls = peer.calls(support::Call::Register);
     assert_eq!(
         notifications::run(&client.context).await?,
-        crate::worker::tasks::TaskOutcome::Done
+        xmtp_mls_core::worker::tasks::TaskOutcome::Done
     );
     assert_eq!(calls, peer.calls(support::Call::Register));
     client.enable_notifications(config()).await?;
@@ -250,7 +250,7 @@ async fn notification_failed_unregister_stays_disabled_without_background_retry(
         notifications::wake(&client.context)?;
         assert_eq!(
             notifications::run(&client.context).await?,
-            crate::worker::tasks::TaskOutcome::Done
+            xmtp_mls_core::worker::tasks::TaskOutcome::Done
         );
         assert_eq!(peer.calls(support::Call::Unregister), 1);
         assert!(peer.state.lock().registered);
@@ -436,7 +436,7 @@ async fn notification_terminal_status_is_typed_and_stops_tasks() {
         let calls = peer.calls(support::Call::Register);
         assert_eq!(
             notifications::run(&client.context).await?,
-            crate::worker::tasks::TaskOutcome::Done
+            xmtp_mls_core::worker::tasks::TaskOutcome::Done
         );
         assert_eq!(calls, peer.calls(support::Call::Register));
     }

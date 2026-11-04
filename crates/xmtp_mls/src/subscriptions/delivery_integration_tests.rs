@@ -6,10 +6,11 @@ use super::{
     message_reader::MessageReader,
 };
 use crate::prelude::*;
-use crate::{context::XmtpSharedContext, tester, utils::MlsGroupExt};
+use crate::{tester, utils::MlsGroupExt};
 use futures::StreamExt;
 use std::time::Duration;
 use xmtp_db::group_message::{GroupMessageKind, StoredGroupMessage};
+use xmtp_mls_engine::groups::context::XmtpSharedContext;
 
 const WAIT: Duration = Duration::from_secs(20);
 

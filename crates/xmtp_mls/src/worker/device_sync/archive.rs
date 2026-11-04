@@ -1,12 +1,4 @@
 use super::DeviceSyncError;
-use crate::groups::deletion::{
-    ArchivedSelfDeletions, DiscardEvents, Source, apply_deletion, apply_stored_records,
-    import_record,
-};
-use crate::{
-    context::XmtpSharedContext, groups::MlsGroup, state_tx::state_write,
-    subscriptions::internal::InternalEvent, worker::NeedsDbReconnect,
-};
 use futures::{Stream, StreamExt};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 pub use xmtp_archive::*;
@@ -20,6 +12,12 @@ use xmtp_db::{
     message_deletion::StoredMessageDeletion,
     prelude::*,
 };
+use xmtp_mls_core::{events::InternalEvent, state_tx::state_write, worker::NeedsDbReconnect};
+use xmtp_mls_engine::groups::deletion::{
+    ArchivedSelfDeletions, DiscardEvents, Source, apply_deletion, apply_stored_records,
+    import_record,
+};
+use xmtp_mls_engine::groups::{MlsGroup, context::XmtpSharedContext};
 use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::device_sync::{
     BackupElement, backup_element::Element, consent_backup::ConsentSave,
@@ -331,7 +329,6 @@ fn import_consent(
 mod tests {
     #![allow(unused)]
     use super::*;
-    use crate::groups::send_message_opts::SendMessageOpts;
     use crate::prelude::*;
     use crate::tester;
     use crate::utils::{LocalTester, Tester};
@@ -351,6 +348,7 @@ mod tests {
         group_message::StoredGroupMessage,
         schema::{consent_records, group_messages, groups},
     };
+    use xmtp_mls_engine::groups::send_message_opts::SendMessageOpts;
     use xmtp_mls_group_state::{
         group::{DMMetadataOptions, GroupMetadataOptions},
         group_mutable_metadata::MessageDisappearingSettings,
@@ -402,7 +400,7 @@ mod tests {
             &conversation.group_id.to_openmls(),
         )??;
         let malformed = vec![0xff; 3];
-        let mut stage = crate::groups::test_support::commit_without_group_info(
+        let mut stage = xmtp_mls_engine::groups::test_support::commit_without_group_info(
             &mut group,
             provider.storage(),
             |builder| {
@@ -477,7 +475,7 @@ mod tests {
             &conversation.group_id.to_openmls(),
         )??;
         let commit_log_signer = xmtp_common::rand_vec::<32>();
-        let mut stage = crate::groups::test_support::commit_without_group_info(
+        let mut stage = xmtp_mls_engine::groups::test_support::commit_without_group_info(
             &mut group,
             provider.storage(),
             |builder| {
@@ -970,7 +968,7 @@ mod tests {
         let restored = alix2.group(&alix_bo_dm.group_id)?;
         let restored_topic = xmtp_db::incoming_envelope::StreamTopic::group(alix_bo_dm.group_id);
         let before_join = alix2.db().topic_progress(&restored_topic)?;
-        crate::mls_store::MlsStore::new(alix2.context.clone())
+        xmtp_mls_core::mls_store::MlsStore::new(alix2.context.clone())
             .receive_topics_once(
                 &[xmtp_proto::types::Topic::new_group_message(
                     alix_bo_dm.group_id,
@@ -986,7 +984,7 @@ mod tests {
         assert!(received_before_join.received > before_join.processed);
         assert!(matches!(
             restored.process_pending_group_head(None)?,
-            crate::groups::test_support::GroupHeadOutcome::Inactive
+            xmtp_mls_engine::groups::test_support::GroupHeadOutcome::Inactive
         ));
         assert_eq!(
             alix2.db().topic_progress(&restored_topic)?.processed,
@@ -1045,12 +1043,12 @@ mod tests {
     // verifies: ARCH-015, ARCH-020
     #[xmtp_common::test(unwrap_try = true)]
     async fn foreign_archive_preserves_dm_pair_and_history() {
-        use crate::groups::GroupError;
         use xmtp_db::{
             consent_record::{ConsentState, ConsentType},
             group::{DmIdExt, QueryGroup},
             readd_status::ReaddStatus,
         };
+        use xmtp_mls_engine::groups::GroupError;
         use xmtp_proto::api::HasStats;
 
         tester!(alix, disable_workers);
@@ -1604,9 +1602,10 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     #[cfg(not(target_arch = "wasm32"))]
     async fn test_file_backup() {
-        use crate::{groups::send_message_opts::SendMessageOpts, tester};
+        use crate::tester;
         use diesel::QueryDsl;
         use xmtp_db::group::{ConversationType, GroupQueryArgs};
+        use xmtp_mls_engine::groups::send_message_opts::SendMessageOpts;
 
         tester!(alix, sync_worker, triggers);
         tester!(bo);
@@ -1791,8 +1790,8 @@ mod tests {
     async fn test_import_current_legacy_archive_metadata() {
         use std::path::PathBuf;
 
-        use crate::groups::group_permissions::PolicySet;
         use xmtp_db::group::ConversationType;
+        use xmtp_mls_engine::groups::group_permissions::PolicySet;
 
         let key = vec![9; 32];
         let path = PathBuf::from("tests/assets/archive-current-legacy-metadata.xmtp");
@@ -1806,7 +1805,8 @@ mod tests {
         let archived_dm_id = archived_dm_id.expect("legacy DM pair");
         let mut importer = ArchiveImporter::from_file(path, &key).await?;
         tester!(alix, disable_workers);
-        let pair = crate::groups::test_support::parse_canonical_dm_id(Some(&archived_dm_id))?;
+        let pair =
+            xmtp_mls_engine::groups::test_support::parse_canonical_dm_id(Some(&archived_dm_id))?;
         assert_ne!(pair.member_one_inbox_id, alix.inbox_id());
         assert_ne!(pair.member_two_inbox_id, alix.inbox_id());
         insert_importer(&mut importer, &alix.context).await?;

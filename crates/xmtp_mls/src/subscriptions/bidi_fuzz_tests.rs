@@ -15,14 +15,14 @@ use rand::{RngExt, SeedableRng};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinSet;
 
-use crate::context::XmtpSharedContext;
-use crate::groups::MlsGroup;
 use crate::tester;
 use crate::utils::{LocalTesterBuilder, TesterBuilder};
 use xmtp_api_backend::{
     BackendBinding, BidiConnection, BidiEvent, BidiTransport, DEFAULT_LEASE_DEPTH, LeaseEvent,
     OpenError, TopicLease, TransportBinding,
 };
+use xmtp_mls_engine::groups::MlsGroup;
+use xmtp_mls_engine::groups::context::XmtpSharedContext;
 use xmtp_proto::backend_v1::subscribe_request::Update;
 use xmtp_proto::types::ReceivedEnvelope;
 use xmtp_proto::types::Topic;

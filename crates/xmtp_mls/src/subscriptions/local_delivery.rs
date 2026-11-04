@@ -27,9 +27,10 @@ use xmtp_db::{
 };
 use xmtp_proto::types::GroupId;
 
-use super::{DEFAULT_STREAM_CONSENT_STATES, SubscribeError, internal::InternalEvent};
-use crate::context::XmtpSharedContext;
+use super::{DEFAULT_STREAM_CONSENT_STATES, SubscribeError};
 use xmtp_events::{EventFilter, Subscription};
+use xmtp_mls_core::events::InternalEvent;
+use xmtp_mls_engine::groups::context::XmtpSharedContext;
 
 type Result<T> = std::result::Result<T, LocalDeliveryError>;
 
@@ -546,7 +547,7 @@ mod tests;
 
 /// Selected rows with canonical relations and deletion placeholders.
 pub struct EnrichedDeliverySnapshot {
-    pub messages: Vec<crate::messages::enrichment::EnrichedStoredMessage>,
+    pub messages: Vec<xmtp_mls_messages::enrichment::EnrichedStoredMessage>,
     pub cursor: DeliveryCursor,
 }
 
@@ -554,7 +555,7 @@ fn enrich_delivery_snapshot(
     db: impl xmtp_db::DbQuery,
     snapshot: DeliverySnapshot,
 ) -> std::result::Result<EnrichedDeliverySnapshot, StorageError> {
-    use crate::messages::enrichment::{EnrichMessageError, enrich_messages_with_stored};
+    use xmtp_mls_messages::enrichment::{EnrichMessageError, enrich_messages_with_stored};
     let mut groups = std::collections::HashMap::new();
     let mut projected: Vec<_> = (0..snapshot.messages.len()).map(|_| None).collect();
     for (index, item) in snapshot.messages.into_iter().enumerate() {

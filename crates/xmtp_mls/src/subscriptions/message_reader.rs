@@ -3,20 +3,20 @@
 use parking_lot::Mutex;
 use std::sync::Arc;
 
-use super::{
-    incoming::{IncomingCoordinator, IncomingLease, IncomingScope, IncomingStatus},
-    local_delivery::{
-        DeliveryCursor, DeliveryScope, LocalDelivery, LocalDeliveryConfig, LocalDeliveryControl,
-        LocalDeliveryError, LocalDeliveryFilter, LocalDeliveryItem,
-    },
+use super::local_delivery::{
+    DeliveryCursor, DeliveryScope, LocalDelivery, LocalDeliveryConfig, LocalDeliveryControl,
+    LocalDeliveryError, LocalDeliveryFilter, LocalDeliveryItem,
 };
-use crate::context::XmtpSharedContext;
+use xmtp_mls_engine::groups::context::XmtpSharedContext;
+use xmtp_mls_engine::subscriptions::incoming::{
+    IncomingCoordinator, IncomingLease, IncomingScope, IncomingStatus,
+};
 
 /// The network lease does not depend on application acknowledgement.
 pub struct MessageReader<C: XmtpSharedContext> {
     delivery: LocalDelivery<C>,
     control: MessageReaderControl,
-    configuration: crate::server_configuration::ServerConfigurationHandle,
+    configuration: xmtp_mls_server_config::server_configuration::ServerConfigurationHandle,
 }
 
 /// Updates delivery selection and observes network progress without consuming messages.
@@ -125,7 +125,7 @@ impl<C: XmtpSharedContext + 'static> MessageReader<C> {
                         break item;
                     },
                     _ = lease.changed() => {},
-                    _ = xmtp_common::time::sleep(super::incoming::stream_api::RECOVERY_POLL) => {},
+                    _ = xmtp_common::time::sleep(xmtp_mls_engine::subscriptions::incoming::stream_api::RECOVERY_POLL) => {},
                 }
             }
         };
@@ -270,11 +270,10 @@ mod tests {
 
     use super::*;
     use crate::prelude::*;
-    use crate::{
-        groups::send_message_opts::SendMessageOpts, test::mock::generate_stored_msg, tester,
-    };
+    use crate::{test::mock::generate_stored_msg, tester};
     use xmtp_common::time::Duration;
     use xmtp_db::Store;
+    use xmtp_mls_engine::groups::send_message_opts::SendMessageOpts;
     use xmtp_proto::types::Cursor;
 
     // verifies: DMS-009
@@ -325,7 +324,7 @@ mod tests {
     // verifies: CONF-075
     #[xmtp_common::test(unwrap_try = true)]
     async fn blocked_connection_ends_a_pending_message_read_with_its_cause() {
-        use crate::server_configuration::BlockedConnection;
+        use xmtp_mls_server_config::server_configuration::BlockedConnection;
         tester!(alix, disable_workers);
         let mut reader = MessageReader::new(
             alix.context.clone(),

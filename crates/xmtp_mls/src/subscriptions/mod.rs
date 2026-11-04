@@ -24,11 +24,11 @@ mod bidi_fuzz_tests;
 pub use xmtp_mls_engine::subscriptions::barrier;
 pub mod catch_up;
 #[doc(hidden)]
-pub use crate::core::events as internal;
+pub use xmtp_mls_core::events as internal;
 pub use xmtp_mls_engine::subscriptions::incoming;
 pub mod local_delivery;
 pub mod message_reader;
-pub(crate) use crate::core::policy;
+pub(crate) use xmtp_mls_core::policy;
 mod stream_all;
 pub mod stream_conversations;
 pub mod stream_failure;
@@ -47,17 +47,10 @@ pub mod router_callbacks;
 mod router_callbacks_tests;
 pub(crate) mod watchdog;
 
-use crate::messages::enrichment::EnrichMessageError;
 #[cfg(any(test, feature = "test-utils"))]
 use crate::subscriptions::stream_messages::stream_stats::{StreamStatsWrapper, StreamWithStats};
+use xmtp_mls_messages::enrichment::EnrichMessageError;
 
-use crate::worker::device_sync::preference_sync::PreferenceUpdate;
-use crate::{
-    context::XmtpSharedContext,
-    groups::{GroupError, GroupMessageProcessingError, MlsGroup},
-    messages::decoded_message::{DecodedMessage, DeletedBy},
-};
-use internal::InternalEvent;
 use thiserror::Error;
 use xmtp_common::{ErrorCode, MaybeSend, RetryableError, StreamHandle, retryable};
 use xmtp_db::{
@@ -67,6 +60,12 @@ use xmtp_db::{
     group_message::StoredGroupMessage,
 };
 use xmtp_events::{EventFilter, Subscription};
+use xmtp_mls_core::events::InternalEvent;
+use xmtp_mls_core::events::PreferenceUpdate;
+use xmtp_mls_engine::groups::{
+    GroupError, GroupMessageProcessingError, MlsGroup, context::XmtpSharedContext,
+};
+use xmtp_mls_messages::decoded_message::{DecodedMessage, DeletedBy};
 
 pub(crate) type Result<T> = std::result::Result<T, SubscribeError>;
 
@@ -166,10 +165,10 @@ impl StreamMessages for Subscription<InternalEvent> {
 /// undecodable content, so every row produces an item.
 // implements: META-051
 fn deletion_items(
-    deleted: internal::DeletedMessages,
+    deleted: xmtp_mls_core::events::DeletedMessages,
     is_expired: impl Fn(&StoredGroupMessage) -> bool,
 ) -> Vec<Result<DecodedMessage>> {
-    let internal::DeletedMessages {
+    let xmtp_mls_core::events::DeletedMessages {
         messages,
         deleted_by_inbox_id,
     } = deleted;
@@ -266,7 +265,7 @@ pub enum SubscribeError {
     /// closed with it and every later call fails with it. Not retryable.
     #[error(transparent)]
     #[error_code(inherit)]
-    Blocked(#[from] crate::server_configuration::BlockedConnection),
+    Blocked(#[from] xmtp_mls_server_config::server_configuration::BlockedConnection),
     /// Stream liveness watchdog tripped.
     ///
     /// No activity arrived within the idle timeout, so the stream was terminated to force
@@ -332,7 +331,7 @@ impl RetryableError for SubscribeError {
     }
 }
 
-impl crate::worker::NeedsDbReconnect for SubscribeError {
+impl xmtp_mls_core::worker::NeedsDbReconnect for SubscribeError {
     /// Forwards a dropped-pool signal so the device-sync worker stops on
     /// disconnect. `BoxError` wraps an opaque error we can't introspect → `false`.
     #[deny(clippy::wildcard_enum_match_arm)]
@@ -713,8 +712,8 @@ pub(crate) mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     mod disconnect_propagation;
 
-    use crate::context::CoreContext;
     use crate::tester;
+    use xmtp_mls_core::context::CoreContext;
 
     /// A macro for asserting that a stream yields a specific decrypted message.
     ///

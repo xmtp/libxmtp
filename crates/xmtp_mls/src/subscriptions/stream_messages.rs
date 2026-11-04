@@ -8,7 +8,6 @@ use super::{
     local_delivery::{DeliveryScope, LocalDeliveryFilter},
     message_reader::MessageReader,
 };
-use crate::context::XmtpSharedContext;
 use futures::Stream;
 use std::{
     pin::Pin,
@@ -16,6 +15,7 @@ use std::{
 };
 use xmtp_common::BoxDynStream;
 use xmtp_db::group_message::StoredGroupMessage;
+use xmtp_mls_engine::groups::context::XmtpSharedContext;
 use xmtp_proto::{api_client::XmtpMlsStreams, types::GroupId};
 
 pub struct StreamGroupMessages {

@@ -1,12 +1,12 @@
 //! Live backend subscription tests for handshake, target completion, and delivery.
 
 use crate::builder::ClientBuilder;
-use crate::context::CoreContext;
-use crate::groups::send_message_opts::SendMessageOpts;
 use std::collections::BTreeSet;
 use std::time::Duration;
 use xmtp_api_backend::{BackendBinding, BidiConnection, BidiEvent, TransportBinding};
 use xmtp_cryptography::utils::generate_local_wallet;
+use xmtp_mls_core::context::CoreContext;
+use xmtp_mls_engine::groups::send_message_opts::SendMessageOpts;
 use xmtp_proto::types::Topic;
 
 fn gm(message: &xmtp_proto::types::ReceivedEnvelope) -> (u64, bool) {

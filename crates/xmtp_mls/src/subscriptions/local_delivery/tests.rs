@@ -710,9 +710,9 @@ async fn failed_old_acknowledgement_cannot_release_a_competing_owner() {
 // verifies: CTYPE-008, PROC-045
 #[xmtp_common::test(unwrap_try = true)]
 async fn queued_undecodable_content_is_delivered_and_the_stream_continues() {
-    use crate::messages::decoded_message::{ContentDecodeFailureKind, MessageBody};
     use prost::Message;
     use xmtp_content_types::{ContentCodec, text::TextCodec};
+    use xmtp_mls_messages::decoded_message::{ContentDecodeFailureKind, MessageBody};
     tester!(alix);
     let group = alix.create_group(None, None)?;
     // The mock row's bytes are not a serialized EncodedContent.
@@ -1035,8 +1035,8 @@ async fn subscribe_error_code_reaches_stream_storage_code() {
     use crate::subscriptions::{
         stream_all::StreamAllMessages, stream_messages::StreamGroupMessages,
     };
-    use crate::worker::NeedsDbReconnect;
     use xmtp_common::RetryableError;
+    use xmtp_mls_core::worker::NeedsDbReconnect;
     tester!(alix, disable_workers);
     let group = alix.create_group(None, None)?;
     let open = || {

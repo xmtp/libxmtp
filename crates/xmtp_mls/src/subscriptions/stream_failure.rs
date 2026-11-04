@@ -5,14 +5,14 @@ use std::error::Error;
 use serde::{Deserialize, Serialize};
 use xmtp_common::{ErrorCode, RetryableError};
 
+use super::SubscribeError;
 #[cfg(not(target_arch = "wasm32"))]
 use super::catch_up::CatchUpError;
-use super::{
-    SubscribeError,
+use xmtp_mls_engine::groups::{GroupError, GroupMessageProcessingError, summary::SyncSummary};
+use xmtp_mls_engine::subscriptions::{
     barrier::{BarrierCause, BarrierError, BarrierFailure, BarrierTopic},
     incoming::IncomingError,
 };
-use crate::groups::{GroupError, GroupMessageProcessingError, summary::SyncSummary};
 
 /// The suffix version is independent of the normal error message and code.
 pub const STREAM_FAILURE_MARKER: &str = "\n[XMTP_STREAM_FAILURE_V1]";

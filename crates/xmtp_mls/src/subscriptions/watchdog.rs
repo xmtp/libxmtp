@@ -328,7 +328,7 @@ where
 #[derive(Clone, Default)]
 pub(crate) struct StreamCancel {
     token: CancellationToken,
-    configuration: Option<crate::server_configuration::ServerConfigurationHandle>,
+    configuration: Option<xmtp_mls_server_config::server_configuration::ServerConfigurationHandle>,
 }
 
 impl From<CancellationToken> for StreamCancel {
@@ -343,7 +343,7 @@ impl From<CancellationToken> for StreamCancel {
 }
 
 impl StreamCancel {
-    pub(crate) fn new(context: &impl crate::context::XmtpSharedContext) -> Self {
+    pub(crate) fn new(context: &impl xmtp_mls_engine::groups::context::XmtpSharedContext) -> Self {
         Self {
             token: context.cancellation_token().clone(),
             configuration: Some(context.server_configuration().clone()),
@@ -358,7 +358,7 @@ impl StreamCancel {
     /// Returned as the blocked connection cause rather than the error because
     /// `SubscribeError` is not `Clone` and the reason is reported twice: once
     /// to the callback, once as the handle's result.
-    fn fatal(&self) -> Option<crate::server_configuration::BlockedConnection> {
+    fn fatal(&self) -> Option<xmtp_mls_server_config::server_configuration::BlockedConnection> {
         self.configuration.as_ref()?.blocked_connection()
     }
 }
@@ -700,8 +700,10 @@ mod tests {
     /// reconnect throttle — closes it with the reason, not as a clean end.
     #[xmtp_common::test(unwrap_try = true)]
     async fn a_blocked_connection_during_reconnect_closes_with_the_reason() {
-        use crate::server_configuration::{BlockedConnection, ServerConfigurationHandle};
         use std::sync::atomic::AtomicUsize;
+        use xmtp_mls_server_config::server_configuration::{
+            BlockedConnection, ServerConfigurationHandle,
+        };
 
         for fail_resubscribe in [true, false] {
             let configuration = ServerConfigurationHandle::default();

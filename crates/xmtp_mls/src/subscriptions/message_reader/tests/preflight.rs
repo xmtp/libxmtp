@@ -1,10 +1,10 @@
 //! A public reader reports a client's failed configuration check, and a
 //! replacement reader checks again.
 
-use crate::groups::context::XmtpSharedContext;
-use crate::server_configuration::ServerConfigError;
 use crate::utils::test::preflight::*;
 use xmtp_common::RetryableError;
+use xmtp_mls_engine::groups::context::XmtpSharedContext;
+use xmtp_mls_server_config::server_configuration::ServerConfigError;
 use xmtp_proto::api::ApiClientError;
 
 #[xmtp_common::test(unwrap_try = true)]

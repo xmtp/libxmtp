@@ -4,7 +4,8 @@ use xmtp_db::StorageError;
 
 pub use xmtp_db::delivery::DeliveryFilter as LocalDeliveryFilter;
 
-use crate::subscriptions::{incoming::stream_api::RecoveryFailure, policy::StreamPolicy};
+use xmtp_mls_core::policy::StreamPolicy;
+use xmtp_mls_engine::subscriptions::incoming::stream_api::RecoveryFailure;
 
 const LEASE_RENEWAL_DIVISOR: u32 = 3;
 
@@ -80,16 +81,18 @@ pub enum LocalDeliveryError {
     NetworkRecoveryExhausted {
         attempts: u32,
         #[source]
-        source: Option<std::sync::Arc<crate::subscriptions::incoming::IncomingError>>,
+        source: Option<std::sync::Arc<xmtp_mls_engine::subscriptions::incoming::IncomingError>>,
     },
     /// A terminal network error stopped this stream. A transient configuration
     /// admission failure may be retried by opening a new reader.
     #[error("The message reader network failed: {0}")]
-    NetworkFailure(#[source] std::sync::Arc<crate::subscriptions::incoming::IncomingError>),
+    NetworkFailure(
+        #[source] std::sync::Arc<xmtp_mls_engine::subscriptions::incoming::IncomingError>,
+    ),
     /// The client's server configuration changed. Not retryable on this client.
     #[error(transparent)]
     #[error_code(inherit)]
-    Blocked(#[from] crate::server_configuration::BlockedConnection),
+    Blocked(#[from] xmtp_mls_server_config::server_configuration::BlockedConnection),
     /// Database receipt, lease, cursor, or acknowledgement failure. May be retryable.
     #[error(transparent)]
     #[error_code(inherit)]
@@ -122,7 +125,7 @@ impl From<RecoveryFailure> for LocalDeliveryError {
     }
 }
 
-impl crate::worker::NeedsDbReconnect for LocalDeliveryError {
+impl xmtp_mls_core::worker::NeedsDbReconnect for LocalDeliveryError {
     #[deny(clippy::wildcard_enum_match_arm)]
     fn needs_db_reconnect(&self) -> bool {
         match self {

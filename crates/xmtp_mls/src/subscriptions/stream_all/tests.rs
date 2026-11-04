@@ -1,5 +1,5 @@
 use super::*;
-use crate::groups::send_message_opts::SendMessageOpts;
+use xmtp_mls_engine::groups::send_message_opts::SendMessageOpts;
 
 use crate::subscriptions::local_delivery::LocalDelivery;
 use crate::subscriptions::stream_messages::stream_stats::StreamWithStats;
