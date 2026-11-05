@@ -145,6 +145,50 @@ pub(in crate::groups) async fn revoke(member: &EngineTestPeer, key: &[u8]) {
         .unwrap();
 }
 
+/// Store the signed `request` in the local identity history of each of
+/// `holders` only, one sequence id above the latest any of them holds after
+/// each loads the inbox's published updates, and return that sequence id.
+/// A backend refuses an installation that another inbox added, so a key that
+/// two inboxes hold comes only from a backend without that check; tests
+/// build such a history this way. Publish nothing to the inbox afterwards.
+pub(in crate::groups) async fn store_locally(
+    holders: &[&EngineTestPeer],
+    request: xmtp_id::associations::builder::SignatureRequest,
+) -> u64 {
+    use prost::Message;
+    use xmtp_db::identity_update::{QueryIdentityUpdates, StoredIdentityUpdate};
+    let inbox_id = request.inbox_id().to_string();
+    let update = xmtp_proto::xmtp::identity::associations::IdentityUpdate::from(
+        request.build_identity_update().unwrap(),
+    );
+    let mut latest = 0;
+    for holder in holders {
+        let db = holder.context.db();
+        xmtp_mls_identity::identity_updates::load_identity_updates(
+            holder.context.api(),
+            &db,
+            &[inbox_id.as_str()],
+        )
+        .await
+        .unwrap();
+        latest = latest.max(db.get_latest_sequence_id_for_inbox(&inbox_id).unwrap());
+    }
+    let stored = StoredIdentityUpdate::new(
+        inbox_id,
+        latest + 1,
+        xmtp_common::time::now_ns(),
+        update.encode_to_vec(),
+    );
+    for holder in holders {
+        holder
+            .context
+            .db()
+            .insert_or_ignore_identity_updates(std::slice::from_ref(&stored))
+            .unwrap();
+    }
+    stored.sequence_id as u64
+}
+
 // Adds a member to the group without the usual validations on group membership
 // Used for testing adversarial scenarios
 #[cfg(not(target_arch = "wasm32"))]

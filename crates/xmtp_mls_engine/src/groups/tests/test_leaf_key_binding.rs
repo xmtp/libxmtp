@@ -6,6 +6,7 @@
 use crate::groups::test_support::{
     EnginePeer, EngineSuiteOps, EngineTestGroup, EngineTestPeer, EngineTestPeerOps,
 };
+use crate::groups::tests::store_locally;
 use crate::groups::{
     GroupError,
     app_data::{membership_upkeep::membership_upkeep, stage_app_data_proposals_and_commit},
@@ -30,7 +31,7 @@ use xmtp_db::{
 };
 use xmtp_id::associations::{
     InstallationKeyContext, MemberIdentifier,
-    builder::SignatureRequestBuilder,
+    builder::{SignatureRequest, SignatureRequestBuilder},
     test_utils::{WalletTestExt, add_wallet_signature},
     unverified::UnverifiedSignature,
 };
@@ -129,9 +130,11 @@ async fn group(alix: &EngineTestPeer, bo: &EngineTestPeer) -> (EngineTestGroup, 
     (alix_group, bo_group)
 }
 
-/// Associate `installation` with the member's inbox. The caller holds the
-/// installation's private key.
-async fn associate(member: &Member, installation: &XmtpInstallationCredential) {
+/// The signed request that associates `installation` with the member's inbox.
+async fn association(
+    member: &Member,
+    installation: &XmtpInstallationCredential,
+) -> SignatureRequest {
     let client = &member.client;
     let mut request = SignatureRequestBuilder::new(client.inbox_id())
         .add_association(
@@ -150,11 +153,29 @@ async fn associate(member: &Member, installation: &XmtpInstallationCredential) {
         .await
         .unwrap();
     add_wallet_signature(&mut request, &member.wallet).await;
-    client
+    request
+}
+
+/// Associate `installation` with the member's inbox. The caller holds the
+/// installation's private key.
+async fn associate(member: &Member, installation: &XmtpInstallationCredential) {
+    member
+        .client
         .identity_updates()
-        .apply_signature_request(request)
+        .apply_signature_request(association(member, installation).await)
         .await
         .unwrap();
+}
+
+/// Associate `installation` with the member's inbox in the local histories of
+/// `holders` only, and return the update's sequence id. Use it for a key that
+/// another inbox already holds.
+async fn associate_locally(
+    member: &Member,
+    installation: &XmtpInstallationCredential,
+    holders: &[&EngineTestPeer],
+) -> u64 {
+    store_locally(holders, association(member, installation).await).await
 }
 
 /// The group's committed membership component.

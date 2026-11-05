@@ -111,7 +111,12 @@ mod tests {
     async fn create_inbox_round_trip() {
         let wallet = generate_local_wallet();
         let wallet_ident = wallet.identifier();
-        let client = ClientBuilder::new_test_client(&wallet).await;
+        // Not registered: the inbox below is the first to add its installation.
+        let client = ClientBuilder::new_test_builder(&wallet)
+            .await
+            .build()
+            .await
+            .unwrap();
 
         let mut signature_request: SignatureRequest = client
             .identity_updates()
@@ -272,26 +277,10 @@ mod tests {
 
         let mut inbox_ids: Vec<String> = vec![];
 
-        // Create an inbox with 2 history items for each client
-        for (client, wallet) in [
-            (client_1, wallet_1),
-            (client_2, wallet_2),
-            (client_3, wallet_3),
-        ] {
-            let mut signature_request: SignatureRequest = client
-                .identity_updates()
-                .create_inbox(wallet.identifier(), None)
-                .await
-                .unwrap();
-            let inbox_id = signature_request.inbox_id().to_string();
-            inbox_ids.push(inbox_id);
-
-            add_wallet_signature(&mut signature_request, &wallet).await;
-            client
-                .identity_updates()
-                .apply_signature_request(signature_request)
-                .await
-                .unwrap();
+        // Give each client's inbox 2 history items: its registration and an
+        // added wallet.
+        for client in [client_1, client_2, client_3] {
+            inbox_ids.push(client.inbox_id().to_string());
             let new_wallet = generate_local_wallet();
             let mut add_association_request = client
                 .identity_updates()
@@ -382,19 +371,7 @@ mod tests {
     async fn get_installation_diff_rejects_added_inbox_at_sequence_zero() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
-
-        let mut signature_request: SignatureRequest = client
-            .identity_updates()
-            .create_inbox(wallet.identifier(), None)
-            .await
-            .unwrap();
-        let inbox_id = signature_request.inbox_id().to_string();
-        add_wallet_signature(&mut signature_request, &wallet).await;
-        client
-            .identity_updates()
-            .apply_signature_request(signature_request)
-            .await
-            .unwrap();
+        let inbox_id = client.inbox_id().to_string();
 
         // This client holds all the identity updates. A read of the latest
         // state would succeed. So the `0` causes the rejection below.

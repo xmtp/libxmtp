@@ -5,20 +5,21 @@ use super::*;
 /// Bo's identity also associates Alix's installation key, so the key belongs
 /// to both inboxes. An update path that moves Alix's leaf to Bo's inbox, in a
 /// commit that raises Bo's entry to that identity state, must still be
-/// rejected: an update keeps the committer's inbox.
+/// rejected: an update keeps the committer's inbox. The association exists
+/// only in Alix's and Bo's local histories.
 // verifies: GMOD-043
 #[xmtp_common::test(unwrap_try = true)]
 async fn update_path_leaf_must_keep_committer_inbox() {
     let alix = member().await;
     let bo = member().await;
     let (alix_group, bo_group) = group(&alix.client, &bo.client).await;
-    associate(&bo, &alix.client.context.identity().installation_keys).await;
+    let bo_sequence = associate_locally(
+        &bo,
+        &alix.client.context.identity().installation_keys,
+        &[&alix.client, &bo.client],
+    )
+    .await;
     let bo_inbox_id = bo.client.inbox_id().to_string();
-    let bo_sequence = bo
-        .client
-        .context
-        .db()
-        .get_latest_sequence_id_for_inbox(&bo_inbox_id)? as u64;
     publish_path_credential(&alix.client, &alix_group, &bo_inbox_id, Some(bo_sequence)).await;
 
     let alix_key = alix.client.installation_public_key().to_vec();
@@ -213,7 +214,8 @@ async fn refresh_skips_package_that_names_another_inbox() {
 /// a pending Add of K's package, which names Mallory. Alix's refresh raises
 /// Bo's entry, so K is an expected addition under Bo only. The package does
 /// not name Bo, so the refresh records K as failed and leaves the pending Add
-/// out, instead of selecting a leaf that receivers reject.
+/// out, instead of selecting a leaf that receivers reject. Bo's association
+/// exists only in Alix's local history.
 // verifies: JOIN-093
 #[xmtp_common::test(unwrap_try = true)]
 async fn refresh_omits_pending_add_under_another_owner() {
@@ -223,8 +225,8 @@ async fn refresh_omits_pending_add_under_another_owner() {
     let (alix_group, bo_group) = group(&alix.client, &bo.client).await;
     let shared_key = XmtpInstallationCredential::new();
     let shared_key_id = shared_key.public_slice().to_vec();
-    associate(&bo, &shared_key).await;
     associate(&mallory, &shared_key).await;
+    associate_locally(&bo, &shared_key, &[&alix.client]).await;
     let mallory_inbox_id = mallory.client.inbox_id().to_string();
     let package = XmtpKeyPackage::builder()
         .inbox_id(mallory_inbox_id.clone())

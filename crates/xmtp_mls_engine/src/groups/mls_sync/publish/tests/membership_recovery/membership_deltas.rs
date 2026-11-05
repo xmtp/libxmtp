@@ -274,14 +274,16 @@ async fn uncommittable_membership_delta_is_omitted_whole(
     let alix = EngineTestPeer::new().await;
     let bo = EngineTestPeer::new().await;
     let caro = EngineTestPeer::new().await;
-    // Markers are real absent installations. The second belongs to both
-    // inboxes whose entries the uncommittable cases can replace.
+    // Markers are real absent installations. The omitted markers belong to
+    // the two inboxes whose entries the uncommittable cases can replace, one
+    // each, since an installation belongs to one inbox.
     let kept_key = XmtpInstallationCredential::new();
     let omitted_key = XmtpInstallationCredential::new();
+    let caro_omitted_key = XmtpInstallationCredential::new();
     for (client, installation) in [
         (&alix, &kept_key),
         (&alix, &omitted_key),
-        (&caro, &omitted_key),
+        (&caro, &caro_omitted_key),
     ] {
         let mut request = SignatureRequestBuilder::new(client.inbox_id())
             .add_association(
@@ -307,6 +309,7 @@ async fn uncommittable_membership_delta_is_omitted_whole(
     }
     let kept_marker = kept_key.public_slice().to_vec();
     let omitted_marker = omitted_key.public_slice().to_vec();
+    let caro_omitted_marker = caro_omitted_key.public_slice().to_vec();
     let [group, bo_group, caro_group] = group_of_three(&alix, &bo, &caro).await?;
     assert!(!has_leaf(&group, &kept_marker));
     assert!(!has_leaf(&group, &omitted_marker));
@@ -359,7 +362,7 @@ async fn uncommittable_membership_delta_is_omitted_whole(
             .update(caro_key, membership_entry(caro_stale, vec![])),
         UncommittableDelta::StaleInsertAfterDelete => TlsMapDelta::new().delete(caro_key).insert(
             caro_key,
-            membership_entry(caro_stale, vec![omitted_marker.clone()]),
+            membership_entry(caro_stale, vec![caro_omitted_marker.clone()]),
         ),
         // Field 1 announces five bytes and ends.
         UncommittableDelta::UndecodableEntry => {
@@ -409,6 +412,11 @@ async fn uncommittable_membership_delta_is_omitted_whole(
         assert_eq!(membership.members.len(), 3);
         assert!(membership.failed_installations.contains(&kept_marker));
         assert!(!membership.failed_installations.contains(&omitted_marker));
+        assert!(
+            !membership
+                .failed_installations
+                .contains(&caro_omitted_marker)
+        );
         assert!(has_leaf(peer, caro2.context.installation_id().as_slice()));
         assert_eq!(
             peer.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?,
