@@ -560,3 +560,109 @@ async fn rc4_client_holds_welcome_and_rc5_client_joins() {
         "the rc4 client must not join"
     );
 }
+
+/// While the committed floor is above this client's version, a standalone
+/// `GroupContextExtensions` proposal and a handshake beyond the sender's
+/// forward window are held, not rejected: a client at the floor may accept
+/// them.
+// verifies: GMOD-059, PROC-061
+#[rstest::rstest]
+#[case::unsupported_proposal(false, "unsupported_protocol_version")]
+#[case::far_forward_handshake(true, "mls_processing_failure")]
+#[xmtp_common::test(unwrap_try = true)]
+async fn floor_above_own_version_holds_unsupported_and_far_forward(
+    #[case] far_forward: bool,
+    #[case] held_code: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::groups::mls_sync::GroupHeadOutcome;
+    use openmls::prelude::{LeafNodeParameters, tls_codec::Serialize as _};
+    use xmtp_db::{
+        TransactionOutcome::Continue,
+        incoming_envelope::{QueryIncomingEnvelope, StreamTopic},
+    };
+    use xmtp_mls_core::state_tx::state_write;
+    use xmtp_proto::types::{OrderedEnvelopeBatch, Topic};
+
+    let mut newer = VersionInfo::default();
+    newer.test_update_version(
+        increment_patch_version(newer.pkg_version())
+            .unwrap()
+            .as_str(),
+    );
+    let alix = EngineTestPeer::new_with(|o| o.version_info = newer.clone()).await;
+    let bo = EngineTestPeer::new_with(|o| o.version_info = newer.clone()).await;
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    let bo_group = receive_group_invite(&bo).await;
+    alix_group.update_group_min_version_to_match_self().await?;
+    bo_group.receive().await?;
+    // Bo restarts on an older build, below the floor it already applied.
+    let bo = bo
+        .with_options(|o| o.version_info = VersionInfo::default())
+        .await;
+    let bo_group = bo.find_groups(GroupQueryArgs::default())?[0].clone();
+
+    let signer = alix.context.identity().installation_keys.clone();
+    let message = state_write(alix.context.mls_storage(), |tx| {
+        tx.with_group(alix_group.group_id, |mls, storage| {
+            let provider = XmtpOpenMlsProviderRef::new(storage);
+            let message = if far_forward {
+                let mut last = None;
+                for _ in 0..1_002 {
+                    let (message, _) = mls
+                        .propose_self_update(&provider, &signer, LeafNodeParameters::default())
+                        .unwrap();
+                    last = Some(message);
+                }
+                last.unwrap()
+            } else {
+                let extensions = mls.extensions().clone();
+                mls.propose_group_context_extensions(&provider, extensions, &signer)
+                    .unwrap()
+                    .0
+            };
+            Ok::<_, GroupError>(Continue(message.tls_serialize_detached()?))
+        })
+    })?
+    .into_continued();
+    let topic = StreamTopic::group(bo_group.group_id);
+    let db = bo.context.db();
+    let before = db.topic_progress(&topic)?;
+    let rejection = db.read_last_rejection(&topic)?;
+    alix.context
+        .api()
+        .send_group_messages(alix_group.prepare_group_messages(vec![(&message, false)])?)
+        .await?;
+    let wire_topic = Topic::new_group_message(bo_group.group_id);
+    let envelopes = bo
+        .context
+        .api()
+        .query_all(
+            [(wire_topic.clone(), before.received)].into(),
+            bo.context.api().limits().max_query_limit as u32,
+        )
+        .await?;
+    assert_eq!(envelopes.len(), 1);
+    bo.mls_store().admit_incoming_batch(
+        &OrderedEnvelopeBatch {
+            topic: wire_topic,
+            after: before.received,
+            envelopes: envelopes.into_iter().map(Into::into).collect(),
+        },
+        bo.context
+            .incoming_runtime()
+            .policy()
+            .incoming_limits(topic.kind),
+    )?;
+
+    let outcome = match bo_group.process_pending_group_head(None)? {
+        GroupHeadOutcome::Waiting { code, .. } => code,
+        GroupHeadOutcome::Progress { result, .. } => panic!("not held: {result:?}"),
+        _ => panic!("the message must be held"),
+    };
+    assert_eq!(outcome, held_code);
+    assert_eq!(db.read_last_rejection(&topic)?, rejection);
+    assert_eq!(db.topic_progress(&topic)?.processed, before.processed);
+    assert!(db.first_pending_envelope(&topic)?.is_some());
+    Ok(())
+}

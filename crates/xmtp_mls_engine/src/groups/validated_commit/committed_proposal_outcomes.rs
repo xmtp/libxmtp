@@ -199,3 +199,48 @@ async fn standalone_unsupported_proposals_are_terminal() {
         ]
     );
 }
+
+/// verifies: GMOD-059
+///
+/// A queued `SelfRemove`, `AppEphemeral`, custom or GREASE proposal is a
+/// terminal rejection under `validate_proposal`. Each is built from a real
+/// queued proposal with its body replaced, because OpenMLS does not let a
+/// member queue them through its API.
+#[xmtp_common::test(unwrap_try = true)]
+async fn validate_proposal_rejects_every_unsupported_type() {
+    use openmls::messages::proposals::{AppEphemeralProposal, CustomProposal};
+    let alix = EngineTestPeer::new().await;
+    let conversation = alix.create_group(None, None)?;
+    let provider = alix.context.mls_provider();
+    let mut group = OpenMlsGroup::load(
+        alix.context.mls_storage(),
+        &conversation.group_id.to_openmls(),
+    )??;
+    let signer = &alix.context.identity().installation_keys;
+    group.propose_group_context_extensions(&provider, group.extensions().clone(), signer)?;
+    let template = serde_json::to_value(group.pending_proposals().next()?)?;
+    let (immutable, mutable) = read_committed_metadata(&group)?;
+    for proposal in [
+        Proposal::SelfRemove,
+        Proposal::AppEphemeral(Box::new(AppEphemeralProposal::new(0x8001, vec![1]))),
+        Proposal::Custom(Box::new(CustomProposal::new(0xF000, vec![1]))),
+        Proposal::Custom(Box::new(CustomProposal::new(0x0A0A, vec![1]))),
+    ] {
+        let kind = proposal.proposal_type();
+        let mut queued = template.clone();
+        queued["proposal"] = serde_json::to_value(&proposal)?;
+        let queued: QueuedProposal = serde_json::from_value(queued)?;
+        assert_eq!(queued.proposal().proposal_type(), kind);
+        let error = validate_proposal(&queued, &group, &PolicySet::default(), &immutable, &mutable)
+            .unwrap_err();
+        assert!(
+            matches!(
+                &error,
+                CommitValidationError::Rule(CommitRuleError::UnsupportedProposalType(found))
+                    if *found == kind
+            ),
+            "{kind:?}: {error:?}"
+        );
+        assert!(error.is_safe_rejection(), "{kind:?}");
+    }
+}
