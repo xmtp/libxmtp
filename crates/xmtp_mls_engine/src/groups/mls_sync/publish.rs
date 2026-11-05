@@ -518,7 +518,11 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     // Receivers still judge the rest on read-back, so no
                     // pre-publish check runs for an omission alone.
                     dependencies.omitted_uncommittable = selection::commits_proposals(intent.kind)
-                        && selection::omit_uncommittable_proposals(group, storage)?;
+                        && selection::omit_uncommittable_proposals(
+                            group,
+                            storage,
+                            crate::groups::app_data::proposal_cap(self.context.api().limits()),
+                        )?;
                     let Some(mut data) =
                         self.get_publish_intent_data(storage, group, &intent, dependencies)?
                     else {

@@ -2,7 +2,7 @@
 //! selection, and the omission of proposals no commit can carry.
 
 use super::*;
-use crate::groups::app_data::Committable;
+use crate::groups::app_data::{Committable, proposal_cap};
 use crate::groups::group_permissions::MembershipPolicy;
 use openmls::group::QueuedProposal;
 use openmls::messages::proposals::AppDataUpdateOperation;
@@ -425,8 +425,14 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 requirements.omit_dependencies(&inbox, &mut selection.omitted)?;
                 own_inboxes.insert(inbox);
             }
+            // implements: GMOD-047
             // An accepted delta for this exact request can be committed by
             // reference. Re-signing it would repeat the same proposal reference.
+            // Only the oldest stands for the request; other copies are other
+            // members' deltas, which stay omitted or count toward the cap.
+            if let Some(first) = same_request.iter().min().copied() {
+                same_request.retain(|index| *index == first);
+            }
             selection
                 .omitted
                 .retain(|index| !same_request.contains(index));
@@ -434,6 +440,26 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         } else {
             None
         };
+        // implements: GMOD-047
+        // Keep the oldest membership deltas up to the cap, counting each
+        // reference once and not the intent's own accepted delta. The loop
+        // below drops the Adds and Removes that depended on an omitted one.
+        let cap = proposal_cap(self.context.api().limits());
+        let mut counted = HashSet::new();
+        for (index, proposal) in requirements.proposals.iter().enumerate() {
+            if membership_operation(proposal).is_none() || same_request.contains(&index) {
+                continue;
+            }
+            let reference = proposal.proposal_reference_ref();
+            if counted.contains(reference) {
+                continue;
+            }
+            if counted.len() < cap {
+                counted.insert(reference);
+            } else {
+                selection.omitted.insert(index);
+            }
+        }
         let mut pending = Vec::new();
         for (index, proposal) in requirements.proposals.iter().enumerate() {
             if let Proposal::Add(add) = proposal.proposal() {
@@ -854,15 +880,16 @@ pub(super) fn commits_proposals(kind: IntentKind) -> bool {
     )
 }
 
-/// Drop each pending proposal no commit can carry, and each `AppDataUpdate`
-/// past the cap (see [`Committable::pending`]), and return whether any was
-/// dropped. It expires with the epoch.
+/// Drop each pending proposal no commit can carry, and each non-membership
+/// `AppDataUpdate` past `cap` (see [`Committable::pending`]), and return
+/// whether any was dropped. It expires with the epoch.
 // implements: GMOD-047
 pub(super) fn omit_uncommittable_proposals(
     group: &mut OpenMlsGroup,
     storage: &impl XmtpMlsStorageProvider,
+    cap: usize,
 ) -> Result<bool, GroupError> {
-    let kept: Vec<_> = Committable::pending(group)?
+    let kept: Vec<_> = Committable::pending(group, cap)?
         .proposals
         .into_iter()
         .cloned()

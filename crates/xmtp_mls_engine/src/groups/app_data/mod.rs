@@ -247,9 +247,20 @@ impl<'a> AppDataBatch<'a> {
     }
 }
 
-/// Most pending non-membership `AppDataUpdate`s one commit references:
-/// about 34 KiB of references.
-const MAX_APP_DATA_PROPOSALS: usize = 1_000;
+/// Most pending `AppDataUpdate`s of one class, membership or other, that one
+/// commit references: about 34 KiB of references.
+pub(crate) const MAX_APP_DATA_PROPOSALS: usize = 1_000;
+
+/// Bytes of envelope each class of pending `AppDataUpdate`s may take, at
+/// about 34 bytes per reference: a quarter of the envelope.
+const BYTES_PER_CAPPED_PROPOSAL: usize = 136;
+
+/// Most pending `AppDataUpdate`s of one class that a commit references under
+/// `limits`, so both classes together take at most half the envelope.
+// implements: GMOD-047
+pub(crate) fn proposal_cap(limits: &xmtp_configuration::LimitsConfiguration) -> usize {
+    MAX_APP_DATA_PROPOSALS.min(limits.max_envelope_bytes / BYTES_PER_CAPPED_PROPOSAL)
+}
 
 /// The pending proposals one commit can carry, in store order, and the
 /// batch they produce.
@@ -284,16 +295,20 @@ impl<'a> Committable<'a> {
     /// The post-commit membership comes from the kept proposals, so the
     /// filter runs again over the kept ones until that membership stops
     /// changing. Each further pass keeps fewer, so this ends.
+    ///
+    /// `cap` bounds the non-membership `AppDataUpdate`s kept; commit
+    /// building passes [`proposal_cap`], and selection caps membership
+    /// deltas before this runs.
     // implements: GMOD-047
-    pub(crate) fn pending(group: &'a OpenMlsGroup) -> Result<Self, GroupError> {
+    pub(crate) fn pending(group: &'a OpenMlsGroup, cap: usize) -> Result<Self, GroupError> {
         let mut seen = HashSet::new();
-        let mut budget = MAX_APP_DATA_PROPOSALS;
+        let mut budget = cap;
         let mut proposals: Vec<_> = group
             .pending_proposals()
             .filter(|queued| seen.insert(queued.proposal_reference_ref()))
             // implements: GMOD-047
-            // Membership proposals depend on each other; keep them all.
-            // Keep the oldest other AppDataUpdates; the rest expire with the epoch.
+            // Selection has already capped the membership deltas. Keep the
+            // oldest other AppDataUpdates; the rest expire with the epoch.
             .filter(|queued| match queued.proposal() {
                 Proposal::AppDataUpdate(update)
                     if update.component_id() != ComponentId::GROUP_MEMBERSHIP.as_u16() =>
@@ -640,7 +655,7 @@ pub(crate) fn pending_dictionary(
             .map(|extension| extension.dictionary().clone())
             .unwrap_or_default(),
     );
-    for (id, value) in Committable::pending(mls_group)?
+    for (id, value) in Committable::pending(mls_group, MAX_APP_DATA_PROPOSALS)?
         .batch
         .updates()
         .into_iter()
