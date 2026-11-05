@@ -130,7 +130,7 @@ In the catalogue, "RPC" means the three labels of the route table. `grpc_code` i
 | `xmtp_db_released_open_transactions_total` | counter | none | Transactions found open and rolled back when a connection returned to the pool. |
 | `xmtp_db_errors_total` | counter | `kind` (`timeout`, `invariant`, `connection`, `other`) | Database errors that were mapped to a gRPC status. |
 | `xmtp_publish_envelopes_total` | counter | `outcome` (`stored`, `duplicate`, `rejected`) | Every position of a decoded publish, counted once by its response origin; `rejected` for every position when the request fails after decoding. |
-| `xmtp_publish_rejections_total` | counter | `reason` (`REASON_MALFORMED_PAYLOAD`, `REASON_INVALID_KEY_PACKAGE`, `REASON_INVALID_IDENTITY_UPDATE`, `REASON_INVALID_SIGNATURE`, `REASON_TOO_LARGE`, `REASON_HANDLE_TAKEN`, `REASON_HANDLE_NOT_ALLOWED`, `REASON_HANDLE_TOO_SOON`) | One per publish rejected by validation, with the `PublishError.reason` it returned. |
+| `xmtp_publish_rejections_total` | counter | `reason` (`REASON_MALFORMED_PAYLOAD`, `REASON_INVALID_KEY_PACKAGE`, `REASON_INVALID_IDENTITY_UPDATE`, `REASON_INVALID_SIGNATURE`, `REASON_TOO_LARGE`, `REASON_HANDLE_TAKEN`, `REASON_HANDLE_NOT_ALLOWED`, `REASON_HANDLE_TOO_SOON`, `REASON_INSTALLATION_TAKEN`) | One per publish rejected by validation, with the `PublishError.reason` it returned. |
 | `xmtp_scw_verifications_total` | counter | `result` (`valid`, `invalid`, `error`) | One per smart contract wallet verification, including ones answered from the cache. |
 | `xmtp_stream_sessions` | gauge | `kind` (`bidi`, `static`) | Registered stream sessions. |
 | `xmtp_stream_topics_registered` | gauge | none | Registered topic interests across all sessions. |

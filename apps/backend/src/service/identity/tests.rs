@@ -1,6 +1,7 @@
 use crate::test_support as support;
 
 mod handles;
+mod installations;
 
 use crate::api;
 use crate::api::publish_error::Reason;
@@ -782,6 +783,29 @@ fn rejection(error: &tonic::Status) -> support::TestResult<Reason> {
     assert_eq!(error.code(), Code::InvalidArgument, "{error:?}");
     let status = tonic_types::pb::Status::decode(error.details())?;
     Ok(api::PublishError::decode(status.details[0].value.as_slice())?.reason())
+}
+
+/// The index and reason a refused publish reports.
+fn refusal(error: &tonic::Status) -> support::TestResult<(Option<u32>, Reason)> {
+    assert_eq!(error.code(), Code::InvalidArgument, "{error:?}");
+    let status = tonic_types::pb::Status::decode(error.details())?;
+    let detail = api::PublishError::decode(status.details[0].value.as_slice())?;
+    Ok((detail.index, detail.reason()))
+}
+
+/// Publish `updates` in one request and return what the refusal reports.
+async fn refused(
+    server: &support::RunningServer,
+    updates: Vec<IdentityUpdate>,
+) -> support::TestResult<(Option<u32>, Reason)> {
+    let error = server
+        .publisher()
+        .publish(api::PublishRequest {
+            envelopes: updates.into_iter().map(identity_envelope).collect(),
+        })
+        .await
+        .expect_err("the publish is refused");
+    refusal(&error)
 }
 
 /// A `ClientEnvelope` holding an encoded identity update.

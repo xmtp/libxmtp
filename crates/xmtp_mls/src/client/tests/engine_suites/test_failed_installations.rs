@@ -22,10 +22,13 @@ async fn missing_package_is_recorded() {
     tester!(bo);
     tester!(caro);
 
-    // The same absent installation belongs to both inboxes; both retain a primary.
-    let absent = XmtpInstallationCredential::new();
-    let absent_id = absent.public_slice().to_vec();
-    for member in [&bo, &caro] {
+    // Each inbox has an absent installation of its own and keeps a primary.
+    let bo_absent = XmtpInstallationCredential::new();
+    let caro_absent = XmtpInstallationCredential::new();
+    let bo_absent_id = bo_absent.public_slice().to_vec();
+    let caro_absent_id = caro_absent.public_slice().to_vec();
+    for (member, absent) in [(&bo, &bo_absent), (&caro, &caro_absent)] {
+        let absent_id = absent.public_slice().to_vec();
         let mut request = SignatureRequestBuilder::new(member.inbox_id())
             .add_association(
                 MemberIdentifier::installation(absent_id.clone()),
@@ -69,20 +72,22 @@ async fn missing_package_is_recorded() {
             .failed_installations
             .iter()
             .collect::<HashSet<_>>(),
-        HashSet::from([&absent_id]),
-        "the installation with no key package must be recorded as failed"
+        HashSet::from([&bo_absent_id, &caro_absent_id]),
+        "each installation with no key package must be recorded as failed"
     );
-    assert!(
-        !leaves.contains(&absent_id),
-        "the absent installation must have no leaf"
-    );
-    for joiner in [&bo, &caro] {
+    for joiner_absent_id in [&bo_absent_id, &caro_absent_id] {
+        assert!(
+            !leaves.contains(joiner_absent_id),
+            "an absent installation must have no leaf"
+        );
+    }
+    for (joiner, absent_id) in [(&bo, &bo_absent_id), (&caro, &caro_absent_id)] {
         assert!(leaves.contains(joiner.installation_public_key().as_slice()));
         assert!(
             failed
                 .of(joiner.inbox_id())
-                .is_some_and(|keys| keys.contains(&absent_id)),
-            "each inbox that owns the absent installation must list its failure"
+                .is_some_and(|keys| keys.contains(absent_id)),
+            "each inbox must list the failure of its absent installation"
         );
         let state = joiner
             .identity_updates()

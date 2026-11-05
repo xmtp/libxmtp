@@ -138,7 +138,10 @@ async fn open_client(path: &str, strategy: IdentityStrategy) -> FullXmtpClient {
 #[xmtp_common::test(unwrap_try = true, flavor = "multi_thread")]
 async fn installation_key_is_wiped_on_store_and_load() {
     let wallet = generate_local_wallet();
-    let credential = XmtpInstallationCredential::from_bytes(&INSTALLATION_KEY)?;
+    // A fresh key: the backend admits each installation for one inbox only,
+    // so a fixed key fails on any later run against the same backend.
+    let installation_key = xmtp_cryptography::rand::rand_array::<32>();
+    let credential = XmtpInstallationCredential::from_bytes(&installation_key)?;
     let identity = identity_lifecycle::new_inbox_with_installation_keys(
         wallet.get_identifier()?,
         1,
@@ -148,7 +151,7 @@ async fn installation_key_is_wiped_on_store_and_load() {
     let path = xmtp_common::tmp_path();
 
     let ((), hits) = scan_async(
-        &[Canary::new(&INSTALLATION_KEY)],
+        &[Canary::new(&installation_key)],
         traced(async {
             let client = open_client(&path, IdentityStrategy::ExternalIdentity(identity)).await;
             register_client(&client, &wallet).await;

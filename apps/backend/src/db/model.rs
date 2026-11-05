@@ -52,6 +52,9 @@ pub(crate) struct IdentityAdmission {
     pub head: Option<i64>,
     /// The handle the update claims, once validation has accepted the claim.
     pub claim: Option<xmtp_id::associations::Handle>,
+    /// The installation keys the update adds, once validation has accepted
+    /// the update.
+    pub installations: Vec<Vec<u8>>,
 }
 
 pub(crate) struct PendingEnvelope {

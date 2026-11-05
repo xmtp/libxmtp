@@ -252,7 +252,8 @@ mod descriptor_tests {
     }
 
     /// The publish rejection reasons keep their numbers, the three handle
-    /// reasons included, so a client reads each reason the backend sends.
+    /// reasons and the installation reason included, so a client reads each
+    /// reason the backend sends.
     // verifies: API-210
     #[xmtp_common::test(unwrap_try = true)]
     fn publish_error_reasons_match_the_wire_contract() {
@@ -287,6 +288,7 @@ mod descriptor_tests {
                 ("REASON_HANDLE_TAKEN", 6),
                 ("REASON_HANDLE_NOT_ALLOWED", 7),
                 ("REASON_HANDLE_TOO_SOON", 8),
+                ("REASON_INSTALLATION_TAKEN", 9),
             ]
         );
     }

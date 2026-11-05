@@ -5,10 +5,8 @@ use super::membership_recovery::{
 };
 use super::*;
 use crate::groups::send_message_opts::SendMessageOpts;
-use crate::groups::test_support::{
-    EngineSuiteOps, EngineTestGroup, EngineTestPeer, EngineTestPeerOps,
-};
-use crate::groups::tests::revoke;
+use crate::groups::test_support::{EngineTestGroup, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::tests::{revoke, store_locally};
 use openmls::messages::proposals::AppDataUpdateOperation;
 use tls_codec::{Serialize, VLBytes};
 use xmtp_cryptography::CredentialSign;
@@ -40,7 +38,13 @@ fn entry_update(inbox: &str, sequence: u64, failures: Vec<Vec<u8>>) -> Vec<u8> {
         .unwrap()
 }
 
-async fn associate(member: &EngineTestPeer, installation: &EngineTestPeer) {
+/// Associate `installation`'s key with `member`'s inbox in the local histories
+/// of `holders` only: the backend refuses a key that another inbox added.
+async fn associate_locally(
+    member: &EngineTestPeer,
+    installation: &EngineTestPeer,
+    holders: &[&EngineTestPeer],
+) {
     let key = &installation.context.identity().installation_keys;
     let mut request = SignatureRequestBuilder::new(member.inbox_id())
         .add_association(
@@ -59,11 +63,19 @@ async fn associate(member: &EngineTestPeer, installation: &EngineTestPeer) {
         .await
         .unwrap();
     add_wallet_signature(&mut request, &member.owner).await;
-    member
-        .identity_updates()
-        .apply_signature_request(request)
-        .await
-        .unwrap();
+    store_locally(holders, request).await;
+}
+
+/// Revoke `key` from `member`'s inbox in the local histories of `holders` only.
+async fn revoke_locally(member: &EngineTestPeer, key: &[u8], holders: &[&EngineTestPeer]) {
+    let mut request = SignatureRequestBuilder::new(member.inbox_id())
+        .revoke_association(
+            member.owner.identifier().into(),
+            MemberIdentifier::installation(key.to_vec()),
+        )
+        .build();
+    add_wallet_signature(&mut request, &member.owner).await;
+    store_locally(holders, request).await;
 }
 
 async fn accept_delta(group: &EngineTestGroup, payload: Vec<u8>) -> Result<(), GroupError> {
@@ -105,7 +117,7 @@ async fn shared_key_revocation_delta_without_remove_is_omitted(
     let alix = EngineTestPeer::new().await;
     let alix2 = alix.new_installation().await;
     let bo = EngineTestPeer::new().await;
-    associate(&bo, &alix2).await;
+    associate_locally(&bo, &alix2, &[&alix]).await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -138,7 +150,7 @@ async fn shared_key_revocation_delta_without_remove_is_omitted(
             .contains(&key)
     );
 
-    revoke(&bo, &key).await;
+    revoke_locally(&bo, &key, &[&alix]).await;
     let old_sequence = committed_membership(&group)
         .get(bo.inbox_id())
         .copied()
