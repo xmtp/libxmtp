@@ -142,6 +142,11 @@ impl AdmissionError {
             Self::Handle(rejection) => {
                 publish_invalid(Some(index), rejection.reason(), rejection.message())
             }
+            Self::InstallationTaken => publish_invalid(
+                Some(index),
+                Reason::InstallationTaken,
+                "installation was added by another inbox",
+            ),
         }
     }
 }

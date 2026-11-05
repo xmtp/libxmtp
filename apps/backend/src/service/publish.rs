@@ -329,6 +329,7 @@ impl Backend {
                         inbox_id: parsed.topic.identifier().to_vec(),
                         head: None,
                         claim: None,
+                        installations: Vec::new(),
                     }
                 }),
                 index,
@@ -363,6 +364,8 @@ impl Backend {
     /// payload kinds use shared structural validation, and verifier
     /// retryability is preserved for transport mapping. A claim that passes validation then passes the
     /// handle policy that needs no lock; the taken check runs during commit.
+    /// An accepted update also keeps the installation keys it adds, for the
+    /// check during commit that no other inbox added them.
     /// Publish signatures are verified last, together, by
     /// [`Self::verify_signatures`], the only place that verifies them:
     /// [`validate_envelope`] does not. No failure stops validation of the
@@ -429,6 +432,13 @@ impl Backend {
                     continue;
                 }
             };
+            if let (Some(Payload::IdentityUpdate(update)), Some(identity), Some(_)) = (
+                &parsed.envelope.payload,
+                item.identity.as_mut(),
+                &validation,
+            ) {
+                identity.installations = crate::validation::added_installations(update);
+            }
             item.validation = match validation {
                 Some(validation) => match validation.claimed_handles.first() {
                     Some(handle) => {

@@ -5,7 +5,9 @@ use tonic::Status;
 use xmtp_id::associations::{Handle, Identifier, MemberIdentifier};
 use xmtp_id::scw_verifier::{BlockStamp, ChainBlocks, VerifierError};
 use xmtp_mls_validation::AssociationValidation;
-use xmtp_proto::xmtp::identity::associations::IdentifierKind;
+use xmtp_proto::xmtp::identity::associations::{
+    IdentifierKind, IdentityUpdate, identity_action, member_identifier,
+};
 
 /// Parse and normalize one lookup key.
 ///
@@ -104,6 +106,29 @@ pub(crate) fn projection(validation: &AssociationValidation) -> Projection {
             .filter(|key| !active.contains(key) && prior.contains(key))
             .collect(),
     }
+}
+
+/// The installation key of each `AddAssociation` in `update` whose new member
+/// is an installation, without repeats.
+///
+/// It reads the actions, not the validated diff, so an installation that the
+/// same update adds and then revokes is still counted as added.
+pub(crate) fn added_installations(update: &IdentityUpdate) -> Vec<Vec<u8>> {
+    let mut seen = HashSet::new();
+    update
+        .actions
+        .iter()
+        .filter_map(|action| match &action.kind {
+            Some(identity_action::Kind::Add(add)) => {
+                match &add.new_member_identifier.as_ref()?.kind {
+                    Some(member_identifier::Kind::InstallationPublicKey(key)) => Some(key.clone()),
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
+        .filter(|key| seen.insert(key.clone()))
+        .collect()
 }
 
 /// Chain block reads for one publish: each block's timestamp is read once and

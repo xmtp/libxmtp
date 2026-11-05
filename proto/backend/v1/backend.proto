@@ -272,6 +272,8 @@ message PublishError {
     REASON_HANDLE_NOT_ALLOWED = 7;
     // The inbox claimed a handle less than 7 days ago.
     REASON_HANDLE_TOO_SOON = 8;
+    // Another inbox has added the installation.
+    REASON_INSTALLATION_TAKEN = 9;
   }
 
   // Index of the failing envelope in the request. Absent for request-level

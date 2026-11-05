@@ -12,29 +12,6 @@ use support::{
 /// Just over the interval between claims.
 const PAST_INTERVAL: Duration = Duration::from_secs(8 * 24 * 60 * 60);
 
-/// The index and reason a refused publish reports.
-fn refusal(error: &tonic::Status) -> support::TestResult<(Option<u32>, Reason)> {
-    assert_eq!(error.code(), Code::InvalidArgument, "{error:?}");
-    let status = tonic_types::pb::Status::decode(error.details())?;
-    let detail = api::PublishError::decode(status.details[0].value.as_slice())?;
-    Ok((detail.index, detail.reason()))
-}
-
-/// Publish `updates` in one request and return what the refusal reports.
-async fn refused(
-    server: &RunningServer,
-    updates: Vec<IdentityUpdate>,
-) -> support::TestResult<(Option<u32>, Reason)> {
-    let error = server
-        .publisher()
-        .publish(api::PublishRequest {
-            envelopes: updates.into_iter().map(identity_envelope).collect(),
-        })
-        .await
-        .expect_err("the publish is refused");
-    refusal(&error)
-}
-
 /// A second backend on the same database with `change` applied to the
 /// configuration, as an operator restart with a new setting gives.
 async fn restarted(

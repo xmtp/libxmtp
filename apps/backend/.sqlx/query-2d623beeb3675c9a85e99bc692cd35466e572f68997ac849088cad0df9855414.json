@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT wanted.ordinality AS \"ordinality!\"\n        FROM unnest($1::bytea[], $2::bytea[]) WITH ORDINALITY AS wanted(installation_key, inbox_id, ordinality)\n        WHERE EXISTS (\n            SELECT 1 FROM installation_association a\n            WHERE a.installation_key = wanted.installation_key AND a.inbox_id <> wanted.inbox_id\n        )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ordinality!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "ByteaArray",
+        "ByteaArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "2d623beeb3675c9a85e99bc692cd35466e572f68997ac849088cad0df9855414"
+}

@@ -1,4 +1,4 @@
-use super::{History, Projection, Store};
+use super::{History, PendingEnvelope, Projection, Store};
 use crate::error::Error;
 use sqlx::{Postgres, Transaction};
 
@@ -64,5 +64,45 @@ pub(crate) async fn apply_projection(
             AND (current.revocation_sequence_id IS NULL OR current.revocation_sequence_id < $4::bigint)",
         &identifiers, &kinds, inbox, id
     ).execute(&mut **tx).await?;
+    Ok(())
+}
+
+/// Record the inbox that added each installation the new updates add, in the
+/// same transaction as their envelopes.
+///
+/// The caller has already refused an installation another inbox added, so a
+/// row that exists names the same inbox and is kept. A conflict with another
+/// inbox fails the primary key and aborts the transaction.
+#[xmtp_common::db_span]
+pub(crate) async fn record_installations(
+    tx: &mut Transaction<'_, Postgres>,
+    new: &[&PendingEnvelope],
+) -> Result<(), Error> {
+    let (keys, inboxes): (Vec<Vec<u8>>, Vec<Vec<u8>>) = new
+        .iter()
+        .filter_map(|item| item.identity.as_ref())
+        .flat_map(|identity| {
+            identity
+                .installations
+                .iter()
+                .map(|key| (key.clone(), identity.inbox_id.clone()))
+        })
+        .unzip();
+    if keys.is_empty() {
+        return Ok(());
+    }
+    sqlx::query!(
+        "INSERT INTO installation_association (installation_key, inbox_id)
+        SELECT DISTINCT r.installation_key, r.inbox_id
+        FROM unnest($1::bytea[], $2::bytea[]) AS r(installation_key, inbox_id)
+        WHERE NOT EXISTS (
+            SELECT 1 FROM installation_association a
+            WHERE a.installation_key = r.installation_key AND a.inbox_id = r.inbox_id
+        )",
+        &keys,
+        &inboxes
+    )
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }

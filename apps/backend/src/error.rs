@@ -33,6 +33,8 @@ pub enum AdmissionError {
     InvalidIdentity(&'static str),
     /// A claim that every validator accepts and the backend's handle policy refuses.
     Handle(crate::handles::HandleRejection),
+    /// An update that adds an installation another inbox has added.
+    InstallationTaken,
 }
 
 impl From<ValidationError> for AdmissionError {

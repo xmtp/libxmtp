@@ -359,6 +359,8 @@ A registration is published to the inbox's identity topic and confirmed by the p
 
 Every party that decides whether an installation belongs to an inbox does so at a sequence id: a Welcome names one per inbox (JOIN-052, JOIN-053), a group's membership component names one per inbox (GMOD-005), and GMOD-029 owns reconciliation with later identity state. The state at a sequence id is one value for every party, and the installations an inbox has at that point are the members of kind installation in it. A sequence id that no update in the log carries names no state (IDENT-070). A client caches states it has derived; a cached state is one it derived itself.
 
+Only the backend checks that no two inboxes add one installation (API-305). No validator rejects such an update, so a stored log keeps applying, and a backend that admits one installation for two inboxes is seen only by a client that derives both states.
+
 A pre-authentication handler is an app callback that the SDK calls before it asks the signer to sign a registration, for example so the app can show its wallet or passkey prompt (IDENT-076).
 
 | ID | Title | Requirement | Why |
