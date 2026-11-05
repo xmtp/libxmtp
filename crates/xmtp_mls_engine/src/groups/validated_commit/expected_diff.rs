@@ -170,9 +170,9 @@ pub(super) fn validate_new_failed_installations(
     Ok(())
 }
 
-/// Apply the sharing and accounting rules with the cached identity states
-/// they read. A missing state holds the commit instead of rejecting it.
-// implements: GMOD-057, GMOD-060
+/// Apply the accounting rule with the cached identity states it reads. A
+/// missing state holds the commit instead of rejecting it.
+// implements: GMOD-057
 pub(super) fn validate_accounting(
     conn: &impl DbQuery,
     change: &MembershipChange<'_>,
@@ -196,7 +196,6 @@ pub(super) fn validate_accounting(
             sequence_id,
         })
     };
-    validate_unshared_installations(change, associated)?;
     validate_membership_accounting(change, associated)?;
     Ok(())
 }

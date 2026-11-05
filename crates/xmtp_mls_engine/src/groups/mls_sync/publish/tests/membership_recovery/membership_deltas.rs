@@ -275,8 +275,7 @@ async fn uncommittable_membership_delta_is_omitted_whole(
     let bo = EngineTestPeer::new().await;
     let caro = EngineTestPeer::new().await;
     // Markers are real absent installations. Each inbox whose entry the
-    // uncommittable cases can replace has its own: one key never belongs to
-    // two member inboxes.
+    // uncommittable cases can replace has its own.
     let kept_key = XmtpInstallationCredential::new();
     let alix_marker_key = XmtpInstallationCredential::new();
     let caro_marker_key = XmtpInstallationCredential::new();

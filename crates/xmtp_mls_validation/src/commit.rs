@@ -87,10 +87,6 @@ pub enum CommitRuleError {
     /// that was not unaccounted for it before the commit.
     #[error("Commit leaves an installation of {0} unaccounted")]
     UnaccountedInstallation(String),
-    /// After the commit, this inbox holds an installation key that another
-    /// member inbox also holds, and they did not both hold it before.
-    #[error("Commit makes {0} hold an installation key that another inbox holds")]
-    SharedInstallation(String),
     #[error(transparent)]
     GroupMetadata(#[from] GroupMetadataError),
     #[error(transparent)]
@@ -165,7 +161,6 @@ impl CommitRuleError {
             | Self::SequenceIdDecreased
             | Self::UnexpectedInstallationsRemoved(_)
             | Self::UnaccountedInstallation(_)
-            | Self::SharedInstallation(_)
             | Self::MlsCredential(_)
             | Self::ProtoDecode(_)
             | Self::NoPSKSupport

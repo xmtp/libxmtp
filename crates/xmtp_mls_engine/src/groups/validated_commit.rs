@@ -44,7 +44,6 @@ use xmtp_mls_validation::{
     group_permissions::{GroupMutablePermissionsError, MembershipPolicy, PolicySet},
     membership_accounting::{
         MembershipChange, leaf_owners_after_commit, validate_membership_accounting,
-        validate_unshared_installations,
     },
 };
 use xmtp_proto::xmtp::mls::message_contents::{

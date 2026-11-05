@@ -8,10 +8,6 @@
 //! unaccounted that already was, but may not leave a new one. Receivers and
 //! the commit builder both call [`validate_membership_accounting`], so they
 //! cannot disagree.
-//!
-//! An installation key also has one inbox in a group. A commit may not make
-//! two member inboxes hold one key ([`validate_unshared_installations`]), so
-//! revoking a key never removes a leaf that another inbox still needs.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
@@ -81,95 +77,6 @@ impl MembershipChange<'_> {
             })
             .collect()
     }
-}
-
-/// The member inboxes of `members` that hold each key: the inbox a leaf's
-/// credential names, each inbox whose entry lists the key as failed, and,
-/// for an inbox in `touched`, each key its referenced identity state
-/// associates.
-fn holders<'s>(
-    members: &GroupMembership,
-    leaves: &HashMap<Vec<u8>, String>,
-    failed: &FailedInstallations,
-    touched: &BTreeSet<&str>,
-    associated: &impl Fn(&str, u64) -> Option<&'s HashSet<Vec<u8>>>,
-) -> HashMap<Vec<u8>, BTreeSet<String>> {
-    let mut held = key_holders(members, leaves, failed);
-    for inbox in touched {
-        let Some(&sequence_id) = members.get(inbox).filter(|sequence_id| **sequence_id != 0) else {
-            continue;
-        };
-        for key in associated(inbox, sequence_id).into_iter().flatten() {
-            held.entry(key.clone())
-                .or_default()
-                .insert(inbox.to_string());
-        }
-    }
-    held
-}
-
-/// The member inboxes that hold each key through a leaf or a failure
-/// listing, as a group's state shows them without any identity state.
-pub fn key_holders(
-    members: &GroupMembership,
-    leaves: &HashMap<Vec<u8>, String>,
-    failed: &FailedInstallations,
-) -> HashMap<Vec<u8>, BTreeSet<String>> {
-    let mut held: HashMap<Vec<u8>, BTreeSet<String>> = HashMap::new();
-    let listed = failed
-        .0
-        .iter()
-        .flat_map(|(inbox, keys)| keys.iter().map(move |key| (key, inbox)));
-    for (key, inbox) in leaves.iter().chain(listed) {
-        if members.get(inbox).is_some() {
-            held.entry(key.clone()).or_default().insert(inbox.clone());
-        }
-    }
-    held
-}
-
-/// Reject a commit after which two member inboxes hold one installation key
-/// that they did not both hold before it. An inbox holds a key through a
-/// leaf whose credential names it, a listing in its entry's failed
-/// installations, or, when the commit touches the inbox, its referenced
-/// identity state. A commit that touches no inbox adds no holder.
-///
-/// `associated` is read as for [`validate_membership_accounting`].
-// implements: GMOD-060
-pub fn validate_unshared_installations<'s>(
-    change: &MembershipChange<'_>,
-    associated: impl Fn(&str, u64) -> Option<&'s HashSet<Vec<u8>>>,
-) -> Result<(), CommitRuleError> {
-    let touched = change.touched();
-    let before = holders(
-        change.old,
-        change.leaves_before,
-        change.old_failed,
-        &touched,
-        &associated,
-    );
-    let after = holders(
-        change.new,
-        change.leaves_after,
-        change.new_failed,
-        &touched,
-        &associated,
-    );
-    let mut shared: Vec<_> = after
-        .iter()
-        .filter(|(_, inboxes)| inboxes.len() > 1)
-        .collect();
-    shared.sort();
-    for (key, inboxes) in shared {
-        let held_before = before.get(key);
-        if let Some(inbox) = inboxes
-            .iter()
-            .find(|inbox| !held_before.is_some_and(|held| held.contains(*inbox)))
-        {
-            return Err(CommitRuleError::SharedInstallation(inbox.clone()));
-        }
-    }
-    Ok(())
 }
 
 /// The keys of `associated` that have no leaf and are not in `failed`.
@@ -346,12 +253,6 @@ mod tests {
 
         fn validate(&self, change: &MembershipChange<'_>) -> Result<(), CommitRuleError> {
             validate_membership_accounting(change, |inbox, sequence_id| {
-                self.0.get(&(inbox.to_string(), sequence_id))
-            })
-        }
-
-        fn validate_unshared(&self, change: &MembershipChange<'_>) -> Result<(), CommitRuleError> {
-            validate_unshared_installations(change, |inbox, sequence_id| {
                 self.0.get(&(inbox.to_string(), sequence_id))
             })
         }
@@ -556,71 +457,5 @@ mod tests {
         };
         assert_eq!(commit.change().references(), BTreeSet::from([(ALIX, 1)]));
         assert!(rejected(states.validate(&commit.change()), ALIX));
-    }
-
-    fn shared(result: Result<(), CommitRuleError>, inbox: &str) -> bool {
-        matches!(result, Err(CommitRuleError::SharedInstallation(i)) if i == inbox)
-    }
-
-    /// Adding an inbox whose state associates another member's leaf key
-    /// makes two inboxes hold that key.
-    // verifies: GMOD-060
-    #[xmtp_common::test(unwrap_try = true)]
-    fn an_added_inbox_cannot_hold_another_inboxs_key() {
-        let states = States::new(&[(ALIX, 1, &[1, 3]), (BO, 1, &[2, 3])]);
-        let commit = Commit {
-            old: membership(&[(ALIX, 1)]),
-            new: membership(&[(ALIX, 1), (BO, 1)]),
-            old_failed: failed(&[]),
-            new_failed: failed(&[]),
-            leaves_before: leaves(&[(1, ALIX), (3, ALIX)]),
-            leaves_after: leaves(&[(1, ALIX), (2, BO), (3, ALIX)]),
-        };
-        assert!(shared(states.validate_unshared(&commit.change()), BO));
-        // The same inbox with keys of its own is added.
-        let states = States::new(&[(ALIX, 1, &[1, 3]), (BO, 1, &[2])]);
-        states.validate_unshared(&commit.change())?;
-    }
-
-    /// Raising an entry to a state that newly associates another member's
-    /// leaf key is rejected; a key both inboxes held before stays held.
-    // verifies: GMOD-060
-    #[xmtp_common::test(unwrap_try = true)]
-    fn a_raise_cannot_newly_associate_another_inboxs_key() {
-        let mut states = States::new(&[(ALIX, 1, &[1, 3]), (BO, 1, &[2]), (BO, 2, &[2, 3])]);
-        let commit = Commit {
-            old: membership(&[(ALIX, 1), (BO, 1)]),
-            new: membership(&[(ALIX, 1), (BO, 2)]),
-            old_failed: failed(&[]),
-            new_failed: failed(&[]),
-            leaves_before: leaves(&[(1, ALIX), (2, BO), (3, ALIX)]),
-            leaves_after: leaves(&[(1, ALIX), (2, BO), (3, ALIX)]),
-        };
-        assert!(shared(states.validate_unshared(&commit.change()), BO));
-        states
-            .0
-            .insert((BO.to_string(), 1), [key(2), key(3)].into());
-        states.validate_unshared(&commit.change())?;
-    }
-
-    /// A failure listing holds its key: an inbox raised to a state that
-    /// associates a key another inbox lists as failed is rejected, so the key
-    /// can never get a leaf under one inbox while the other still needs it.
-    // verifies: GMOD-060
-    #[xmtp_common::test(unwrap_try = true)]
-    fn a_failure_listing_holds_its_key() {
-        let states = States::new(&[(ALIX, 1, &[1]), (ALIX, 2, &[1, 4]), (BO, 1, &[2, 4])]);
-        let commit = Commit {
-            old: membership(&[(ALIX, 1), (BO, 1)]),
-            new: membership(&[(ALIX, 2), (BO, 1)]),
-            old_failed: failed(&[(BO, &[4])]),
-            new_failed: failed(&[(ALIX, &[4]), (BO, &[4])]),
-            leaves_before: leaves(&[(1, ALIX), (2, BO)]),
-            leaves_after: leaves(&[(1, ALIX), (2, BO)]),
-        };
-        // The commit keeps every key accounted, so only the sharing rule
-        // rejects it.
-        states.validate(&commit.change())?;
-        assert!(shared(states.validate_unshared(&commit.change()), ALIX));
     }
 }

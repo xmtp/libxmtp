@@ -26,9 +26,7 @@ use xmtp_mls_validation::{
         membership_entries,
     },
     group_membership::FailedInstallations,
-    membership_accounting::{
-        MembershipChange, validate_membership_accounting, validate_unshared_installations,
-    },
+    membership_accounting::{MembershipChange, validate_membership_accounting},
 };
 use xmtp_proto::xmtp::mls::message_contents::ConversationType as ConversationTypeProto;
 
@@ -735,10 +733,10 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             if changed {
                 continue;
             }
-            // implements: GMOD-047, GMOD-057, GMOD-060
-            // Receivers reject a commit that leaves a key unaccounted or makes
-            // two inboxes hold one key. Omit the other members' deltas that do
-            // so; an own change that does so fails the intent.
+            // implements: GMOD-047, GMOD-057
+            // Receivers reject a commit that leaves a key unaccounted. Omit
+            // the other members' deltas that do so; an own change that does
+            // so fails the intent.
             let mut leaves_after = owners.clone();
             for (index, proposal) in requirements.proposals.iter().enumerate() {
                 if let Proposal::Remove(remove) = proposal.proposal()
@@ -784,12 +782,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             }
             let associated =
                 |inbox: &str, sequence_id| states.get(&(inbox.to_string(), sequence_id));
-            if let Err(error) = validate_unshared_installations(&change, associated)
-                .and_then(|()| validate_membership_accounting(&change, associated))
-            {
-                let (CommitRuleError::SharedInstallation(inbox)
-                | CommitRuleError::UnaccountedInstallation(inbox)) = &error
-                else {
+            if let Err(error) = validate_membership_accounting(&change, associated) {
+                let CommitRuleError::UnaccountedInstallation(inbox) = &error else {
                     return Err(CommitValidationError::Rule(error).into());
                 };
                 if requirements.omit_dependencies(inbox, &mut selection.omitted)? {
