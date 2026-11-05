@@ -475,23 +475,9 @@ impl ValidatedCommit {
                 CommitRuleError::InsufficientPermissions,
             ));
         }
-        if let Some(min_version) = &minimum_supported_protocol_version {
-            let current_version = context.version_info().pkg_semver();
-            let min_supported_version = LibXMTPVersion::parse(min_version)?;
-            tracing::info!(
-                "Validating commit with min_supported_version: {:?}, current_version: {:?}",
-                min_supported_version,
-                current_version
-            );
-
-            if min_supported_version > *current_version {
-                return Err(CommitValidationError::Rule(
-                    CommitRuleError::ProtocolVersionTooLow(min_version.clone()),
-                ));
-            }
-        }
-        // After every other check, so their rejections and the floor pause keep
-        // precedence.
+        // After every other check, so their rejections keep precedence, and
+        // before the floor pause, which waits only for a commit that passes.
+        // implements: GMOD-022
         validate_accounting(
             conn,
             &MembershipChange {
@@ -508,6 +494,21 @@ impl ValidatedCommit {
                 )?,
             },
         )?;
+        if let Some(min_version) = &minimum_supported_protocol_version {
+            let current_version = context.version_info().pkg_semver();
+            let min_supported_version = LibXMTPVersion::parse(min_version)?;
+            tracing::info!(
+                "Validating commit with min_supported_version: {:?}, current_version: {:?}",
+                min_supported_version,
+                current_version
+            );
+
+            if min_supported_version > *current_version {
+                return Err(CommitValidationError::Rule(
+                    CommitRuleError::ProtocolVersionTooLow(min_version.clone()),
+                ));
+            }
+        }
         // Component policies have already checked each authenticated proposer.
         // Build the change summary after authorization, so legacy actor-based
         // checks do not reject a valid proposal committed by another member.

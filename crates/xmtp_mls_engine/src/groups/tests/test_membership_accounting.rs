@@ -211,6 +211,42 @@ async fn receiver_rejects_dropped_failure() {
     assert_eq!(membership(&bo_group).await, before);
 }
 
+/// A super admin's commit that raises the floor above Bo's version and
+/// drops Bo's listed failure is rejected, not paused on: the accounting rule
+/// runs before the floor pause.
+// verifies: GMOD-022, GMOD-057
+#[xmtp_common::test(unwrap_try = true)]
+async fn floor_raise_does_not_pause_on_an_unaccounting_commit() {
+    let (alix, bo, alix_group, bo_group, _, bo_sequence) = group_with_listed_failure().await;
+    let bo_inbox = bo.client.inbox_id().to_string();
+    let receiver = snapshot(&bo_group);
+    let alix_client = &alix.client;
+    let signer = alix_client.context.identity().installation_keys.clone();
+    let raw = publish_raw!(alix_client, alix_group, |mls, provider| {
+        let (mut messages, bundle) = stage_app_data_proposals_and_commit(
+            mls,
+            provider,
+            &signer,
+            &[],
+            vec![
+                (
+                    ComponentId::GROUP_MEMBERSHIP,
+                    set_entries(&[(&bo_inbox, bo_sequence, vec![])]),
+                ),
+                (
+                    ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION,
+                    AppDataUpdateOperation::Update(b"99.0.0".to_vec().into()),
+                ),
+            ],
+        )
+        .unwrap();
+        messages.push(bundle.into_messages().0);
+        messages
+    });
+
+    assert_rule_rejection(&bo_group, &receiver, raw, unaccounted(&bo_inbox)).await;
+}
+
 /// When the identity state the rule reads is not cached, the receiver holds
 /// the commit instead of rejecting it.
 // verifies: GMOD-057, PROC-012
