@@ -960,6 +960,7 @@
       "type": "object",
       "properties": {
         "poll_interval_ms": {
+          "description": "Interval between push dispatcher polls of the read database, and the\nlongest wait between stream tailer polls. After a poll that finds\nenvelopes, the tailer polls again after 50 ms, or after this interval\nwhen it is shorter.",
           "type": "integer",
           "minimum": 1,
           "maximum": 4294967295,

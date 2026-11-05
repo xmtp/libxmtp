@@ -142,12 +142,12 @@ dedicated primary connection for the push dispatcher. See the
 
 ### `[streams]`
 
-| Key                     | Type    | Default | Purpose                                                                     |
-| ----------------------- | ------- | ------- | --------------------------------------------------------------------------- |
-| `poll_interval_ms`      | integer | `100`   | Interval between tailer polls of the read database. Polls do not overlap.   |
-| `max_gap_ranges`        | integer | `10000` | Unresolved gap ranges the tailer keeps before it fails affected streams.    |
-| `keepalive_interval_ms` | integer | `30000` | Send-idle time before the server sends a Ping.                              |
-| `max_pong_wait_ms`      | integer | `90000` | How long the server waits for the matching Pong before it fails the stream. |
+| Key                     | Type    | Default | Purpose                                                                                                                                                                                                  |
+| ----------------------- | ------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `poll_interval_ms`      | integer | `100`   | Interval between push dispatcher polls, and the longest wait between tailer polls. After a poll that finds envelopes, the tailer waits 50 ms, or this interval when it is shorter. Polls do not overlap. |
+| `max_gap_ranges`        | integer | `10000` | Unresolved gap ranges the tailer keeps before it fails affected streams.                                                                                                                                 |
+| `keepalive_interval_ms` | integer | `30000` | Send-idle time before the server sends a Ping.                                                                                                                                                           |
+| `max_pong_wait_ms`      | integer | `90000` | How long the server waits for the matching Pong before it fails the stream.                                                                                                                              |
 
 ### `[retention]`
 

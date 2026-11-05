@@ -222,6 +222,15 @@ async fn signals_during_cooldown_share_one_boundary_attempt() {
     server.stop().await?;
 }
 
+#[xmtp_common::test]
+fn poll_wait_is_short_after_dispatch_and_the_interval_when_empty() {
+    let interval = Duration::from_millis(100);
+    assert_eq!(poll_wait(true, interval), Duration::from_millis(50));
+    assert_eq!(poll_wait(false, interval), interval);
+    let short = Duration::from_millis(10);
+    assert_eq!(poll_wait(true, short), short);
+}
+
 async fn boundary(pool: &PgPool) -> i64 {
     sqlx::query_scalar!("SELECT closed_sequence_id FROM allocation_boundary WHERE singleton")
         .fetch_one(pool)
