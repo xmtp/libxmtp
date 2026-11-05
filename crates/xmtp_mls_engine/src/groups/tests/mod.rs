@@ -730,7 +730,16 @@ fn reference_ids_are_canonical_message_ids() {
     }
     let compressed_reply = compress(reply(&id)?, Compression::Deflate)?;
     assert_eq!(reference_id(compressed_reply)?, Some(vec![0xab; 32]));
-    let oversized = compress(reaction(&"ab".repeat(512 * 1024))?, Compression::Deflate)?;
+    // The reaction codec refuses to encode this size, so build the envelope.
+    let oversized = EncodedContent {
+        r#type: Some(ReactionCodec::content_type()),
+        content: prost::Message::encode_to_vec(&ReactionV2 {
+            reference: "ab".repeat(512 * 1024),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let oversized = compress(oversized, Compression::Deflate)?;
     assert_eq!(
         reference_id(oversized)?,
         None,
@@ -752,6 +761,58 @@ fn reference_ids_are_canonical_message_ids() {
     let fields = super::QueryableContentFields::try_from(unsupported)?;
     assert_eq!(fields.content_type, ContentType::Unknown);
     assert_eq!(fields.reference_id, None);
+}
+
+/// Ingest reads a reaction's reference under the reaction limit. A reaction
+/// over it, compressed or not and of either major version, stores no
+/// reference, so summaries and their counts skip it.
+// verifies: CTYPE-034
+#[xmtp_common::test(unwrap_try = true)]
+fn oversized_reactions_store_no_reference() {
+    use prost::Message;
+    use xmtp_content_types::{
+        ContentCodec,
+        compression::compress,
+        reaction::{LegacyReaction, LegacyReactionCodec, MAX_REACTION_BYTES, ReactionCodec},
+    };
+    use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2;
+    use xmtp_proto::xmtp::mls::message_contents::{Compression, EncodedContent};
+
+    let id = "ab".repeat(32);
+    let reference_id =
+        |content| super::QueryableContentFields::try_from(content).map(|f| f.reference_id);
+    let v2 = |content: String| EncodedContent {
+        r#type: Some(ReactionCodec::content_type()),
+        content: ReactionV2 {
+            reference: id.clone(),
+            content,
+            ..Default::default()
+        }
+        .encode_to_vec(),
+        ..Default::default()
+    };
+    let legacy = |content: String| {
+        LegacyReactionCodec::encode(LegacyReaction {
+            action: "added".into(),
+            reference: id.clone(),
+            reference_inbox_id: None,
+            schema: "custom".into(),
+            content,
+        })
+    };
+    // `ReactionV2` bytes are the reference field (66 bytes) and the content
+    // field (3 bytes of framing at this size).
+    let at_limit = v2("a".repeat(MAX_REACTION_BYTES - 66 - 3));
+    assert_eq!(at_limit.content.len(), MAX_REACTION_BYTES);
+    assert_eq!(reference_id(at_limit)?, Some(vec![0xab; 32]));
+    for oversized in [
+        v2("a".repeat(MAX_REACTION_BYTES)),
+        compress(v2("a".repeat(1 << 20)), Compression::Deflate)?,
+        legacy("a".repeat(MAX_REACTION_BYTES))?,
+        compress(legacy("a".repeat(1 << 20))?, Compression::Deflate)?,
+    ] {
+        assert_eq!(reference_id(oversized)?, None);
+    }
 }
 
 mod test_dictionary_creation;

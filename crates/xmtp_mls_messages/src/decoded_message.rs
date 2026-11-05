@@ -5,7 +5,7 @@ use xmtp_content_types::group_updated::GroupUpdatedCodec;
 use xmtp_content_types::intent::{Intent, IntentCodec};
 use xmtp_content_types::leave_request::LeaveRequestCodec;
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
-use xmtp_content_types::reaction::{LegacyReactionCodec, ReactionCodec};
+use xmtp_content_types::reaction::{self, LegacyReactionCodec, ReactionCodec};
 use xmtp_content_types::read_receipt::ReadReceiptCodec;
 use xmtp_content_types::remote_attachment::RemoteAttachmentCodec;
 use xmtp_content_types::reply::ReplyCodec;
@@ -357,8 +357,8 @@ impl MessageBody {
                 "transcript type in application content",
             ));
         }
-        // implements: CTYPE-024, CTYPE-025
-        let value = compression::decompress_with_budget(envelope, budget)
+        // implements: CTYPE-024, CTYPE-025, CTYPE-034
+        let value = reaction::decompress_with_reaction_limit(envelope, budget)
             .map_err(ContentDecodeFailure::codec)?;
         let content_type = has_complete_type(&value).ok_or_else(malformed_type)?;
         fn decoded<T>(result: Result<T, CodecError>) -> Result<T, ContentDecodeFailure> {

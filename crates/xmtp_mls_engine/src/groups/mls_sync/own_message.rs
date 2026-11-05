@@ -1,6 +1,7 @@
 //! Staging local intents and processing our own messages.
 
 use super::*;
+use openmls::{group::StageCommitError, prelude::ProposalOrRefType};
 use xmtp_common::snippet::Snippet;
 
 impl<Context> MlsGroup<Context>
@@ -123,6 +124,9 @@ where
                             }
                         })?;
 
+                    self.check_committed_references(db, mls_group, &staged_commit)
+                        .map_err(|processing_error| IntentResolutionError { processing_error })?;
+
                     tracing::info!(
                         "[{}] Validating commit for intent {}. Message timestamp: ({})/{}",
                         self.context.inbox_id(),
@@ -186,6 +190,43 @@ where
         }
 
         Ok(None)
+    }
+
+    /// Reject the saved commit when a proposal it includes by reference is
+    /// neither pending nor recorded as delivered in this epoch. Peers fail the
+    /// same commit for that missing proposal, so the author must not apply it.
+    /// A proposal that is delivered but missing from the store is lost local
+    /// state, which the caller's missing-proposal check classifies.
+    // implements: GMOD-058
+    fn check_committed_references(
+        &self,
+        db: &impl DbQuery,
+        mls_group: &openmls::group::MlsGroup,
+        staged_commit: &StagedCommit,
+    ) -> Result<(), GroupMessageProcessingError> {
+        let pending: HashSet<&[u8]> = mls_group
+            .pending_proposals()
+            .map(|proposal| proposal.proposal_reference_ref().as_slice())
+            .collect();
+        let missing: Vec<&[u8]> = staged_commit
+            .queued_proposals()
+            .filter(|proposal| proposal.proposal_or_ref_type() == ProposalOrRefType::Reference)
+            .map(|proposal| proposal.proposal_reference_ref().as_slice())
+            .filter(|reference| !pending.contains(reference))
+            .collect();
+        if missing.is_empty() {
+            return Ok(());
+        }
+        let delivered = db.received_proposals(self.group_id, mls_group.epoch().as_u64() as i64)?;
+        if missing
+            .iter()
+            .all(|reference| delivered.iter().any(|row| row.as_slice() == *reference))
+        {
+            return Ok(());
+        }
+        Err(GroupMessageProcessingError::OpenMlsProcessMessage(
+            ProcessMessageError::InvalidCommit(StageCommitError::MissingProposal),
+        ))
     }
 
     /// Apply an own message with the current writer. The caller commits its intent

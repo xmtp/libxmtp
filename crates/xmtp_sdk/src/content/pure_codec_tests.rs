@@ -612,3 +612,81 @@ fn standard_codec_errors_keep_distinct_typed_outcomes() {
         assert!(!details.message.is_empty());
     }
 }
+
+/// The SDK's envelope conversion stops a compressed reaction at the reaction
+/// limit, like the core decoder, and other compressed content keeps the
+/// shared budget.
+// verifies: CTYPE-034
+#[cfg(test)]
+#[xmtp_common::test(unwrap_try = true)]
+fn decode_encoded_content_limits_compressed_reactions() {
+    use prost::Message as _;
+    use xmtp_content_types::{compression, reaction::ReactionCodec};
+    use xmtp_proto::xmtp::mls::message_contents::Compression;
+
+    let deflated = |r#type, content: Vec<u8>| {
+        let envelope = ProtoEncodedContent {
+            r#type: Some(r#type),
+            content,
+            ..Default::default()
+        };
+        compression::compress(envelope, Compression::Deflate).map(|e| e.encode_to_vec())
+    };
+    let reaction = proto::ReactionV2 {
+        reference: "ab".repeat(32),
+        content: "a".repeat(1 << 20),
+        ..Default::default()
+    };
+    let bytes = deflated(ReactionCodec::content_type(), reaction.encode_to_vec())?;
+    match decode_encoded_content(bytes) {
+        Err(crate::XmtpError::CodecDecodeFailed(_)) => {}
+        Err(error) => panic!("unexpected error {error:?}"),
+        Ok(content) => panic!("decoded {} reaction bytes", content.content.len()),
+    }
+    let text = deflated(
+        xmtp_content_types::text::TextCodec::content_type(),
+        vec![b'a'; 1 << 20],
+    )?;
+    assert_eq!(decode_encoded_content(text)?.content.len(), 1 << 20);
+}
+
+/// A reply's nested reaction is decompressed under the reaction limit, so a
+/// compressed one stops at the limit instead of expanding before the length
+/// check rejects it.
+// verifies: CTYPE-034
+#[cfg(test)]
+#[xmtp_common::test(unwrap_try = true)]
+fn reply_with_compressed_nested_reaction_stops_at_the_limit() {
+    use prost::Message as _;
+    use xmtp_content_types::{compression, reaction::ReactionCodec, reply::ReplyCodec};
+    use xmtp_proto::xmtp::mls::message_contents::Compression;
+
+    let nested = compression::compress(
+        ProtoEncodedContent {
+            r#type: Some(ReactionCodec::content_type()),
+            content: proto::ReactionV2 {
+                reference: "ab".repeat(32),
+                content: "a".repeat(1 << 20),
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            ..Default::default()
+        },
+        Compression::Deflate,
+    )?;
+    let outer = ReplyCodec::encode(xmtp_content_types::reply::Reply {
+        reference: "ab".repeat(32),
+        reference_inbox_id: None,
+        content: nested,
+    })?;
+    match decode_standard(outer.try_into()?) {
+        Err(crate::XmtpError::CodecDecodeFailed(details)) => assert!(
+            details
+                .message
+                .contains("decompressed content exceeds 4096 bytes"),
+            "the nested reaction expanded before it failed: {}",
+            details.message
+        ),
+        other => panic!("a reply with an oversized nested reaction decoded: {other:?}"),
+    }
+}

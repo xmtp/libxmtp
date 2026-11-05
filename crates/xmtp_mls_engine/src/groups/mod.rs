@@ -324,9 +324,16 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
 
         // Invalid compressed content has no searchable reference. Message
         // decoding still exposes the original envelope to the app.
+        // A reaction over the reaction limit has none either, so summaries
+        // and counts skip it.
         // The content can hold a device-sync HMAC root key, so the decoded
         // copy is wiped once its reference is read.
-        let mut decoded = xmtp_content_types::compression::decompress(content).ok();
+        // implements: CTYPE-034
+        let mut decoded = xmtp_content_types::reaction::decompress_with_reaction_limit(
+            content,
+            &mut xmtp_content_types::compression::DecompressionBudget::new(),
+        )
+        .ok();
         let reference_id = decoded.as_ref().and_then(|content| {
             if content_type_id.authority_id != "xmtp.org" {
                 return None;

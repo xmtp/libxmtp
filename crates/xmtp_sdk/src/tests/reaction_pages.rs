@@ -226,3 +226,57 @@ async fn message_reactions_span_stitched_dm_groups() {
     b.end().await?;
     a.end().await?;
 }
+
+/// A reaction over the reaction limit is left out of its parent's reaction
+/// page. Ingest now stores no reference for one, so these rows copy a valid
+/// reaction's reference, as rows stored before the limit do; the page still
+/// drops them when it decodes them.
+// verifies: CTYPE-034
+#[xmtp_common::test(unwrap_try = true)]
+async fn reaction_page_drops_oversized_reactions() {
+    use prost::Message;
+    use xmtp_content_types::{ContentCodec, compression, reaction::ReactionCodec};
+    use xmtp_proto::xmtp::mls::message_contents::{
+        Compression, EncodedContent, content_types::ReactionV2,
+    };
+
+    const OVERSIZED: u8 = 5;
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let parent = group.send_text("parent".into(), None).await?;
+    let sent = group
+        .send_reaction(parent.clone(), Some(client.inbox_id()), thumbs_up(), None)
+        .await?;
+    let db = client.inner.context.db();
+    let template = client.inner.message(sent.to_bytes()?)?;
+    // Each expands to 1 MiB of reaction content from a small compressed row.
+    let oversized = compression::compress(
+        EncodedContent {
+            r#type: Some(ReactionCodec::content_type()),
+            content: ReactionV2 {
+                reference: hex::encode(parent.to_bytes()?),
+                content: "a".repeat(1 << 20),
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            ..Default::default()
+        },
+        Compression::Deflate,
+    )?
+    .encode_to_vec();
+    for index in 0..OVERSIZED {
+        let mut copy = reaction_copy(
+            &template,
+            group.inner.group_id,
+            vec![index; 32],
+            template.sent_at_ns + 1 + i64::from(index),
+        );
+        copy.decrypted_message_bytes = oversized.clone();
+        copy.store(&db)?;
+    }
+
+    let page = group.message_reactions(parent.clone(), None, None).await?;
+    assert_eq!(reaction_ids(&page), [sent]);
+    client.end().await?;
+}
