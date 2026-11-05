@@ -587,3 +587,76 @@ async fn a_failed_listing_keeps_its_key_to_one_inbox() {
     let shared = |rule: &CommitRuleError| matches!(rule, CommitRuleError::SharedInstallation(i) if *i == alix_inbox);
     assert_rule_rejection(&bo_group, &receiver, raw, shared).await;
 }
+
+/// Low and High share a key, and High has a pending delta that lists it. A
+/// refresh that raises Low with that delta pending breaks a membership rule.
+/// Whatever the refresh does, its intent must not stay queued: a later
+/// change must still commit.
+// verifies: GMOD-047
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_failed_own_change_does_not_block_later_intents() {
+    use xmtp_db::group_intent::{IntentKind, IntentState, QueryGroupIntent};
+    let alix = member().await;
+    let mut pair = [member().await, member().await];
+    pair.sort_by(|a, b| a.client.inbox_id().cmp(b.client.inbox_id()));
+    let [low, high] = pair;
+    let alix_group = alix
+        .client
+        .create_group_with_members(&[low.client.inbox_id(), high.client.inbox_id()], None, None)
+        .await?;
+    let high_group = high.client.wait_for_welcomes().await?.first()?.clone();
+    high_group.sync().await?;
+    let key = XmtpInstallationCredential::new();
+    let key_id = key.public_slice().to_vec();
+    associate(&low, &key).await;
+    associate(&high, &key).await;
+    low.client.inbox_state(true).await?;
+    high.client.inbox_state(true).await?;
+    let high_inbox = high.client.inbox_id().to_string();
+    let high_sequence = high
+        .client
+        .context
+        .db()
+        .get_latest_sequence_id_for_inbox(&high_inbox)? as u64;
+    let proposal = state_write(high.client.context.mls_storage(), |tx| {
+        tx.with_group(high_group.group_id, |mls, storage| {
+            let (message, _) = mls
+                .propose_app_data_update(
+                    &XmtpOpenMlsProviderRef::new(storage),
+                    &high.client.context.identity().installation_keys,
+                    ComponentId::GROUP_MEMBERSHIP.as_u16(),
+                    set_entries(&[(&high_inbox, high_sequence, vec![key_id.clone()])]),
+                )
+                .map_err(GroupError::Proposal)?;
+            Ok::<_, GroupError>(Continue(message.tls_serialize_detached()?))
+        })
+    })?
+    .into_continued();
+    let messages = high_group.prepare_group_messages(vec![(proposal.as_slice(), false)])?;
+    high.client
+        .context
+        .api()
+        .send_group_messages(messages)
+        .await?;
+    alix_group.receive().await?;
+    assert_eq!(
+        alix_group.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?,
+        1
+    );
+
+    let _ = alix_group.update_installations().await;
+    let queued = alix.client.context.db().find_group_intents(
+        alix_group.group_id,
+        Some(vec![IntentState::ToPublish, IntentState::Published]),
+        Some(vec![IntentKind::UpdateGroupMembership]),
+    )?;
+    assert!(
+        queued.is_empty(),
+        "the refresh is not left queued: {queued:?}"
+    );
+
+    let epoch = alix_group.epoch().await?;
+    alix_group.update_group_name("after".into()).await?;
+    assert!(alix_group.epoch().await? > epoch);
+    assert_eq!(alix_group.group_name()?, "after");
+}
