@@ -288,12 +288,12 @@ pub enum GroupMessageProcessingError {
     /// evidence that the commit is invalid, so the head is held.
     #[error("a committed proposal was received but is missing from local state")]
     LostProposalState,
-    /// An application sender is beyond the fixed forward window. Not retryable.
-    #[error("application sender generation exceeds the forward window")]
-    FarForwardApplicationMessage,
-    /// An application sender names a leaf outside the ratchet tree. Not retryable.
-    #[error("application sender is outside the ratchet tree")]
-    ApplicationSenderOutsideTree,
+    /// A sender's generation is beyond the fixed forward window. Not retryable.
+    #[error("sender generation exceeds the forward window")]
+    FarForwardSender,
+    /// A sender names a leaf outside the ratchet tree. Not retryable.
+    #[error("sender is outside the ratchet tree")]
+    SenderOutsideTree,
     /// Supported envelope framing fails validation after its complete prefix.
     #[error(transparent)]
     Envelope(xmtp_api_backend::envelope::EnvelopeError),
@@ -429,8 +429,8 @@ impl RetryableError for GroupMessageProcessingError {
             Self::CorruptIncomingEnvelope(_)
             | Self::UnsupportedMlsVersion
             | Self::LostProposalState
-            | Self::FarForwardApplicationMessage
-            | Self::ApplicationSenderOutsideTree
+            | Self::FarForwardSender
+            | Self::SenderOutsideTree
             | Self::Envelope(_)
             | Self::OwnMessageWithoutAttempt
             | Self::UnsupportedOwnIntentKind(_) => false,
@@ -527,8 +527,8 @@ impl xmtp_mls_core::worker::NeedsDbReconnect for GroupMessageProcessingError {
             | Self::CorruptIncomingEnvelope(..)
             | Self::UnsupportedMlsVersion
             | Self::LostProposalState
-            | Self::FarForwardApplicationMessage
-            | Self::ApplicationSenderOutsideTree
+            | Self::FarForwardSender
+            | Self::SenderOutsideTree
             | Self::Envelope(..)
             | Self::OwnMessageWithoutAttempt
             | Self::UnsupportedOwnIntentKind(..)
@@ -617,6 +617,9 @@ impl GroupMessageProcessingError {
             GroupMessageProcessingError::FutureEpoch(_, _) => CommitResult::WrongEpoch,
             GroupMessageProcessingError::CommitValidation(_) => CommitResult::Invalid,
             GroupMessageProcessingError::OpenMlsProcessMessage(_) => CommitResult::Undecryptable,
+            // implements: PROC-061
+            GroupMessageProcessingError::FarForwardSender
+            | GroupMessageProcessingError::SenderOutsideTree => CommitResult::Undecryptable,
             _ => CommitResult::Unknown,
         }
     }

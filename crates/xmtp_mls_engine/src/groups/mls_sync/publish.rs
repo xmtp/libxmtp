@@ -215,6 +215,10 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                                         | OutgoingPreparationError::SignGroupMessage(_)
                                 ) | GroupError::CommitValidation(CommitValidationError::Rule(
                                     CommitRuleError::InsufficientPermissions
+                                        // An own change that leaves an
+                                        // installation unaccounted fails its
+                                        // intent, not every later one.
+                                        | CommitRuleError::UnaccountedInstallation(_)
                                 )) | GroupError::InvalidGroupMembership
                                     | GroupError::InvalidPublicKeys(_)
                                     | GroupError::MetadataField(_)

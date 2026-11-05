@@ -20,6 +20,28 @@ and Android metadata. Workspace dependencies remain workspace references;
 packing resolves Agent's and CLI's Node dependency to the same complete SDK version.
 Changing the package target does not raise protocol compatibility floors.
 
+## Raise the creation floor
+
+`PROPOSALS_MIN_PROTOCOL_VERSION` in `crates/xmtp_configuration/src/common/mls.rs`
+is the floor a new group records. A client below a group's floor pauses in it
+instead of applying commits under rules it lacks. Raise it only when a release
+changes what receivers accept; a target bump without such a change keeps the
+floor. When a release changes what receivers accept:
+
+- Set the floor to `<target>-0`, the lowest pre-release of the target. Release
+  builds report `<target>-rcN` or `<target>-pre.<timestamp>.dev.g<sha>`, which
+  sort below `<target>`, so a floor of `<target>` would pause every RC and dev
+  build in the groups it creates.
+- Merge the PR that sets the floor after every receive-rule change of that
+  release.
+- Release a dev or RC build of the target only from a commit that contains
+  that PR and every receive-rule change. This is about ancestry, not timing: a
+  build from an older commit, or from a release branch synced before the PR,
+  sits above `<target>-0` without the rules. No tooling checks this.
+- A receive-rule change merged after the floor PR needs a new target: earlier
+  builds of the target, including deployed builds of `main`, which report the
+  bare target, lack the rule but sit above `<target>-0`.
+
 **Actions > Release: create branch** takes one `version`, a `base-ref`, and
 `pr-base` (normally `main`). It sets the shared target, creates
 `release/<version>`, preserves reviewed release notes, and scaffolds missing

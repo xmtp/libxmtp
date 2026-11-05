@@ -42,6 +42,7 @@ pub mod fork_actors;
 pub use fork_actors::{ForkActors, ReaddAuthority};
 pub mod group_membership;
 pub mod group_permissions;
+pub mod membership_accounting;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 

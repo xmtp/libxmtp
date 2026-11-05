@@ -106,6 +106,10 @@ fn legacy_entry(group: &EngineTestGroup, payload: Vec<u8>) -> Result<(), GroupEr
     Ok(())
 }
 
+/// Alix's second installation's key is also associated with Bo, in Alix's
+/// local history. After Bo revokes it, a pending delta that raises Bo's
+/// entry without the Remove of that key's leaf, which names Alix, is omitted
+/// by a commit of pending proposals and by a readd.
 // verifies: GMOD-047, GMOD-052
 #[rstest::rstest]
 #[case::commit_pending(false)]
@@ -173,9 +177,8 @@ async fn shared_key_revocation_delta_without_remove_is_omitted(
         Some(&old_sequence)
     );
     assert!(has_leaf(&group, &key));
-    group
-        .send_message(b"after shared-key omission", SendMessageOpts::default())
-        .await?;
+    // A later refresh removes the leaf, which leaves the key unaccounted
+    // for Alix, so receivers reject it (GMOD Known limitations).
     Ok(())
 }
 
@@ -250,4 +253,73 @@ async fn failed_key_remove_does_not_cover_a_pending_refresh()
         .send_message(b"after failed-key omission", SendMessageOpts::default())
         .await?;
     Ok(())
+}
+
+/// A commit accepted before receivers checked accounting can leave an
+/// own-inbox key with no leaf and no failure listing, and later commits may
+/// carry it forward. The
+/// inbox's refresh retries the key: it adds the installation, its own echo
+/// passes validation, and the installation joins.
+// verifies: GMOD-055, GMOD-057
+#[xmtp_common::test(unwrap_try = true)]
+async fn refresh_retries_a_carried_forward_unaccounted_own_key() {
+    let bo = EngineTestPeer::new().await;
+    let group = bo.create_group(None, None)?;
+    let bo2 = bo.new_installation().await;
+    let key = bo2.context.installation_id().to_vec();
+    bo.inbox_state(true).await?;
+    let sequence = bo
+        .context
+        .db()
+        .get_latest_sequence_id_for_inbox(bo.inbox_id())? as u64;
+    assert!(*committed_membership(&group).get(bo.inbox_id())? < sequence);
+    legacy_entry(&group, entry_update(bo.inbox_id(), sequence, vec![]))?;
+    let legacy = committed_membership(&group);
+    assert_eq!(legacy.get(bo.inbox_id()), Some(&sequence));
+    assert!(!legacy.failed_installations.contains(&key));
+    assert!(!has_leaf(&group, &key));
+
+    group.update_installations().await?;
+    assert!(has_leaf(&group, &key), "the refresh retries the key");
+    let joined = bo2.wait_for_welcomes().await?;
+    assert_eq!(joined.first()?.group_id, group.group_id);
+}
+
+/// Alix's second installation's key is also associated with Bo, and Bo
+/// revokes it, both in Alix's local history. Alix's refresh must remove that
+/// key's leaf, which names Alix, so it leaves the key unaccounted for Alix
+/// (GMOD Known limitations).
+/// With a membership delta pending, commit building finds the failure: the
+/// refresh intent must fail without blocking later intents.
+// verifies: GMOD-047
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_failed_own_change_does_not_block_later_intents() {
+    use xmtp_db::group_intent::{IntentKind, IntentState, QueryGroupIntent};
+    let alix = EngineTestPeer::new().await;
+    let alix2 = alix.new_installation().await;
+    let bo = EngineTestPeer::new().await;
+    associate_locally(&bo, &alix2, &[&alix]).await;
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let key = alix2.context.installation_id().to_vec();
+    revoke_locally(&bo, &key, &[&alix]).await;
+    let alix_sequence = *committed_membership(&group).get(alix.inbox_id())?;
+    accept_delta(&group, entry_update(alix.inbox_id(), alix_sequence, vec![])).await?;
+
+    let refresh = group.update_installations().await;
+    let queued = alix.context.db().find_group_intents(
+        group.group_id,
+        Some(vec![IntentState::ToPublish, IntentState::Published]),
+        Some(vec![IntentKind::UpdateGroupMembership]),
+    )?;
+    assert!(
+        queued.is_empty(),
+        "the refresh is not left queued ({refresh:?}): {queued:?}"
+    );
+
+    let epoch = group.epoch().await?;
+    group.update_group_name("after".into()).await?;
+    assert!(group.epoch().await? > epoch);
+    assert_eq!(group.group_name()?, "after");
 }

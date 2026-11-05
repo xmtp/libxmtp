@@ -4,30 +4,45 @@ use super::GroupMessageProcessingError;
 use crate::groups::app_data::ProcessMessageWithAppDataError;
 use openmls::framing::errors::{MessageDecryptionError, SecretTreeError};
 use openmls::group::{ProcessMessageError, StageCommitError, ValidationError};
-use openmls::prelude::ContentType;
 use xmtp_db::sql_key_store::SqlKeyStoreError;
 
 impl GroupMessageProcessingError {
-    /// Sender data authenticates the content type before either ratchet error.
-    /// Handshakes stay held because their sender may already have merged a commit.
-    pub(crate) fn classify_application_sender(self, content_type: ContentType) -> Self {
-        if content_type != ContentType::Application {
-            return self;
-        }
-        let error = match &self {
+    /// The sender-data ratchet failure this error carries, if any: a
+    /// generation beyond the forward window or a leaf outside the ratchet
+    /// tree.
+    fn sender_ratchet_failure(&self) -> Option<Self> {
+        let error = match self {
             Self::OpenMlsProcessMessage(error)
             | Self::OpenMlsProcessMessageWithAppData(ProcessMessageWithAppDataError::OpenMls(
                 error,
             )) => error,
-            _ => return self,
+            _ => return None,
         };
         match error {
             ProcessMessageError::ValidationError(ValidationError::UnableToDecrypt(
                 MessageDecryptionError::SecretTreeError(SecretTreeError::TooDistantInTheFuture),
-            )) => Self::FarForwardApplicationMessage,
+            )) => Some(Self::FarForwardSender),
             ProcessMessageError::ValidationError(ValidationError::UnableToDecrypt(
                 MessageDecryptionError::SecretTreeError(SecretTreeError::IndexOutOfBounds),
-            )) => Self::ApplicationSenderOutsideTree,
+            )) => Some(Self::SenderOutsideTree),
+            _ => None,
+        }
+    }
+
+    /// Whether [`Self::classify_sender_ratchet`] can reject this error, so the
+    /// caller reads the committed floor only when it can.
+    pub(crate) fn is_sender_ratchet_failure(&self) -> bool {
+        self.sender_ratchet_failure().is_some()
+    }
+
+    /// Reject a sender-data ratchet failure whatever the message's content
+    /// type: every member fails to decrypt the same ciphertext the same way.
+    /// While the group's committed floor exceeds this client's version the
+    /// message stays held, because decryption runs before the floor pause.
+    // implements: PROC-061
+    pub(crate) fn classify_sender_ratchet(self, floor_exceeded: bool) -> Self {
+        match self.sender_ratchet_failure() {
+            Some(rejection) if !floor_exceeded => rejection,
             _ => self,
         }
     }
@@ -38,8 +53,8 @@ impl GroupMessageProcessingError {
             Self::CorruptIncomingEnvelope(_) => "corrupt_incoming_envelope",
             Self::UnsupportedMlsVersion => "unsupported_mls_version",
             Self::LostProposalState => "lost_proposal_state",
-            Self::FarForwardApplicationMessage => "far_forward_generation",
-            Self::ApplicationSenderOutsideTree => "sender_outside_tree",
+            Self::FarForwardSender => "far_forward_generation",
+            Self::SenderOutsideTree => "sender_outside_tree",
             Self::GroupPaused => "unsupported_protocol_version",
             Self::GroupInactive => "group_inactive",
             Self::IncomingHeadChanged => "incoming_head_changed",
@@ -66,8 +81,8 @@ impl GroupMessageProcessingError {
     pub(crate) fn is_safe_rejection(&self) -> bool {
         match self {
             Self::InvalidPayload
-            | Self::FarForwardApplicationMessage
-            | Self::ApplicationSenderOutsideTree
+            | Self::FarForwardSender
+            | Self::SenderOutsideTree
             | Self::Envelope(_)
             | Self::OwnMessageWithoutAttempt
             | Self::InvalidSender { .. }
@@ -178,52 +193,90 @@ mod tests {
     use super::*;
     use xmtp_common::RetryableError;
 
-    // verifies: PROC-055
+    /// A sender-ratchet failure and the processing code it is rejected with.
+    type SenderFailure = (fn() -> SecretTreeError, &'static str);
+
+    /// An `UnableToDecrypt` error under either processing error wrapper.
+    fn unable_to_decrypt(
+        error: MessageDecryptionError,
+        app_data_wrapper: bool,
+    ) -> GroupMessageProcessingError {
+        let error = ProcessMessageError::ValidationError(ValidationError::UnableToDecrypt(error));
+        if app_data_wrapper {
+            GroupMessageProcessingError::OpenMlsProcessMessageWithAppData(
+                ProcessMessageWithAppDataError::OpenMls(error),
+            )
+        } else {
+            GroupMessageProcessingError::OpenMlsProcessMessage(error)
+        }
+    }
+
+    /// The classifier takes no content type, so an application message, a
+    /// commit and a proposal with the same sender-data failure get the same
+    /// decision: a terminal rejection, which a commit records as
+    /// `UNDECRYPTABLE`. While the group's committed floor exceeds this
+    /// client's version, the message stays held.
+    // verifies: PROC-061
     #[xmtp_common::test(unwrap_try = true)]
-    fn sender_secret_tree_failures_are_terminal_only_for_application_messages() {
-        for content_type in [
-            ContentType::Application,
-            ContentType::Commit,
-            ContentType::Proposal,
-        ] {
-            for app_data_wrapper in [false, true] {
-                for (secret_tree_error, code) in [
-                    (
-                        SecretTreeError::TooDistantInTheFuture,
-                        "far_forward_generation",
-                    ),
-                    (SecretTreeError::IndexOutOfBounds, "sender_outside_tree"),
-                ] {
-                    let error =
-                        ProcessMessageError::ValidationError(ValidationError::UnableToDecrypt(
-                            MessageDecryptionError::SecretTreeError(secret_tree_error),
-                        ));
-                    let error = if app_data_wrapper {
-                        GroupMessageProcessingError::OpenMlsProcessMessageWithAppData(
-                            ProcessMessageWithAppDataError::OpenMls(error),
-                        )
-                    } else {
-                        GroupMessageProcessingError::OpenMlsProcessMessage(error)
-                    }
-                    .classify_application_sender(content_type);
-                    let application = content_type == ContentType::Application;
-                    assert_eq!(
-                        error.is_safe_rejection(),
-                        application,
-                        "{content_type:?}: {error:?}"
-                    );
-                    assert_eq!(
-                        error.processing_code(),
-                        if application {
-                            code
-                        } else {
-                            "mls_processing_failure"
-                        }
-                    );
-                    if application {
-                        assert!(!error.is_retryable());
-                    }
-                }
+    fn sender_ratchet_failures_are_terminal_for_every_content_type() {
+        let failures: [SenderFailure; 2] = [
+            (
+                || SecretTreeError::TooDistantInTheFuture,
+                "far_forward_generation",
+            ),
+            (|| SecretTreeError::IndexOutOfBounds, "sender_outside_tree"),
+        ];
+        for app_data_wrapper in [false, true] {
+            for (failure, code) in failures {
+                let error = || {
+                    unable_to_decrypt(
+                        MessageDecryptionError::SecretTreeError(failure()),
+                        app_data_wrapper,
+                    )
+                };
+                assert!(error().is_sender_ratchet_failure());
+                let rejected = error().classify_sender_ratchet(false);
+                assert!(rejected.is_safe_rejection(), "{rejected:?}");
+                assert_eq!(rejected.processing_code(), code);
+                assert!(!rejected.is_retryable());
+                assert!(matches!(
+                    rejected.commit_result(),
+                    xmtp_db::remote_commit_log::CommitResult::Undecryptable
+                ));
+                let held = error().classify_sender_ratchet(true);
+                assert!(!held.is_safe_rejection(), "{held:?}");
+                assert_eq!(held.processing_code(), "mls_processing_failure");
+            }
+        }
+    }
+
+    /// A local secret-tree fault says nothing about the sender, so the
+    /// classifier leaves it unchanged and it stays held, under both error
+    /// wrappers and whatever the message's content type.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn local_secret_tree_failures_stay_held_for_every_content_type() {
+        let local: [fn() -> MessageDecryptionError; 5] = [
+            || MessageDecryptionError::SecretTreeError(SecretTreeError::RatchetTypeError),
+            || MessageDecryptionError::SecretTreeError(SecretTreeError::RatchetTooLong),
+            || MessageDecryptionError::SecretTreeError(SecretTreeError::LibraryError),
+            || {
+                MessageDecryptionError::SecretTreeError(SecretTreeError::CryptoError(
+                    openmls_traits::types::CryptoError::CryptoLibraryError,
+                ))
+            },
+            || {
+                MessageDecryptionError::SecretTreeError(SecretTreeError::CodecError(
+                    tls_codec::Error::EndOfStream,
+                ))
+            },
+        ];
+        for app_data_wrapper in [false, true] {
+            for failure in local {
+                let error = unable_to_decrypt(failure(), app_data_wrapper);
+                assert!(!error.is_sender_ratchet_failure(), "{error:?}");
+                let error = error.classify_sender_ratchet(false);
+                assert!(!error.is_safe_rejection(), "{error:?}");
+                assert_eq!(error.processing_code(), "mls_processing_failure");
             }
         }
     }

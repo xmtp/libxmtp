@@ -223,3 +223,145 @@ async fn test_message_auto_commits_pending_proposals() {
         "Caro should be a group member after auto-commit"
     );
 }
+
+/// A member publishes a standalone `GroupContextExtensions` proposal, a
+/// commit that carries one inline, and a proposal far beyond the forward
+/// window. None of them holds the group head: every other member rejects
+/// all three, a super admin removes the member, and the rest of the group
+/// keeps receiving messages.
+// verifies: GMOD-059, PROC-061
+#[xmtp_common::test(unwrap_try = true)]
+async fn member_attack_messages_cannot_hold_the_group() {
+    use crate::groups::{
+        GroupError, mls_ext::commit_without_group_info, mls_sync::generate_prepared_commit,
+    };
+    use openmls::prelude::{LeafNodeParameters, tls_codec::Serialize as _};
+    use openmls_traits::OpenMlsProvider as _;
+    use xmtp_db::{
+        TransactionOutcome::Continue,
+        XmtpOpenMlsProviderRef,
+        group_message::MsgQueryArgs,
+        incoming_envelope::{QueryIncomingEnvelope, StreamTopic},
+        local_commit_log::QueryLocalCommitLog,
+        remote_commit_log::CommitResult,
+    };
+    use xmtp_mls_core::state_tx::state_write;
+    use xmtp_proto::types::Topic;
+
+    // Far enough past the generations the members processed.
+    const FAR_FORWARD_PROPOSALS: u32 = 1_100;
+
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
+    let alix_group = alix.create_group(None, None)?;
+    alix_group
+        .add_members(&[bo.inbox_id(), caro.inbox_id()])
+        .await?;
+    let bo_group = super::super::receive_group_invite(&bo).await;
+    let caro_group = super::super::receive_group_invite(&caro).await;
+    // A rejected commit right after the Welcome is not logged.
+    alix_group.update_group_name("before".into()).await?;
+    bo_group.receive().await?;
+    caro_group.receive().await?;
+
+    let signer = bo.context.identity().installation_keys.clone();
+    let messages = state_write(bo.context.mls_storage(), |tx| {
+        tx.with_group(bo_group.group_id, |mls, storage| {
+            let provider = XmtpOpenMlsProviderRef::new(storage);
+            let extensions = mls.extensions().clone();
+            let (standalone, _) = mls
+                .propose_group_context_extensions(&provider, extensions.clone(), &signer)
+                .map_err(GroupError::Proposal)?;
+            let (commit, _, _) = generate_prepared_commit(storage, mls, |mls, provider| {
+                // Not by reference to the standalone proposal, which members
+                // reject, or the commit fails as a missing proposal instead.
+                let bundle = commit_without_group_info(mls, provider.storage(), |builder| {
+                    builder
+                        .consume_proposal_store(false)
+                        .propose_group_context_extensions(extensions)
+                        .unwrap()
+                })
+                .unwrap()
+                .build(provider.rand(), provider.crypto(), &signer, |_| true)
+                .unwrap()
+                .stage_commit(provider)
+                .unwrap();
+                bundle.into_messages().0.tls_serialize_detached()
+            })?;
+            let mut far_forward = None;
+            for _ in 0..FAR_FORWARD_PROPOSALS {
+                let (message, _) = mls
+                    .propose_self_update(&provider, &signer, LeafNodeParameters::default())
+                    .unwrap();
+                far_forward = Some(message.tls_serialize_detached()?);
+            }
+            mls.clear_pending_proposals(storage)?;
+            Ok::<_, GroupError>(Continue([
+                standalone.tls_serialize_detached()?,
+                commit,
+                far_forward.expect("at least one proposal"),
+            ]))
+        })
+    })?
+    .into_continued();
+    let units = bo_group.prepare_group_messages(
+        messages
+            .iter()
+            .map(|message| (message.as_slice(), false))
+            .collect(),
+    )?;
+    let receipts = bo.context.api().send_group_messages(units).await?;
+    let cursor = |index: usize| {
+        xmtp_api_backend::envelope::metadata(
+            &receipts[index],
+            Topic::new_group_message(bo_group.group_id).kind(),
+        )
+        .unwrap()
+        .1
+    };
+    let (commit_cursor, far_forward_cursor) = (cursor(1), cursor(2));
+
+    alix_group.remove_members(&[bo.inbox_id()]).await?;
+    alix_group
+        .send_message(b"after the attack", SendMessageOpts::default())
+        .await?;
+    caro_group.sync().await?;
+
+    let caro_messages = caro_group.find_messages(&MsgQueryArgs::default())?;
+    assert_eq!(
+        caro_messages.last().unwrap().decrypted_message_bytes,
+        b"after the attack"
+    );
+    assert!(
+        !caro_group
+            .members()
+            .await?
+            .iter()
+            .any(|member| member.inbox_id == bo.inbox_id())
+    );
+    let mut commit_logs = Vec::new();
+    for (peer, group) in [(&alix, &alix_group), (&caro, &caro_group)] {
+        let db = peer.context.db();
+        let topic = StreamTopic::group(group.group_id);
+        // The far-forward proposal is the last rejection; the removal and the
+        // message after it applied, so every earlier head was resolved.
+        let rejection = db.read_last_rejection(&topic)?.unwrap();
+        assert_eq!(rejection.sequence_id, far_forward_cursor);
+        assert_eq!(rejection.code, "far_forward_generation");
+        assert!(db.topic_progress(&topic)?.processed > far_forward_cursor);
+        let log = db
+            .get_group_logs(&group.group_id)?
+            .into_iter()
+            .find(|log| log.commit_sequence_id == commit_cursor.0 as i64)
+            .expect("the rejected commit is logged");
+        assert_eq!(log.commit_result, CommitResult::Invalid);
+        assert_eq!(
+            log.last_epoch_authenticator,
+            log.applied_epoch_authenticator
+        );
+        commit_logs.push((log.commit_result, log.applied_epoch_authenticator));
+        assert!(!group.debug_info().await?.maybe_forked);
+    }
+    assert_eq!(commit_logs[0], commit_logs[1]);
+}

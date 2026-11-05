@@ -100,14 +100,14 @@ async fn committed_proposal_outcomes_reject_conflicting_component_operations() {
     }
 }
 
-/// verifies: GMOD-001
+/// verifies: GMOD-059
 ///
-/// A `GroupContextExtensions` proposal is held both standalone and inside
-/// a commit.
+/// A `GroupContextExtensions` proposal is a terminal rejection both
+/// standalone and inside a commit.
 #[xmtp_common::test(unwrap_try = true)]
 // A test drives an OpenMLS convenience commit; its GroupInfo never leaves the test.
 #[allow(clippy::disallowed_methods)]
-async fn committed_proposal_outcomes_hold_gce_proposal_and_commit() {
+async fn committed_proposal_outcomes_reject_gce_proposal_and_commit() {
     let alix = EngineTestPeer::new().await;
     let conversation = alix.create_group(None, None)?;
     let provider = alix.context.mls_provider();
@@ -119,31 +119,138 @@ async fn committed_proposal_outcomes_hold_gce_proposal_and_commit() {
     group.propose_group_context_extensions(&provider, group.extensions().clone(), signer)?;
     let (immutable, mutable) = read_committed_metadata(&group)?;
     let proposal = group.pending_proposals().next()?;
+    let error = validate_proposal(
+        proposal,
+        &group,
+        &PolicySet::default(),
+        &immutable,
+        &mutable,
+    )
+    .unwrap_err();
     assert!(matches!(
-        validate_proposal(
-            proposal,
-            &group,
-            &PolicySet::default(),
-            &immutable,
-            &mutable
-        ),
-        Err(CommitValidationError::Rule(
-            CommitRuleError::UnsupportedProposalType(ProposalType::GroupContextExtensions)
+        error,
+        CommitValidationError::Rule(CommitRuleError::UnsupportedProposalType(
+            ProposalType::GroupContextExtensions
         ))
     ));
+    assert!(error.is_safe_rejection());
     group.commit_to_pending_proposals(&provider, signer)?;
     let staged = group.pending_commit()?;
+    let error = ValidatedCommit::from_staged_commit_local(
+        &alix.context,
+        &alix.context.db(),
+        staged,
+        group.own_leaf_index(),
+        &group,
+        u64::MAX,
+    )
+    .unwrap_err();
     assert!(matches!(
-        ValidatedCommit::from_staged_commit_local(
-            &alix.context,
-            &alix.context.db(),
-            staged,
-            group.own_leaf_index(),
-            &group,
-            u64::MAX,
-        ),
-        Err(CommitValidationError::Rule(
-            CommitRuleError::UnsupportedProposalType(ProposalType::GroupContextExtensions)
+        error,
+        CommitValidationError::Rule(CommitRuleError::UnsupportedProposalType(
+            ProposalType::GroupContextExtensions
         ))
     ));
+    assert!(error.is_safe_rejection());
+}
+
+/// verifies: GMOD-059
+///
+/// A standalone `GroupContextExtensions` or `PreSharedKey` proposal is a
+/// terminal rejection on receipt, so it never holds the group head.
+#[xmtp_common::test(unwrap_try = true)]
+async fn standalone_unsupported_proposals_are_terminal() {
+    use openmls::schedule::PreSharedKeyId;
+    let alix = EngineTestPeer::new().await;
+    let conversation = alix.create_group(None, None)?;
+    let provider = alix.context.mls_provider();
+    let mut group = OpenMlsGroup::load(
+        alix.context.mls_storage(),
+        &conversation.group_id.to_openmls(),
+    )??;
+    let signer = &alix.context.identity().installation_keys;
+    group.propose_group_context_extensions(&provider, group.extensions().clone(), signer)?;
+    group.propose_pre_shared_key(
+        &provider,
+        signer,
+        PreSharedKeyId::external(b"psk".to_vec(), vec![0; 32]),
+    )?;
+    let (immutable, mutable) = read_committed_metadata(&group)?;
+    let kinds: Vec<_> = group
+        .pending_proposals()
+        .map(|proposal| {
+            let error = validate_proposal(
+                proposal,
+                &group,
+                &PolicySet::default(),
+                &immutable,
+                &mutable,
+            )
+            .unwrap_err();
+            assert!(error.is_safe_rejection(), "{error:?}");
+            proposal.proposal().proposal_type()
+        })
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            ProposalType::GroupContextExtensions,
+            ProposalType::PreSharedKey
+        ]
+    );
+}
+
+/// verifies: GMOD-059
+///
+/// A queued `ReInit`, `ExternalInit`, `SelfRemove`, `AppEphemeral`, custom
+/// or GREASE proposal is a terminal rejection under `validate_proposal`. Each is built from a real
+/// queued proposal with its body replaced, because OpenMLS does not let a
+/// member queue them through its API.
+#[xmtp_common::test(unwrap_try = true)]
+async fn validate_proposal_rejects_every_unsupported_type() {
+    use openmls::messages::proposals::{
+        AppEphemeralProposal, CustomProposal, ExternalInitProposal, ReInitProposal,
+    };
+    use tls_codec::DeserializeBytes as _;
+    let alix = EngineTestPeer::new().await;
+    let conversation = alix.create_group(None, None)?;
+    let provider = alix.context.mls_provider();
+    let mut group = OpenMlsGroup::load(
+        alix.context.mls_storage(),
+        &conversation.group_id.to_openmls(),
+    )??;
+    let signer = &alix.context.identity().installation_keys;
+    group.propose_group_context_extensions(&provider, group.extensions().clone(), signer)?;
+    let template = serde_json::to_value(group.pending_proposals().next()?)?;
+    let (immutable, mutable) = read_committed_metadata(&group)?;
+    // group_id <1 byte>, version mls10, ciphersuite 0x0001, no extensions.
+    let reinit = ReInitProposal::tls_deserialize_exact_bytes(&[1, 7, 0, 1, 0, 1, 0])?;
+    for proposal in [
+        Proposal::ReInit(Box::new(reinit)),
+        Proposal::ExternalInit(Box::new(ExternalInitProposal::from(vec![1]))),
+        Proposal::SelfRemove,
+        Proposal::AppEphemeral(Box::new(AppEphemeralProposal::new(0x8001, vec![1]))),
+        Proposal::Custom(Box::new(CustomProposal::new(0xF000, vec![1]))),
+        Proposal::Custom(Box::new(CustomProposal::new(0x0A0A, vec![1]))),
+    ] {
+        let kind = proposal.proposal_type();
+        let mut queued = template.clone();
+        queued["proposal"] = serde_json::to_value(&proposal)?;
+        let queued: QueuedProposal = serde_json::from_value(queued)?;
+        assert_eq!(queued.proposal().proposal_type(), kind);
+        let Err(error) =
+            validate_proposal(&queued, &group, &PolicySet::default(), &immutable, &mutable)
+        else {
+            panic!("{kind:?} was accepted");
+        };
+        assert!(
+            matches!(
+                &error,
+                CommitValidationError::Rule(CommitRuleError::UnsupportedProposalType(found))
+                    if *found == kind
+            ),
+            "{kind:?}: {error:?}"
+        );
+        assert!(error.is_safe_rejection(), "{kind:?}");
+    }
 }

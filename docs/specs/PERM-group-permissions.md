@@ -33,7 +33,7 @@ Out of scope: when the engine runs and what a rejected commit does to the group 
 
 | Related | Relation |
 | --- | --- |
-| `GMOD` | Owns the commit validation pipeline that invokes this engine, the membership component, and the protocol-version floor. GMOD-001 states which proposal types reach the engine. |
+| `GMOD` | Owns the commit validation pipeline that invokes this engine, the membership component, and the protocol-version floor. GMOD-059 states which proposal types reach the engine. |
 | `META` | Owns all component ids and ranges, the `ComponentMetadata` and `ComponentPermissions` messages, registry structure, and application of component deltas. |
 | `DMS` | DMS-002 owns the fixed policies and initial roles; DMS-004 owns the participant-add exception used in section 3. |
 | `EVENT` | EVENT-001 reports a changed policy set or admin list through `conversation.metadata_changed`. |
@@ -137,6 +137,7 @@ A proposal that writes a component is an `AppDataUpdate` proposal, defined in [d
 | A scalar (`COMPONENT_TYPE_BYTES`, `COMPONENT_TYPE_STRING`) | `Update` | One update, whether or not the component already has a value |
 | A scalar | `Remove` | One delete |
 | A set or a map | `Update` carrying a delta | One change per mutation in the delta: an insert for an insert, an update for an update, a delete for a remove, a remove-by-hash, or a delete |
+| A set or a map | `Update` carrying a delta with no mutations | One insert of the whole component, with no key, when the component has no value; one update of the whole component, with no key, when it has one |
 | A set or a map | `Remove` | One delete |
 
 META section 1 owns component id ranges. META-004 rejects writes to an existing immutable component, including insertion into an existing immutable collection. META-014 and META-015 own registry structure and immutable registry entries. These checks apply before policy evaluation; an allowing policy cannot bypass them.
@@ -246,6 +247,8 @@ Active group creation and commit validation use the dictionary and registry. Leg
 ## Known limitations
 
 A client can check a component-specific invariant only when it implements that invariant. Registry policy evaluation alone cannot prevent different acceptance decisions. PERM-023 applies to these changes as well as new encodings.
+
+Clients that predate the element-change row for a set or map `Update` whose delta has no mutations apply such a write with no policy check, while newer clients judge it under PERM-011 as one write of the whole component. A member whose policy denies that write can publish one, standalone or inline in its own commit. Older clients apply the inline commit and keep the standalone proposal, and a later commit of theirs that carries it by reference is one that older clients apply and newer clients reject. Without a version floor (PERM-023), the group forks between them, so a group whose floor is below `8.0.0-0` can fork this way. An older client's own write causes this when its app sends an empty delta for a component its policy denies, such as an absent self-owned map.
 
 Evaluation stops at the first child that decides a condition (PERM-007), so an `any_condition` with an allowing child ahead of a malformed one allows a write. The projection an SDK reports to an app validates the whole tree and reports a malformed metadata policy as deny, so the app can read deny for a field a write to which succeeds. The action policies do not have this gap, because PERM-017 keeps them well-formed at every node.
 

@@ -92,24 +92,28 @@ macro_rules! publish_raw {
         (staged_commit, committer, cursor)
     }};
 }
+pub(super) use publish_raw;
 
 mod leaf_additions;
 mod leaf_updates;
 mod membership_deltas;
 
-struct Member {
-    client: EngineTestPeer,
+pub(super) struct Member {
+    pub(super) client: EngineTestPeer,
     wallet: LocalWallet,
 }
 
-async fn member() -> Member {
+pub(super) async fn member() -> Member {
     let client = EngineTestPeer::new_with(|o| o.triggers = true).await;
     let wallet = client.owner.clone();
     Member { client, wallet }
 }
 
 /// Alix creates a group with Bo, and Bo joins it.
-async fn group(alix: &EngineTestPeer, bo: &EngineTestPeer) -> (EngineTestGroup, EngineTestGroup) {
+pub(super) async fn group(
+    alix: &EngineTestPeer,
+    bo: &EngineTestPeer,
+) -> (EngineTestGroup, EngineTestGroup) {
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await
@@ -158,7 +162,7 @@ async fn association(
 
 /// Associate `installation` with the member's inbox. The caller holds the
 /// installation's private key.
-async fn associate(member: &Member, installation: &XmtpInstallationCredential) {
+pub(super) async fn associate(member: &Member, installation: &XmtpInstallationCredential) {
     member
         .client
         .identity_updates()
@@ -170,7 +174,7 @@ async fn associate(member: &Member, installation: &XmtpInstallationCredential) {
 /// Associate `installation` with the member's inbox in the local histories of
 /// `holders` only, and return the update's sequence id. Use it for a key that
 /// another inbox already holds.
-async fn associate_locally(
+pub(super) async fn associate_locally(
     member: &Member,
     installation: &XmtpInstallationCredential,
     holders: &[&EngineTestPeer],
@@ -179,7 +183,7 @@ async fn associate_locally(
 }
 
 /// The group's committed membership component.
-async fn membership(group: &EngineTestGroup) -> GroupMembership {
+pub(super) async fn membership(group: &EngineTestGroup) -> GroupMembership {
     group
         .load_mls_group_with_lock_async(async |mls_group| {
             Ok::<_, GroupError>(extract_group_membership(mls_group.extensions()).unwrap())
@@ -285,7 +289,7 @@ async fn publish_path_credential(
 }
 
 /// Check the receiver's exact rule error, then its durable network rejection.
-async fn assert_rule_rejection(
+pub(super) async fn assert_rule_rejection(
     group: &EngineTestGroup,
     before: &openmls::group::MlsGroup,
     raw: (

@@ -274,8 +274,21 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 } else {
                     error
                 };
-                // implements: PROC-055
-                let error = error.classify_application_sender(envelope.message.content_type());
+                // implements: PROC-061
+                let error = if error.is_sender_ratchet_failure() {
+                    let floor_exceeded = tx.with_group(self.group_id, |group, _| {
+                        Ok::<_, GroupMessageProcessingError>(
+                            xmtp_mls_group_state::app_data::protocol_floor::committed_floor_exceeding(
+                                group,
+                                self.context.version_info().pkg_semver(),
+                            )
+                            .is_some(),
+                        )
+                    })?;
+                    error.classify_sender_ratchet(floor_exceeded)
+                } else {
+                    error
+                };
                 if let GroupMessageProcessingError::CommitValidation(CommitValidationError::Rule(
                     CommitRuleError::ProtocolVersionTooLow(version),
                 )) = &error

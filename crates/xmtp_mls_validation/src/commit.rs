@@ -83,6 +83,10 @@ pub enum CommitRuleError {
     SequenceIdDecreased,
     #[error("Unexpected installations removed: {0:?}")]
     UnexpectedInstallationsRemoved(Vec<Vec<u8>>),
+    /// The commit leaves an installation key unaccounted for this inbox
+    /// that was not unaccounted for it before the commit.
+    #[error("Commit leaves an installation of {0} unaccounted")]
+    UnaccountedInstallation(String),
     #[error(transparent)]
     GroupMetadata(#[from] GroupMetadataError),
     #[error(transparent)]
@@ -139,7 +143,10 @@ impl RetryableError for CommitRuleError {
 
 impl CommitRuleError {
     /// Only authenticated, deterministic invalid input can advance the prefix.
-    /// Unsupported versions and proposal types leave the head pending.
+    /// An unsupported version leaves the head pending; an unsupported
+    /// proposal type is rejected, because no release accepts one below a
+    /// floor that pauses this client first.
+    // implements: GMOD-059
     pub fn is_safe_rejection(&self) -> bool {
         match self {
             Self::IdentitySequenceNotBeforeEnvelope { .. }
@@ -153,6 +160,7 @@ impl CommitRuleError {
             | Self::UnexpectedInstallationAdded(_)
             | Self::SequenceIdDecreased
             | Self::UnexpectedInstallationsRemoved(_)
+            | Self::UnaccountedInstallation(_)
             | Self::MlsCredential(_)
             | Self::ProtoDecode(_)
             | Self::NoPSKSupport
@@ -168,8 +176,9 @@ impl CommitRuleError {
             | Self::GroupMutableMetadata(_)
             | Self::GroupMutablePermissions(_)
             | Self::ComponentSource(_)
-            | Self::Conversion(_) => true,
-            Self::ProtocolVersionTooLow(_) | Self::UnsupportedProposalType(_) => false,
+            | Self::Conversion(_)
+            | Self::UnsupportedProposalType(_) => true,
+            Self::ProtocolVersionTooLow(_) => false,
         }
     }
 }
@@ -326,17 +335,17 @@ impl MetadataFieldChange {
 /// Validate the complete proposal list of a commit before any proposal is
 /// interpreted.
 ///
-/// Only `Add`, `Update`, `Remove`, and `AppDataUpdate` are allowed. Any other
-/// kind except `PreSharedKey` holds the commit
-/// ([`CommitRuleError::UnsupportedProposalType`]); a hold outranks every
-/// terminal rejection in the same list. `PreSharedKey` is a terminal
-/// rejection.
+/// Only `Add`, `Update`, `Remove`, and `AppDataUpdate` are allowed. Every
+/// other kind is a terminal rejection: `PreSharedKey` as
+/// [`CommitRuleError::NoPSKSupport`], and any other kind as
+/// [`CommitRuleError::UnsupportedProposalType`], which returns at once.
 ///
 /// The `AppDataUpdate` proposals must form a valid list under
 /// draft-ietf-mls-extensions-08 §4.7 whether or not a
 /// `GroupContextExtensions` proposal is present: per component, no Update
 /// together with a Remove, at most one Remove, and a Remove only for a
 /// component that `has_state` in the pre-commit dictionary.
+// implements: GMOD-059
 pub fn validate_committed_proposals<'a>(
     proposals: impl IntoIterator<Item = &'a Proposal>,
     has_state: impl Fn(ComponentId) -> bool,
@@ -976,7 +985,12 @@ fn permits_dm_participant_insert(
 /// `membership` is the set of inbox ids the self-owned non-member test reads:
 /// the post-commit membership inside a commit, the committed one for a
 /// standalone proposal.
-// implements: PERM-011, PERM-014, PERM-026, PERM-027, PERM-028
+///
+/// A set or map delta with no mutations is judged as one change of the
+/// whole component with no key: an insert when `old_value` is `None`, an
+/// update otherwise. A proposal that writes `DM_MEMBERS` is always
+/// rejected, because the pair is written only at creation.
+// implements: PERM-011, PERM-014, PERM-026, PERM-027, PERM-028, META-004, META-030
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn validate_one_app_data_update_with_old_value(
     component_id: xmtp_mls_group_state::app_data::component_id::ComponentId,
@@ -989,9 +1003,23 @@ pub(crate) fn validate_one_app_data_update_with_old_value(
     membership: Option<&std::collections::HashSet<xmtp_mls_group_state::inbox_id::InboxId>>,
 ) -> Result<(), CommitRuleError> {
     use xmtp_mls_group_state::app_data::{
+        component_id::ComponentId,
+        component_registry::ComponentOp,
         registry_table::lookup_component,
+        typed::ExpandedComponentChange,
         validation::{ComponentChange, validate_component_write},
     };
+
+    // A DM's pair is written in its creation group context, never by a
+    // proposal. A pair in any other conversation fails every metadata read.
+    // implements: META-030
+    if component_id == ComponentId::DM_MEMBERS {
+        tracing::warn!(
+            proposer_inbox_id,
+            "AppDataUpdate proposal rejected: DM_MEMBERS is written only at creation"
+        );
+        return Err(CommitRuleError::InsufficientPermissions);
+    }
 
     // Source-of-truth monotonicity for `MIN_SUPPORTED_PROTOCOL_VERSION`.
     // Runs ahead of the per-element policy loop so a downgrade fails
@@ -1027,7 +1055,7 @@ pub(crate) fn validate_one_app_data_update_with_old_value(
     //   gates the write, so deny-by-default applies.
     let component = lookup_component(component_id);
     // The expanded values can hold the commit-log signer's private key.
-    let changes = if let Some(component) = component {
+    let mut changes = if let Some(component) = component {
         component
             .expand_to_changes(operation, old_value)
             .map(Zeroizing::new)
@@ -1061,6 +1089,21 @@ pub(crate) fn validate_one_app_data_update_with_old_value(
             }
         }
     };
+    // Only a set or map delta with no mutations expands to nothing. It still
+    // writes the component, creating it when absent, so judge it as one
+    // change of the whole component.
+    // implements: PERM-011, META-004
+    if changes.is_empty() {
+        changes.push(ExpandedComponentChange {
+            op: if old_value.is_none() {
+                ComponentOp::Insert
+            } else {
+                ComponentOp::Update
+            },
+            key: None,
+            value: None,
+        });
+    }
 
     // A DM may add its other participant even though its add-member policy
     // denies general additions. Use the same exception as MLS Add validation.

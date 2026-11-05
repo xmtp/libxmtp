@@ -24,6 +24,7 @@ mod test_identity_revocation;
 mod test_identity_updates;
 mod test_leaf_key_binding;
 mod test_membership;
+mod test_membership_accounting;
 mod test_message_disappearing_settings;
 mod test_metadata_permissions;
 #[cfg(not(target_arch = "wasm32"))]

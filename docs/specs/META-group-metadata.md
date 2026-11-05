@@ -30,7 +30,7 @@ Out of scope: policy semantics and roles (`PERM`); proposal-list validity, commi
 | Related | Relation |
 | --- | --- |
 | `PERM-010`, `PERM-012`, `PERM-017`, `PERM-026` | Own hardcoded authority, pre-commit authorization, denial of unregistered writes, and action-policy validity. |
-| `GMOD-001`, `GMOD-005`, `GMOD-021` | Own permitted proposal types, membership content, and validation before commit application. |
+| `GMOD-059`, `GMOD-005`, `GMOD-021` | Own permitted proposal types, membership content, and validation before commit application. |
 | `DMS` | Reads `CONVERSATION_TYPE` and `DM_MEMBERS` from this spec and owns what a DM is. |
 | `JOIN-057`, `GMOD-022`, `GMOD-025`, `GMOD-026`, `GMOD-027` | Own Welcome holds, commit pauses, the monotonic floor, and version comparison. |
 | `GMOD-040`, `FORK-050` | Own the group root and the one-shot recovery payload. |
@@ -61,7 +61,7 @@ Out of scope: policy semantics and roles (`PERM`); proposal-list validity, commi
 
 ## 1. The dictionary and its key space
 
-The dictionary is the required representation for the metadata in this spec. Previously migrated groups can have this representation too. Active readers do not use legacy XMTP extensions as a fallback; legacy-only groups lack required dictionary state. A dictionary-bearing group can retain ignored legacy extensions. GMOD-001 owns rejection of `GroupContextExtensions` proposals, subject to the pre-commit floor pause in GMOD-025.
+The dictionary is the required representation for the metadata in this spec. Previously migrated groups can have this representation too. Active readers do not use legacy XMTP extensions as a fallback; legacy-only groups lack required dictionary state. A dictionary-bearing group can retain ignored legacy extensions. GMOD-059 owns rejection of `GroupContextExtensions` proposals, subject to the pre-commit floor pause in GMOD-025.
 
 The dictionary and `AppDataUpdate` use [draft-ietf-mls-extensions-08 §4.7](https://www.ietf.org/archive/id/draft-ietf-mls-extensions-08.html#section-4.7). Their identifiers are registered in [§7.2.1](https://www.ietf.org/archive/id/draft-ietf-mls-extensions-08.html#section-7.2.1) and [§7.3.1](https://www.ietf.org/archive/id/draft-ietf-mls-extensions-08.html#section-7.3.1). XMTP assigns the component ids below.
 
@@ -361,6 +361,8 @@ A client cannot apply a component whose type or entry format it cannot interpret
 A component without a built-in definition is applied by its supported registry type (PERM-014 and META-010). An older client cannot check a component-specific bound or transition rule introduced by a later release.
 
 Clients that predate META-077 or the `GROUP_MEMBERSHIP` clause of META-068 apply commits that newer clients reject: one that grows the dictionary total past 4194304 bytes, or one that writes a membership entry longer than 8192 bytes. Without a version floor (PERM-023), the group forks between them. A forged commit causes either; an older client's own write causes the first only when an app fills more than about 61 application components.
+
+Clients that predate the rejection of every proposal that writes `DM_MEMBERS` under META-030 apply one, standalone or inline in a member's own commit, which newer clients reject, and keep a standalone one for a later commit of theirs to carry by reference. Without a version floor (PERM-023), the group forks between them, so a group whose floor is below `8.0.0-0` can fork this way. An older client that applies such a write outside a DM then fails every metadata read of that group.
 
 Every rejection of an `AppDataUpdate` proposal, whether for authority, for a malformed payload, or for an invariant, is reported to the sender as one error kind. An app cannot tell a permission failure from a malformed value.
 

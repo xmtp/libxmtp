@@ -42,6 +42,9 @@ use xmtp_mls_validation::{
     },
     group_membership::{FailedInstallations, GroupMembership},
     group_permissions::{GroupMutablePermissionsError, MembershipPolicy, PolicySet},
+    membership_accounting::{
+        MembershipChange, leaf_owners_after_commit, validate_membership_accounting,
+    },
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     GroupMembershipChanges, GroupUpdated as GroupUpdatedProto,
@@ -157,6 +160,7 @@ from_rule_error!(
  * 6. Only Add, Update, Remove, and AppDataUpdate proposals are allowed, in a valid list
  * 7. New installations may be missing from the commit but still be present in the expected diff.
  * 8. Confirms metadata character limit is not exceeded
+ * 9. The commit leaves no installation key unaccounted that was accounted for before it
  */
 #[derive(Debug, Clone, Serialize)]
 pub struct ValidatedCommit {
@@ -241,7 +245,7 @@ impl ValidatedCommit {
                 CommitRuleError::ProtocolVersionTooLow(min_version),
             ));
         }
-        // implements: GMOD-001, GMOD-030
+        // implements: GMOD-059, GMOD-030
         validate_committed_proposals(
             staged_commit
                 .queued_proposals()
@@ -470,6 +474,25 @@ impl ValidatedCommit {
                 CommitRuleError::InsufficientPermissions,
             ));
         }
+        // After every other check, so their rejections keep precedence, and
+        // before the floor pause, which waits only for a commit that passes.
+        // implements: GMOD-022
+        validate_accounting(
+            conn,
+            &MembershipChange {
+                old: &old_group_membership,
+                new: &new_group_membership,
+                old_failed: &old_failed,
+                new_failed: &new_failed,
+                leaves_before: &leaf_owners,
+                leaves_after: &leaf_owners_after_commit(
+                    staged_commit,
+                    openmls_group,
+                    committer_leaf_index,
+                    &leaf_owners,
+                )?,
+            },
+        )?;
         if let Some(min_version) = &minimum_supported_protocol_version {
             let current_version = context.version_info().pkg_semver();
             let min_supported_version = LibXMTPVersion::parse(min_version)?;
@@ -590,6 +613,7 @@ impl From<ValidatedCommit> for GroupMembershipChanges {
 ///
 /// This function should be called when receiving proposals to ensure they are valid
 /// before they are stored and later committed.
+// implements: GMOD-059
 pub fn validate_proposal(
     proposal: &QueuedProposal,
     openmls_group: &OpenMlsGroup,
@@ -821,5 +845,6 @@ mod membership_log_tests;
 mod expected_diff;
 
 use expected_diff::{
-    ExpectedDiff, expected_diff_matches_commit, validate_new_failed_installations,
+    ExpectedDiff, expected_diff_matches_commit, validate_accounting,
+    validate_new_failed_installations,
 };
