@@ -440,3 +440,30 @@ async fn replacement_cancels_old_obligations_and_retains_notifications() {
     );
     xmtp_common::time::timeout(Duration::from_secs(1), lease.changed()).await?;
 }
+
+/// Once durable receipt reaches a topic's fixed target, the controller does
+/// not read receipt progress for that target again.
+#[xmtp_common::test(unwrap_try = true)]
+async fn receipt_that_reaches_a_fixed_target_is_read_once() {
+    let alix = EngineTestPeer::new().await;
+    let topic = Topic::new_group_message(GroupId::generate());
+    let mut controller = controller(alix.context.clone());
+    add_scope(&mut controller, 1, &topic);
+    controller.read_queue.push_back(topic.clone());
+    admit_empty(&mut controller, &topic, &[10]);
+    controller.registered([(topic, Cursor(10))].into());
+    controller.transport.state = TransportState::Streaming(IncomingSubscription::new(
+        Box::pin(futures::stream::pending()),
+        |_| {},
+    ));
+    for _ in 0..100 {
+        controller.start_read();
+    }
+    assert!(controller.read.is_none());
+    assert_eq!(
+        controller
+            .receipt_progress_reads
+            .load(std::sync::atomic::Ordering::Relaxed),
+        1
+    );
+}

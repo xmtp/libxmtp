@@ -5,6 +5,7 @@ use super::*;
 
 impl<C: XmtpSharedContext + 'static> Controller<C> {
     pub(super) fn reconcile(&mut self) -> Result<(), IncomingError> {
+        self.pending_topics = None;
         let missing_group_topics = self.missing_group_topics.clone();
         // Read the generation once, before any read it gates. A write that
         // commits after this read changes the generation the next pass sees.
@@ -210,11 +211,13 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 state.processing.missing_reference = None;
                 state.error = None;
                 state.receipt.last_read = None;
+                state.receipt.received_floor = None;
             }
         }
         self.callbacks
             .retain(|group, _| interested.contains(&Topic::new_group_message(*group)));
         merge_read_queue(&mut self.read_queue, &interested, Topic::cloned_vec);
+        let mut pending_topics = HashSet::new();
         // A drained topic can rejoin reception. Other kinds keep their own capacity.
         for kind in [
             NetworkEntityKind::Group,
@@ -222,6 +225,12 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             NetworkEntityKind::Identity,
         ] {
             let usage = self.context.db().pending_topic_usage(kind)?;
+            if kind != NetworkEntityKind::Welcome {
+                pending_topics.extend(usage.iter().map(|usage| StreamTopic {
+                    entity_id: usage.entity_id.clone(),
+                    kind,
+                }));
+            }
             let limits = self
                 .context
                 .incoming_runtime()
@@ -254,6 +263,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     });
             }
         }
+        self.pending_topics = Some(pending_topics);
         Ok(())
     }
 

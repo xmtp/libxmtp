@@ -100,13 +100,21 @@ fn connection_pragmas(c: &mut impl SimpleConnection) -> diesel::result::QueryRes
     c.batch_execute(&format!("PRAGMA busy_timeout = {};", BUSY_TIMEOUT))?; // sleep for 5s if the database is busy
     c.batch_execute("PRAGMA synchronous = NORMAL;")?; // fsync only in critical moments
     c.batch_execute("PRAGMA wal_autocheckpoint = 1000;")?; // write WAL changes back every 1000 pages, for an in average 1MB WAL file. May affect readers if number is increased
-    c.batch_execute("PRAGMA wal_checkpoint(TRUNCATE);")?; // free some space by truncating possibly massive WAL files from the last run.
     c.batch_execute("PRAGMA query_only = OFF;")?; // Enable writing with the connection
     c.batch_execute("PRAGMA journal_size_limit = 67108864")?; // maximum size of the WAL file, corresponds to 64MB
     c.batch_execute("PRAGMA mmap_size = 134217728")?; // maximum size of the internal mmap pool. Corresponds to 128MB
     c.batch_execute("PRAGMA cache_size = 2000")?; // maximum number of database disk pages that will be hold in memory. Corresponds to ~8MB
     c.batch_execute("PRAGMA foreign_keys = ON;")?; // enforce foreign keys
 
+    Ok(())
+}
+
+/// Pragmas to execute once when a database opens, on its first connection.
+/// A pool truncates the WAL through its gate in `pool.rs`, starting with its
+/// first connection.
+fn database_open_pragmas(c: &mut impl SimpleConnection) -> diesel::result::QueryResult<()> {
+    c.batch_execute(&format!("PRAGMA busy_timeout = {};", BUSY_TIMEOUT))?;
+    c.batch_execute("PRAGMA journal_mode = WAL;")?;
     Ok(())
 }
 
@@ -552,7 +560,7 @@ impl SingleDbConnection {
 
     /// Establish a fresh connection and apply the same setup the pool applies:
     /// the customizer's `on_acquire` (sqlcipher key + `connection_pragmas`),
-    /// then the one-time WAL/busy_timeout pragmas that `DbPool::new` runs.
+    /// then the `database_open_pragmas` that `DbPool::new` runs.
     fn establish(
         path: &str,
         customizer: &dyn XmtpConnection,
@@ -567,9 +575,11 @@ impl SingleDbConnection {
         customizer
             .on_acquire(&mut conn)
             .map_err(PlatformStorageError::DbConnection)?;
-        // Same one-time pragmas DbPool::new applies on pool creation.
-        conn.batch_execute(&format!("PRAGMA busy_timeout = {};", BUSY_TIMEOUT))?;
-        conn.batch_execute("PRAGMA journal_mode = WAL;")?;
+        database_open_pragmas(&mut conn)?;
+        // Free the WAL the last run left. A single connection has no later
+        // checkout to retry a blocked truncate, so it truncates on every open
+        // and reconnect instead.
+        conn.batch_execute("PRAGMA wal_checkpoint(TRUNCATE);")?;
         Ok(conn)
     }
 

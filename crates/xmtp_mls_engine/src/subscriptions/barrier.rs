@@ -435,16 +435,22 @@ async fn capture_targets<C: XmtpSharedContext>(
     let results = stream::iter(chunks)
         .map(|topics| async move {
             let remaining = deadline.saturating_duration_since(Instant::now());
-            // A rate-limit wait that would pass the deadline returns the
-            // rejection, so the barrier reports its delay, not a timeout.
-            let result = xmtp_common::time::timeout(
-                remaining,
-                xmtp_common::retry::with_retry_deadline(
-                    deadline,
-                    context.api().newest_topic_cursors(topics.clone()),
-                ),
-            )
-            .await;
+            // A query sent after the deadline cannot help, and its response
+            // can win the race with the expired timer.
+            let result = if remaining.is_zero() {
+                Err(xmtp_common::time::Expired)
+            } else {
+                // A rate-limit wait that would pass the deadline returns the
+                // rejection, so the barrier reports its delay, not a timeout.
+                xmtp_common::time::timeout(
+                    remaining,
+                    xmtp_common::retry::with_retry_deadline(
+                        deadline,
+                        context.api().newest_topic_cursors(topics.clone()),
+                    ),
+                )
+                .await
+            };
             (topics, result)
         })
         .buffer_unordered(context.incoming_runtime().policy().max_dependency_requests)

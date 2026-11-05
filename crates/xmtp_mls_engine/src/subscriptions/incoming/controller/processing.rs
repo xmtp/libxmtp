@@ -39,10 +39,17 @@ pub(super) enum PrefixTarget {
 }
 
 impl<C: XmtpSharedContext + 'static> Controller<C> {
-    pub(super) fn process_ready(&mut self) -> bool {
+    /// Give one turn to every queued topic with ready work, with an admission
+    /// point every `TURNS_BETWEEN_ADMISSIONS` turns so the wire stays drained
+    /// during a long pass. Returns whether processing made progress, and sets
+    /// `admitted` when an admission point handled events.
+    // implements: PROC-013
+    pub(super) async fn process_ready(&mut self, admitted: &mut bool) -> bool {
         let mut progress = false;
-        let topics: Vec<_> = self.read_queue.iter().cloned().collect();
-        for topic in topics {
+        for (turn, topic) in self.ready_topics().into_iter().enumerate() {
+            if turn > 0 && turn % TURNS_BETWEEN_ADMISSIONS == 0 {
+                *admitted |= self.admission_point().await;
+            }
             if self.is_retired(&topic) {
                 continue;
             }
@@ -268,6 +275,64 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         }
         self.start_dependencies();
         progress
+    }
+
+    /// The queued topics with work to attempt, in queue order. A group or
+    /// identity head has work when it is past its retry time and not waiting
+    /// on a dependency, or when it is blocked and this controller has not
+    /// rechecked it. Held heads take no turn. The Welcome topic always takes
+    /// one: its turn reads the ready Welcomes, so one held Welcome does not
+    /// hide later ones.
+    fn ready_topics(&self) -> Vec<Topic> {
+        // Only a topic with pending rows has a head, so a large idle scope
+        // costs nothing here.
+        let queued: Vec<_> = self
+            .read_queue
+            .iter()
+            .filter(|topic| topic.kind() != TopicKind::WelcomeMessagesV1)
+            .filter_map(|topic| topic_key(topic).ok())
+            .filter(|key| {
+                self.pending_topics
+                    .as_ref()
+                    .is_none_or(|pending| pending.contains(key))
+            })
+            .collect();
+        let heads = match self
+            .context
+            .db()
+            .due_or_blocked_heads(&queued, xmtp_common::time::now_ns())
+        {
+            Ok(heads) => heads,
+            Err(error) => {
+                // Each topic's turn then reports its own read error.
+                tracing::warn!(%error, "reading ready heads failed");
+                return self.read_queue.iter().cloned().collect();
+            }
+        };
+        let waiting: HashSet<_> = self.dependency_registry.parents().collect();
+        let ready: HashSet<_> = heads
+            .into_iter()
+            .filter_map(|head| {
+                let topic = key_topic(&head.topic);
+                let parent = match head.topic.kind {
+                    NetworkEntityKind::Identity => {
+                        DependencyParent::IdentityHead(topic.clone(), head.sequence_id)
+                    }
+                    _ => DependencyParent::GroupHead(topic.clone(), head.sequence_id),
+                };
+                let rechecked = head.blocked
+                    && self.topics.get(&topic).is_some_and(|state| {
+                        state.processing.retried_head == Some(head.sequence_id)
+                    });
+                (!waiting.contains(&parent) && !rechecked).then_some(topic)
+            })
+            .collect();
+        let welcome = self.welcome_topic();
+        self.read_queue
+            .iter()
+            .filter(|topic| **topic == welcome || ready.contains(*topic))
+            .cloned()
+            .collect()
     }
 
     /// Read the newest position of a held Welcome's group topic. The read takes
@@ -630,7 +695,12 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         }
     }
 
-    fn retry_blocked_head(&mut self, topic: &Topic, cursor: Cursor, blocked: bool) -> bool {
+    pub(super) fn retry_blocked_head(
+        &mut self,
+        topic: &Topic,
+        cursor: Cursor,
+        blocked: bool,
+    ) -> bool {
         let previous = self
             .topics
             .entry(topic.clone())

@@ -1,4 +1,5 @@
 use super::*;
+use xmtp_db::incoming_envelope::ProgressSnapshot;
 
 impl<C: XmtpSharedContext + 'static> Controller<C> {
     pub(super) fn refresh_statuses(&self) {
@@ -7,7 +8,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
 
     pub(super) fn refresh_statuses_at(&self, now: Instant) {
         *self.state.recovery.lock() = self.transport.recovery.clone();
-        let conn = self.context.db();
+        let durable = self.read_durable_progress();
         let mut snapshots = self.state.statuses.lock();
         let mut connections = Vec::new();
         for (id, scope) in &self.scopes {
@@ -91,21 +92,19 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                         continue;
                     }
                 };
-                let progress = match conn.topic_progress(&key) {
-                    Ok(progress) => progress,
+                let read = match &durable {
+                    Ok(durable) => durable
+                        .topic(&key, target)
+                        .map_err(|error| Arc::new(error.into())),
+                    Err(error) => Err(error.clone()),
+                };
+                let (progress, pending) = match read {
+                    Ok(read) => read,
                     Err(error) => {
-                        snapshot.error = Some(Arc::new(error.into()));
+                        snapshot.error = Some(error);
                         continue;
                     }
                 };
-                let pending =
-                    match conn.pending_states_through(&key, target.unwrap_or(progress.received)) {
-                        Ok(pending) => pending,
-                        Err(error) => {
-                            snapshot.error = Some(Arc::new(error.into()));
-                            continue;
-                        }
-                    };
                 let blocked = pending.iter().find(|row| row.blocked).map(|row| {
                     row.error_code
                         .clone()
@@ -175,7 +174,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     error,
                 });
             }
-            topics.sort_by_key(|status| status.topic.cloned_vec());
+            topics.sort_by(|a, b| a.topic[..].cmp(&b.topic[..]));
             snapshot.scope_generation = scope.generation;
             snapshot.connection_generation = self.transport.generation;
             snapshot.connection = self.transport.connection();
@@ -218,5 +217,20 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             self.state.connection_states.update(id, connection);
         }
         self.state.notify();
+    }
+
+    /// The durable progress of every topic the scopes select, read in one
+    /// transaction of two statements whatever the topic count.
+    fn read_durable_progress(&self) -> Result<ProgressSnapshot, Arc<IncomingError>> {
+        let topics: Vec<_> = self
+            .scopes
+            .values()
+            .flat_map(|scope| &scope.topics)
+            .filter_map(|topic| topic_key(topic).ok())
+            .collect();
+        self.context
+            .db()
+            .progress_snapshot(&topics)
+            .map_err(|error| Arc::new(error.into()))
     }
 }

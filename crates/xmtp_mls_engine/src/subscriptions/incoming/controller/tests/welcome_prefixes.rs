@@ -163,7 +163,7 @@ async fn removal_wakes_a_welcome_before_its_join_anchor() {
     let welcome_key = topic_key(&welcome_topic)?;
     controller.read_queue.push_back(welcome_topic);
     controller.welcome_blocked_scan = None;
-    assert!(!controller.process_ready());
+    assert!(!controller.process_ready(&mut false).await);
     assert!(controller.dependencies.is_empty());
     assert!(bo_group.is_active()?);
     assert!(
@@ -183,12 +183,12 @@ async fn removal_wakes_a_welcome_before_its_join_anchor() {
         .get_mut(&welcome.cursor)
         .unwrap()
         .deadline_ns = 0;
-    assert!(!controller.process_ready());
+    assert!(!controller.process_ready(&mut false).await);
     assert_eq!(controller.dependencies.len(), 1);
 
     controller.read_queue.push_front(group_topic);
     for _ in 0..removal.inserted {
-        assert!(controller.process_ready());
+        assert!(controller.process_ready(&mut false).await);
     }
     assert!(
         bo.context
@@ -261,7 +261,7 @@ async fn restart_after_prefix_deadline(
     if suspended {
         controller.transport.factory = Some(Arc::new(SuspendedFactory));
     }
-    assert!(!controller.process_ready());
+    assert!(!controller.process_ready(&mut false).await);
     let (cursor, group, anchor) = controller.dependency_registry.prefixes().next().unwrap();
     assert_eq!((cursor, group), (welcome.cursor, bo_group.group_id));
     assert!(removal.received < anchor);
@@ -301,9 +301,9 @@ async fn expired_prefix_wait_catches_up_before_deciding() {
     // After resuming, one newest-position read runs; a later pass does not
     // repeat it, and the group topic keeps its network interest.
     controller.transport.factory = None;
-    assert!(!controller.process_ready());
+    assert!(!controller.process_ready(&mut false).await);
     assert_eq!(controller.dependencies.len(), 1);
-    assert!(!controller.process_ready());
+    assert!(!controller.process_ready(&mut false).await);
     assert_eq!(controller.dependencies.len(), 1);
     controller.reconcile()?;
     assert!(controller.interested().contains(&group_topic));
@@ -321,10 +321,10 @@ async fn expired_prefix_wait_catches_up_before_deciding() {
     // The Welcome waits while processing approaches the removal, with no
     // further read, and joins on the pass that processes it.
     for _ in 1..removal.inserted {
-        assert!(controller.process_ready());
+        assert!(controller.process_ready(&mut false).await);
         assert!(pending()?.is_some());
     }
-    assert!(controller.process_ready());
+    assert!(controller.process_ready(&mut false).await);
     assert!(controller.dependencies.is_empty());
     assert!(pending()?.is_none());
     assert!(bo_group.is_active()?);
@@ -379,7 +379,7 @@ async fn expired_prefix_wait_rejects_below_a_reached_final_target() {
         group_topic.clone(),
         Err(xmtp_api::ApiError::InvalidResponse("newest metadata")),
     ));
-    assert!(!controller.process_ready());
+    assert!(!controller.process_ready(&mut false).await);
     assert!(held()?);
     assert!(controller.dependencies.is_empty());
     if let PrefixTarget::Unrequested { retry_at } =
@@ -387,7 +387,7 @@ async fn expired_prefix_wait_rejects_below_a_reached_final_target() {
     {
         *retry_at = Some(Instant::now());
     }
-    assert!(!controller.process_ready());
+    assert!(!controller.process_ready(&mut false).await);
     assert_eq!(controller.dependencies.len(), 1);
 
     // Processing has not reached this target, and the removal at or below it
@@ -397,7 +397,7 @@ async fn expired_prefix_wait_rejects_below_a_reached_final_target() {
         group_topic.clone(),
         Ok(removal.received),
     ));
-    assert!(!controller.process_ready());
+    assert!(!controller.process_ready(&mut false).await);
     assert!(held()?);
     assert_eq!(controller.dependency_registry.prefixes().count(), 1);
 
@@ -406,7 +406,7 @@ async fn expired_prefix_wait_rejects_below_a_reached_final_target() {
         group_topic,
         Ok(processed),
     ));
-    assert!(controller.process_ready());
+    assert!(controller.process_ready(&mut false).await);
     assert!(
         bo.context
             .db()
@@ -464,7 +464,7 @@ async fn expired_prefix_wait_keeps_a_welcome_for_an_inactive_group() {
         Topic::new_group_message(bo_group.group_id),
         Ok(processed),
     ));
-    assert!(!controller.process_ready());
+    assert!(!controller.process_ready(&mut false).await);
     assert!(
         bo.context
             .db()
@@ -483,7 +483,7 @@ async fn expired_prefix_wait_keeps_a_welcome_for_an_inactive_group() {
         .set(incoming_envelopes::retry_at_ns.eq(0i64))
         .execute(conn)
     })?;
-    assert!(controller.process_ready());
+    assert!(controller.process_ready(&mut false).await);
     assert!(
         bo.context
             .db()
@@ -538,7 +538,7 @@ async fn an_in_flight_pointer_does_not_starve_a_later_welcome() {
     );
     // Keep the first fetch in flight without resolving it or advancing time.
     assert_eq!(controller.dependency_registry.start_queued(1).len(), 1);
-    controller.process_ready();
+    controller.process_ready(&mut false).await;
     assert!(
         controller
             .dependency_registry

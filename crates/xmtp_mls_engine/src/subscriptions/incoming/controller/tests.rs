@@ -20,6 +20,7 @@ mod barriers;
 mod group_selection;
 mod held_heads;
 mod interest;
+mod passes;
 mod permanent_failures;
 mod proof_dependencies;
 mod rate_limits;
@@ -149,4 +150,110 @@ fn run_raw_sql<C: XmtpSharedContext>(context: &C, sql: &str) {
 fn pass<C: XmtpSharedContext + 'static>(controller: &mut Controller<C>) {
     controller.storage_error = controller.reconcile().err().map(Arc::new);
     controller.start_open();
+}
+
+/// Make `controller` a healthy stream registered for every topic it wants, at
+/// target zero, so a pass starts no network work.
+fn register_all<C: XmtpSharedContext + 'static>(controller: &mut Controller<C>) {
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller.reconcile().unwrap();
+    let topics = controller.interested();
+    controller.transport.requested = topics.clone();
+    controller.transport.state = TransportState::Streaming(IncomingSubscription::new(
+        Box::pin(futures::stream::pending()),
+        |_| {},
+    ));
+    controller.registered(topics.into_iter().map(|topic| (topic, Cursor(0))).collect());
+}
+
+/// Store group rows without MLS state. Their heads take processing turns,
+/// but processing them fails.
+fn stored_groups<C: XmtpSharedContext>(context: &C, count: usize) -> Vec<Topic> {
+    use xmtp_db::{Store, group::StoredGroup};
+    (0..count)
+        .map(|_| {
+            let group = StoredGroup::builder()
+                .id(GroupId::generate())
+                .created_at_ns(0)
+                .membership_state(GroupMembershipState::Allowed)
+                .added_by_inbox_id("peer")
+                .build()
+                .unwrap();
+            group.store(&context.db()).unwrap();
+            Topic::new_group_message(group.id)
+        })
+        .collect()
+}
+
+/// Create local groups with MLS state, so processing can reject and complete
+/// their malformed heads in order.
+fn local_groups<C: XmtpSharedContext>(context: &C, count: usize) -> Vec<Topic> {
+    use crate::groups::group_permissions::PolicySet;
+    use xmtp_mls_group_state::group::GroupMetadataOptions;
+    (0..count)
+        .map(|_| {
+            let group = MlsGroup::insert(
+                context,
+                None,
+                GroupMembershipState::Allowed,
+                ConversationType::Group,
+                PolicySet::default(),
+                GroupMetadataOptions::default(),
+                None,
+                false,
+            )
+            .unwrap();
+            Topic::new_group_message(group.id)
+        })
+        .collect()
+}
+
+/// An envelope without a payload, which processing rejects as malformed.
+fn empty_envelope(topic: &Topic, sequence: u64) -> ReceivedEnvelope {
+    wire::ServerEnvelope {
+        meta: Some(meta(topic, sequence)),
+        envelope: Some(wire::ClientEnvelope::default()),
+    }
+    .into()
+}
+
+fn admit_empty<C: XmtpSharedContext + 'static>(
+    controller: &mut Controller<C>,
+    topic: &Topic,
+    sequences: &[u64],
+) {
+    controller
+        .admit_received_batch(OrderedEnvelopeBatch {
+            topic: topic.clone(),
+            after: Cursor(0),
+            envelopes: sequences
+                .iter()
+                .map(|sequence| empty_envelope(topic, *sequence))
+                .collect(),
+        })
+        .unwrap();
+}
+
+/// Set the retry state of the envelope at `sequence`.
+fn retry_at<C: XmtpSharedContext>(
+    context: &C,
+    topic: &Topic,
+    sequence: u64,
+    retry_at_ns: i64,
+    blocked: bool,
+) {
+    let retry = xmtp_db::incoming_envelope::IncomingRetry {
+        retry_at_ns,
+        blocked,
+        error_code: blocked.then(|| "held".into()),
+        retry_expires_at_ns: None,
+    };
+    assert!(
+        context
+            .db()
+            .set_incoming_retry(&topic_key(topic).unwrap(), Cursor(sequence), &retry)
+            .unwrap()
+    );
 }

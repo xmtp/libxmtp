@@ -504,6 +504,145 @@ async fn pending_states_include_only_actual_topic_ids_through_the_target() {
     assert!(db.pending_states_through(&welcome, Cursor(0))?.is_empty());
 }
 
+/// One snapshot read gives every topic the progress and pending rows of its
+/// own reads, for every target.
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_progress_snapshot_matches_per_topic_reads() {
+    let store = TestDb::create_persistent_store(None).await;
+    let db = store.db();
+    let kinds = [
+        NetworkEntityKind::Welcome,
+        NetworkEntityKind::Group,
+        NetworkEntityKind::Identity,
+    ];
+    let limits = IncomingLimits {
+        kind: PendingBudget {
+            rows: 64,
+            bytes: 256,
+        },
+        ..limits()
+    };
+    // The kinds share entity ids. Topics are unseen, pending, held or partly
+    // processed; a Welcome completes out of order.
+    let mut topics = Vec::new();
+    for id in 0..8 {
+        for kind in kinds {
+            let topic = topic(id, kind);
+            if id % 4 != 0 {
+                db.admit_ordered_batch(&topic, Cursor(0), &batch(&[10, 20, 30]), limits)?;
+            }
+            match (id % 4, kind) {
+                (2, _) => assert!(hold(&db, &topic, 10)?),
+                (3, NetworkEntityKind::Welcome) => {
+                    assert!(db.complete_pending_envelope(&topic, Cursor(20))?)
+                }
+                (3, _) => assert!(db.complete_pending_envelope(&topic, Cursor(10))?),
+                _ => {}
+            }
+            topics.push(topic);
+        }
+    }
+    // A legacy row that never initialized receipt.
+    let legacy = topic(9, NetworkEntityKind::Group);
+    db.raw_query(|conn| {
+        diesel::insert_into(progress::table)
+            .values((
+                progress::entity_id.eq(&legacy.entity_id),
+                progress::entity_kind.eq(legacy.kind.entity_kind()),
+                progress::sequence_id.eq(5i64),
+            ))
+            .execute(conn)
+    })?;
+    topics.push(legacy);
+
+    let snapshot = db.progress_snapshot(&topics)?;
+    for topic in &topics {
+        let progress = db.topic_progress(topic);
+        for target in [
+            None,
+            Some(0),
+            Some(10),
+            Some(15),
+            Some(20),
+            Some(30),
+            Some(40),
+            Some(u64::MAX),
+        ] {
+            let read = snapshot
+                .topic(topic, target.map(Cursor))
+                .map(|(progress, pending)| (progress, pending.to_vec()))
+                .map_err(|_| ());
+            let expected = progress.as_ref().map_err(|_| ()).and_then(|progress| {
+                db.pending_states_through(topic, target.map_or(progress.received, Cursor))
+                    .map(|pending| (*progress, pending))
+                    .map_err(|_| ())
+            });
+            assert_eq!(read, expected, "{topic:?} through {target:?}");
+        }
+    }
+    // The snapshot answers only for the topics it read.
+    let one = db.progress_snapshot(&topics[..1])?;
+    assert!(one.topic(&topics[1], None).is_err());
+}
+
+/// The snapshot reads in one transaction: BEGIN, two SELECTs and COMMIT.
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_progress_snapshot_reads_in_one_transaction() {
+    // A pooled store also counts the pool's checkout check.
+    let store = TestDb::create_ephemeral_store().await;
+    let db = store.db();
+    let group = topic(1, NetworkEntityKind::Group);
+    db.admit_ordered_batch(&group, Cursor(0), &batch(&[10, 20]), limits())?;
+    let (snapshot, statements, transactions) =
+        crate::database::count_sql_queries(|| db.progress_snapshot(std::slice::from_ref(&group)));
+    assert_eq!(snapshot?.topic(&group, Some(Cursor(20)))?.1.len(), 2);
+    assert_eq!((statements, transactions), (4, 1));
+}
+
+/// The heads read returns each requested head that is blocked, whatever its
+/// retry time, or due; nothing for a topic whose head waits for its retry
+/// time, even when a later row is due; and nothing for a topic it was not
+/// asked about.
+#[xmtp_common::test(unwrap_try = true)]
+async fn due_or_blocked_heads_return_only_heads_with_work() {
+    let store = TestDb::create_persistent_store(None).await;
+    let db = store.db();
+    let blocked = topic(1, NetworkEntityKind::Group);
+    let due = topic(2, NetworkEntityKind::Identity);
+    let waiting = topic(3, NetworkEntityKind::Group);
+    let unasked = topic(4, NetworkEntityKind::Group);
+    for topic in [&blocked, &due, &waiting, &unasked] {
+        db.admit_ordered_batch(topic, Cursor(0), &batch(&[10, 20]), limits())?;
+    }
+    let later = |blocked| IncomingRetry {
+        retry_at_ns: i64::MAX,
+        blocked,
+        error_code: None,
+        retry_expires_at_ns: None,
+    };
+    assert!(db.set_incoming_retry(&blocked, Cursor(10), &later(true))?);
+    assert!(db.set_incoming_retry(&waiting, Cursor(10), &later(false))?);
+    let asked = [blocked.clone(), due.clone(), waiting];
+    let mut heads = db.due_or_blocked_heads(&asked, xmtp_common::time::now_ns())?;
+    heads.sort_by(|a, b| a.topic.entity_id.cmp(&b.topic.entity_id));
+    assert_eq!(
+        heads,
+        [
+            PendingHead {
+                topic: blocked,
+                sequence_id: Cursor(10),
+                blocked: true,
+            },
+            PendingHead {
+                topic: due,
+                sequence_id: Cursor(10),
+                blocked: false,
+            },
+        ]
+    );
+}
+
 /// Scheduled Welcomes must not consume ready-read budgets or lose their
 /// retention state, so a slow dependency cannot starve independent joins.
 // verifies: PROC-013
@@ -714,4 +853,62 @@ async fn terminal_rejection_is_bounded_and_rolls_back_with_processed_progress() 
     let rejection = db.read_last_rejection(&topic)?.unwrap();
     assert_eq!(rejection.sequence_id, Cursor(20));
     assert_eq!(rejection.code, "TEST_NEW");
+}
+
+/// The scoped reads seek each requested topic by its key, so they cost what
+/// the requested topics hold, not what the database holds. The plans checked
+/// are those of the statements the reads execute.
+#[xmtp_common::test(unwrap_try = true)]
+async fn scoped_reads_seek_each_topic_by_key() {
+    use diesel::connection::InstrumentationEvent;
+
+    #[derive(QueryableByName, Debug)]
+    struct Plan {
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        detail: String,
+    }
+    // One connection, so the recorder sees every statement of the reads.
+    let store = TestDb::create_ephemeral_store().await;
+    let db = store.db();
+    let group = topic(1, NetworkEntityKind::Group);
+    db.admit_ordered_batch(&group, Cursor(0), &batch(&[10, 20]), limits())?;
+    let executed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorder = executed.clone();
+    db.raw_query(|conn| {
+        conn.set_instrumentation(move |event: InstrumentationEvent<'_>| {
+            if let InstrumentationEvent::StartQuery { query, .. } = event {
+                recorder.lock().unwrap().push(query.to_string());
+            }
+        });
+        Ok(())
+    })?;
+    let topics = [group, topic(2, NetworkEntityKind::Identity)];
+    db.progress_snapshot(&topics)?;
+    db.due_or_blocked_heads(&topics, 0)?;
+    // A statement prints as `<sql> -- binds: [...]`.
+    let reads: Vec<String> = executed
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|statement| statement.split(" -- binds: ").next())
+        .filter(|sql| sql.starts_with("WITH") || sql.starts_with("SELECT"))
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(reads.len(), 3, "{reads:?}");
+    for sql in reads {
+        let plan = db.raw_query(|conn| {
+            diesel::sql_query(format!("EXPLAIN QUERY PLAN {sql}")).load::<Plan>(conn)
+        })?;
+        // Each line that reads rows walks the requested topics or seeks one
+        // topic by its key; none reads a whole table or a whole kind.
+        let reads_by_key = |detail: &str| {
+            !(detail.starts_with("SCAN") || detail.starts_with("SEARCH"))
+                || detail.starts_with("SCAN json_each")
+                || detail.contains("(entity_id=? AND entity_kind=?")
+        };
+        assert!(
+            plan.iter().all(|line| reads_by_key(&line.detail)),
+            "{sql}: {plan:?}"
+        );
+    }
 }

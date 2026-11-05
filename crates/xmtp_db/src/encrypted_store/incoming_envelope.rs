@@ -7,8 +7,9 @@
 
 use diesel::{
     prelude::*,
-    sql_types::{BigInt, Binary, Bool, Integer},
+    sql_types::{BigInt, Binary, Bool, Integer, Nullable, Text},
 };
+use std::{collections::HashMap, fmt::Write};
 use xmtp_proto::types::{Cursor, GroupId};
 
 use super::{
@@ -22,7 +23,7 @@ use super::{
 use crate::{ConnectionExt, StorageError};
 
 /// Separate network queues with independent pending-work budgets.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NetworkEntityKind {
     /// Independent Welcome work for an installation.
     Welcome,
@@ -43,7 +44,7 @@ impl NetworkEntityKind {
 }
 
 /// The database key for one network log and its received/processed positions.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StreamTopic {
     /// Group ID, installation ID, or inbox ID bytes, without the wire topic prefix.
     pub entity_id: Vec<u8>,
@@ -153,6 +154,160 @@ pub struct AdmissionResult {
 pub struct TerminalRejection {
     pub sequence_id: Cursor,
     pub code: String,
+}
+
+/// The durable progress and pending work of some topics, from one read
+/// transaction. For each of those topics it answers what `topic_progress` and
+/// `pending_states_through` would, and it refuses any other topic.
+#[derive(Debug, Default)]
+pub struct ProgressSnapshot {
+    topics: HashMap<StreamTopic, SnapshotTopic>,
+}
+
+#[derive(Debug, Default)]
+struct SnapshotTopic {
+    /// The P and F columns of the topic's progress row, if it has one.
+    progress: Option<(i64, Option<i64>)>,
+    /// The topic's pending rows in sequence order.
+    pending: Vec<PendingEnvelopeState>,
+}
+
+impl ProgressSnapshot {
+    /// The topic's progress, and its pending rows through `target` or, with no
+    /// target, through receipt.
+    pub fn topic(
+        &self,
+        topic: &StreamTopic,
+        target: Option<Cursor>,
+    ) -> Result<(TopicProgress, &[PendingEnvelopeState]), StorageError> {
+        let read = self
+            .topics
+            .get(topic)
+            .ok_or(StreamStorageError::InvalidBatch)?;
+        let progress = progress_from_row(read.progress)?;
+        let through = target.unwrap_or(progress.received);
+        if i64::try_from(through.0).is_err() {
+            return Err(StreamStorageError::InvalidBatch.into());
+        }
+        let end = read
+            .pending
+            .partition_point(|row| row.sequence_id <= through);
+        Ok((progress, &read.pending[..end]))
+    }
+}
+
+/// The first pending envelope of a group or identity topic.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingHead {
+    pub topic: StreamTopic,
+    pub sequence_id: Cursor,
+    pub blocked: bool,
+}
+
+#[derive(QueryableByName)]
+struct PendingHeadRow {
+    #[diesel(sql_type = Binary)]
+    entity_id: Vec<u8>,
+    #[diesel(sql_type = Integer)]
+    entity_kind: EntityKind,
+    #[diesel(sql_type = BigInt)]
+    sequence_id: i64,
+    #[diesel(sql_type = Bool)]
+    blocked: bool,
+}
+
+#[derive(QueryableByName)]
+struct ProgressRow {
+    #[diesel(sql_type = Binary)]
+    entity_id: Vec<u8>,
+    #[diesel(sql_type = Integer)]
+    entity_kind: EntityKind,
+    #[diesel(sql_type = BigInt)]
+    sequence_id: i64,
+    #[diesel(sql_type = Nullable<BigInt>)]
+    received_sequence_id: Option<i64>,
+}
+
+#[derive(QueryableByName)]
+struct PendingRow {
+    #[diesel(sql_type = Binary)]
+    entity_id: Vec<u8>,
+    #[diesel(sql_type = Integer)]
+    entity_kind: EntityKind,
+    #[diesel(sql_type = BigInt)]
+    sequence_id: i64,
+    #[diesel(sql_type = Bool)]
+    blocked: bool,
+    #[diesel(sql_type = Nullable<Text>)]
+    error_code: Option<String>,
+    #[diesel(sql_type = BigInt)]
+    retry_at_ns: i64,
+}
+
+/// The topics a scoped read covers, bound as one JSON array of
+/// `[entity kind, hex entity id]` pairs. One parameter keeps the statement
+/// count fixed, and the join seeks each topic by its key, so the read costs
+/// what those topics hold rather than what the database holds.
+macro_rules! wanted_topics {
+    () => {
+        "WITH wanted(entity_id, entity_kind) AS \
+         (SELECT unhex(value ->> 1), value ->> 0 FROM json_each(?1)) "
+    };
+}
+
+/// Each wanted topic's head, when it is blocked or past its retry time.
+const HEADS_SQL: &str = concat!(
+    wanted_topics!(),
+    "SELECT i.entity_id, i.entity_kind, i.sequence_id, i.blocked FROM wanted w ",
+    "JOIN incoming_envelopes i ON i.entity_id = w.entity_id AND i.entity_kind = w.entity_kind ",
+    "AND i.sequence_id = (SELECT MIN(sequence_id) FROM incoming_envelopes ",
+    "WHERE entity_id = w.entity_id AND entity_kind = w.entity_kind) ",
+    "WHERE i.blocked OR i.retry_at_ns <= ?2"
+);
+
+/// Each wanted topic's progress row.
+const PROGRESS_SQL: &str = concat!(
+    wanted_topics!(),
+    "SELECT p.entity_id, p.entity_kind, p.sequence_id, p.received_sequence_id FROM wanted w ",
+    "JOIN refresh_state p ON p.entity_id = w.entity_id AND p.entity_kind = w.entity_kind"
+);
+
+/// Each wanted topic's pending rows, without ciphertext, in sequence order.
+const PENDING_SQL: &str = concat!(
+    wanted_topics!(),
+    "SELECT i.entity_id, i.entity_kind, i.sequence_id, i.blocked, i.error_code, i.retry_at_ns ",
+    "FROM wanted w JOIN incoming_envelopes i ",
+    "ON i.entity_id = w.entity_id AND i.entity_kind = w.entity_kind ",
+    "ORDER BY i.entity_id, i.entity_kind, i.sequence_id"
+);
+
+fn wanted_param<'a>(topics: impl IntoIterator<Item = &'a StreamTopic>) -> String {
+    let mut json = String::from("[");
+    for (index, topic) in topics.into_iter().enumerate() {
+        if index > 0 {
+            json.push(',');
+        }
+        let kind = topic.kind.entity_kind() as i32;
+        let _ = write!(json, "[{kind},\"{}\"]", hex::encode(&topic.entity_id));
+    }
+    json.push(']');
+    json
+}
+
+fn row_topic(entity_id: Vec<u8>, kind: EntityKind) -> Result<StreamTopic, StorageError> {
+    let kind = match kind {
+        EntityKind::Welcome => NetworkEntityKind::Welcome,
+        EntityKind::ApplicationMessage => NetworkEntityKind::Group,
+        EntityKind::Identity => NetworkEntityKind::Identity,
+        _ => return Err(StorageError::DbDeserialize),
+    };
+    Ok(StreamTopic { entity_id, kind })
+}
+
+fn row_cursor(sequence_id: i64) -> Result<Cursor, StorageError> {
+    Ok(Cursor(
+        u64::try_from(sequence_id).map_err(|_| StorageError::DbDeserialize)?,
+    ))
 }
 
 /// Queue size metadata used to pause full topics without reading ciphertext.
@@ -434,6 +589,80 @@ pub trait QueryIncomingEnvelope: ConnectionExt + Sized {
     /// Read P and F from the same row; an unseen topic starts at zero.
     fn topic_progress(&self, topic: &StreamTopic) -> Result<TopicProgress, StorageError> {
         self.raw_query(|conn| Ok(load_progress(conn, topic)))?
+    }
+
+    /// Read the head of each of `topics` that is blocked or past its retry
+    /// time, without loading ciphertext. Other heads have no work to attempt yet.
+    fn due_or_blocked_heads(
+        &self,
+        topics: &[StreamTopic],
+        now_ns: i64,
+    ) -> Result<Vec<PendingHead>, StorageError> {
+        if topics.is_empty() {
+            return Ok(Vec::new());
+        }
+        let wanted = wanted_param(topics);
+        let rows = self.raw_query(|conn| {
+            diesel::sql_query(HEADS_SQL)
+                .bind::<Text, _>(wanted.as_str())
+                .bind::<BigInt, _>(now_ns)
+                .load::<PendingHeadRow>(conn)
+        })?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(PendingHead {
+                    topic: row_topic(row.entity_id, row.entity_kind)?,
+                    sequence_id: row_cursor(row.sequence_id)?,
+                    blocked: row.blocked,
+                })
+            })
+            .collect()
+    }
+
+    /// Read the progress and pending rows of `topics` in one read transaction,
+    /// without loading ciphertext. Topic and kind admission limits bound the
+    /// pending rows.
+    fn progress_snapshot(&self, topics: &[StreamTopic]) -> Result<ProgressSnapshot, StorageError> {
+        let mut snapshot = ProgressSnapshot {
+            topics: topics
+                .iter()
+                .map(|topic| (topic.clone(), SnapshotTopic::default()))
+                .collect(),
+        };
+        if snapshot.topics.is_empty() {
+            return Ok(snapshot);
+        }
+        // Each topic once, so no row is read twice.
+        let wanted = wanted_param(snapshot.topics.keys());
+        let (progress_rows, pending_rows) = self.raw_query(|conn| {
+            conn.transaction(|conn| {
+                let progress_rows = diesel::sql_query(PROGRESS_SQL)
+                    .bind::<Text, _>(wanted.as_str())
+                    .load::<ProgressRow>(conn)?;
+                let pending_rows = diesel::sql_query(PENDING_SQL)
+                    .bind::<Text, _>(wanted.as_str())
+                    .load::<PendingRow>(conn)?;
+                Ok((progress_rows, pending_rows))
+            })
+        })?;
+        for row in progress_rows {
+            let topic = row_topic(row.entity_id, row.entity_kind)?;
+            if let Some(read) = snapshot.topics.get_mut(&topic) {
+                read.progress = Some((row.sequence_id, row.received_sequence_id));
+            }
+        }
+        for row in pending_rows {
+            let topic = row_topic(row.entity_id, row.entity_kind)?;
+            if let Some(read) = snapshot.topics.get_mut(&topic) {
+                read.pending.push(PendingEnvelopeState {
+                    sequence_id: row_cursor(row.sequence_id)?,
+                    blocked: row.blocked,
+                    error_code: row.error_code,
+                    retry_at_ns: row.retry_at_ns,
+                });
+            }
+        }
+        Ok(snapshot)
     }
 
     /// Read the next actual ID. Missing integer IDs are not queue entries.
@@ -916,6 +1145,11 @@ fn load_progress(
         .select((progress::sequence_id, progress::received_sequence_id))
         .first::<(i64, Option<i64>)>(conn)
         .optional()?;
+    progress_from_row(row)
+}
+
+/// P and F from a progress row's columns; an unseen topic starts at zero.
+fn progress_from_row(row: Option<(i64, Option<i64>)>) -> Result<TopicProgress, StorageError> {
     match row {
         None | Some((0, None)) => Ok(TopicProgress::default()),
         Some((processed, Some(received))) => Ok(TopicProgress {
