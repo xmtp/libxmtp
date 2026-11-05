@@ -202,13 +202,16 @@ async fn standalone_unsupported_proposals_are_terminal() {
 
 /// verifies: GMOD-059
 ///
-/// A queued `SelfRemove`, `AppEphemeral`, custom or GREASE proposal is a
-/// terminal rejection under `validate_proposal`. Each is built from a real
+/// A queued `ReInit`, `ExternalInit`, `SelfRemove`, `AppEphemeral`, custom
+/// or GREASE proposal is a terminal rejection under `validate_proposal`. Each is built from a real
 /// queued proposal with its body replaced, because OpenMLS does not let a
 /// member queue them through its API.
 #[xmtp_common::test(unwrap_try = true)]
 async fn validate_proposal_rejects_every_unsupported_type() {
-    use openmls::messages::proposals::{AppEphemeralProposal, CustomProposal};
+    use openmls::messages::proposals::{
+        AppEphemeralProposal, CustomProposal, ExternalInitProposal, ReInitProposal,
+    };
+    use tls_codec::DeserializeBytes as _;
     let alix = EngineTestPeer::new().await;
     let conversation = alix.create_group(None, None)?;
     let provider = alix.context.mls_provider();
@@ -220,7 +223,11 @@ async fn validate_proposal_rejects_every_unsupported_type() {
     group.propose_group_context_extensions(&provider, group.extensions().clone(), signer)?;
     let template = serde_json::to_value(group.pending_proposals().next()?)?;
     let (immutable, mutable) = read_committed_metadata(&group)?;
+    // group_id <1 byte>, version mls10, ciphersuite 0x0001, no extensions.
+    let reinit = ReInitProposal::tls_deserialize_exact_bytes(&[1, 7, 0, 1, 0, 1, 0])?;
     for proposal in [
+        Proposal::ReInit(Box::new(reinit)),
+        Proposal::ExternalInit(Box::new(ExternalInitProposal::from(vec![1]))),
         Proposal::SelfRemove,
         Proposal::AppEphemeral(Box::new(AppEphemeralProposal::new(0x8001, vec![1]))),
         Proposal::Custom(Box::new(CustomProposal::new(0xF000, vec![1]))),
@@ -231,8 +238,11 @@ async fn validate_proposal_rejects_every_unsupported_type() {
         queued["proposal"] = serde_json::to_value(&proposal)?;
         let queued: QueuedProposal = serde_json::from_value(queued)?;
         assert_eq!(queued.proposal().proposal_type(), kind);
-        let error = validate_proposal(&queued, &group, &PolicySet::default(), &immutable, &mutable)
-            .unwrap_err();
+        let Err(error) =
+            validate_proposal(&queued, &group, &PolicySet::default(), &immutable, &mutable)
+        else {
+            panic!("{kind:?} was accepted");
+        };
         assert!(
             matches!(
                 &error,
