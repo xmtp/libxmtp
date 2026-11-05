@@ -248,6 +248,8 @@ Active group creation and commit validation use the dictionary and registry. Leg
 
 A client can check a component-specific invariant only when it implements that invariant. Registry policy evaluation alone cannot prevent different acceptance decisions. PERM-023 applies to these changes as well as new encodings.
 
+Clients that predate the element-change row for a set or map `Update` whose delta has no mutations apply such a write with no policy check, while newer clients judge it under PERM-011 as one write of the whole component. A member whose policy denies that write can publish one, standalone or inline in its own commit. Older clients apply the inline commit and keep the standalone proposal, and a later commit of theirs that carries it by reference is one that older clients apply and newer clients reject. Without a version floor (PERM-023), the group forks between them, so a group whose floor is below `8.0.0-0` can fork this way. An older client's own write causes this when its app sends an empty delta for a component its policy denies, such as an absent self-owned map.
+
 Evaluation stops at the first child that decides a condition (PERM-007), so an `any_condition` with an allowing child ahead of a malformed one allows a write. The projection an SDK reports to an app validates the whole tree and reports a malformed metadata policy as deny, so the app can read deny for a field a write to which succeeds. The action policies do not have this gap, because PERM-017 keeps them well-formed at every node.
 
 Legacy groups that carry no app-data dictionary do not satisfy this workflow. Their extension encodings are not an alternate source of authorization here.
