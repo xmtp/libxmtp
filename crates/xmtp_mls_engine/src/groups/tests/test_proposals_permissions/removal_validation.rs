@@ -501,3 +501,56 @@ async fn test_commit_removing_all_super_admins_is_rejected() {
         vec![bo.inbox_id().to_string()]
     );
 }
+
+/// An empty `DM_MEMBERS` delta in Alix's proposal store, as an older client
+/// that accepted it would hold, is dropped by Alix's next commit, so every
+/// member applies the commit and can still read the metadata. Alix is a
+/// super admin; either the `DM_MEMBERS` rule or the empty-delta rule keeps
+/// the delta out.
+// verifies: META-030, PERM-011
+#[xmtp_common::test(unwrap_try = true)]
+async fn builder_drops_a_stored_empty_dm_members_proposal() {
+    use crate::groups::GroupError;
+    use openmls::{messages::proposals::AppDataUpdateOperation, prelude::tls_codec::Serialize};
+    use xmtp_db::{TransactionOutcome::Continue, XmtpOpenMlsProviderRef};
+    use xmtp_mls_core::state_tx::state_write;
+    use xmtp_mls_group_state::{app_data::component_id::ComponentId, inbox_id::InboxId};
+    use xmtp_mls_tls_collections::tls_set::TlsSetDelta;
+
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
+    let alix_group = alix
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.wait_for_welcomes().await?.first()?.clone();
+    let caro_group = caro.wait_for_welcomes().await?.first()?.clone();
+
+    let empty = TlsSetDelta::<InboxId>::new().tls_serialize_detached()?;
+    state_write(alix.context.mls_storage(), |tx| {
+        tx.with_group(alix_group.group_id, |mls, storage| {
+            mls.propose_app_data_update(
+                &XmtpOpenMlsProviderRef::new(storage),
+                &alix.context.identity().installation_keys,
+                ComponentId::DM_MEMBERS.as_u16(),
+                AppDataUpdateOperation::Update(empty.into()),
+            )
+            .map_err(GroupError::Proposal)?;
+            Ok::<_, GroupError>(Continue(()))
+        })
+    })?;
+    assert_eq!(
+        alix_group.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?,
+        1
+    );
+
+    alix_group.update_group_name("renamed".into()).await?;
+    let epoch = alix_group.epoch().await?;
+    alix_group.metadata().await?;
+    for group in [&bo_group, &caro_group] {
+        group.sync().await?;
+        assert_eq!(group.epoch().await?, epoch);
+        assert_eq!(group.group_name()?, "renamed");
+        group.metadata().await?;
+    }
+}
