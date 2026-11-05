@@ -251,3 +251,33 @@ async fn failed_key_remove_does_not_cover_a_pending_refresh()
         .await?;
     Ok(())
 }
+
+/// A commit accepted before receivers checked accounting can leave an
+/// own-inbox key with no leaf and no failure listing, and later commits may
+/// carry it forward. The
+/// inbox's refresh retries the key: it adds the installation, its own echo
+/// passes validation, and the installation joins.
+// verifies: GMOD-055, GMOD-057
+#[xmtp_common::test(unwrap_try = true)]
+async fn refresh_retries_a_carried_forward_unaccounted_own_key() {
+    let bo = EngineTestPeer::new().await;
+    let group = bo.create_group(None, None)?;
+    let bo2 = bo.new_installation().await;
+    let key = bo2.context.installation_id().to_vec();
+    bo.inbox_state(true).await?;
+    let sequence = bo
+        .context
+        .db()
+        .get_latest_sequence_id_for_inbox(bo.inbox_id())? as u64;
+    assert!(*committed_membership(&group).get(bo.inbox_id())? < sequence);
+    legacy_entry(&group, entry_update(bo.inbox_id(), sequence, vec![]))?;
+    let legacy = committed_membership(&group);
+    assert_eq!(legacy.get(bo.inbox_id()), Some(&sequence));
+    assert!(!legacy.failed_installations.contains(&key));
+    assert!(!has_leaf(&group, &key));
+
+    group.update_installations().await?;
+    assert!(has_leaf(&group, &key), "the refresh retries the key");
+    let joined = bo2.wait_for_welcomes().await?;
+    assert_eq!(joined.first()?.group_id, group.group_id);
+}
