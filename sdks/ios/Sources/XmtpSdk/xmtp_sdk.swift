@@ -2747,6 +2747,11 @@ public protocol ConversationsProtocol: AnyObject, Sendable {
 
     func messageReader(options: MessageReaderOptions?) async throws  -> MessageReader
 
+    /**
+     * React to the message `id` in its conversation. A reaction whose
+     * encoded `ReactionV2` is longer than 4096 bytes fails with a codec
+     * encode error, and receivers do not decode one.
+     */
     func reactToMessage(id: MessageId, reaction: Reaction, options: SendOptions?) async throws  -> MessageId
 
     func replyToMessage(id: MessageId, content: EncodedContent, options: SendOptions?) async throws  -> MessageId
@@ -3162,6 +3167,11 @@ open func messageReader(options: MessageReaderOptions? = nil)async throws  -> Me
         )
 }
 
+    /**
+     * React to the message `id` in its conversation. A reaction whose
+     * encoded `ReactionV2` is longer than 4096 bytes fails with a codec
+     * encode error, and receivers do not decode one.
+     */
 open func reactToMessage(id: MessageId, reaction: Reaction, options: SendOptions? = nil)async throws  -> MessageId  {
     return
         try  await uniffiRustCallAsync(
@@ -3848,6 +3858,11 @@ public protocol DmProtocol: AnyObject, Sendable {
 
     func sendMultiRemoteAttachment(attachment: MultiRemoteAttachment, options: SendOptions?) async throws  -> MessageId
 
+    /**
+     * Send a reaction to the message `reference`. A reaction whose
+     * encoded `ReactionV2` is longer than 4096 bytes fails with a
+     * codec encode error, and receivers do not decode one.
+     */
     func sendReaction(reference: MessageId, referenceInboxId: InboxId?, reaction: Reaction, options: SendOptions?) async throws  -> MessageId
 
     func sendReadReceipt(options: SendOptions?) async throws  -> MessageId
@@ -4588,6 +4603,11 @@ open func sendMultiRemoteAttachment(attachment: MultiRemoteAttachment, options: 
         )
 }
 
+    /**
+     * Send a reaction to the message `reference`. A reaction whose
+     * encoded `ReactionV2` is longer than 4096 bytes fails with a
+     * codec encode error, and receivers do not decode one.
+     */
 open func sendReaction(reference: MessageId, referenceInboxId: InboxId?, reaction: Reaction, options: SendOptions? = nil)async throws  -> MessageId  {
     return
         try  await uniffiRustCallAsync(
@@ -5475,6 +5495,11 @@ public protocol GroupProtocol: AnyObject, Sendable {
 
     func sendMultiRemoteAttachment(attachment: MultiRemoteAttachment, options: SendOptions?) async throws  -> MessageId
 
+    /**
+     * Send a reaction to the message `reference`. A reaction whose
+     * encoded `ReactionV2` is longer than 4096 bytes fails with a
+     * codec encode error, and receivers do not decode one.
+     */
     func sendReaction(reference: MessageId, referenceInboxId: InboxId?, reaction: Reaction, options: SendOptions?) async throws  -> MessageId
 
     func sendReadReceipt(options: SendOptions?) async throws  -> MessageId
@@ -6458,6 +6483,11 @@ open func sendMultiRemoteAttachment(attachment: MultiRemoteAttachment, options: 
         )
 }
 
+    /**
+     * Send a reaction to the message `reference`. A reaction whose
+     * encoded `ReactionV2` is longer than 4096 bytes fails with a
+     * codec encode error, and receivers do not decode one.
+     */
 open func sendReaction(reference: MessageId, referenceInboxId: InboxId?, reaction: Reaction, options: SendOptions? = nil)async throws  -> MessageId  {
     return
         try  await uniffiRustCallAsync(
@@ -30422,7 +30452,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_conversations_message_reader() != 20097) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_conversations_react_to_message() != 16620) {
+    if (uniffi_xmtp_sdk_checksum_method_conversations_react_to_message() != 65261) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_conversations_reply_to_message() != 46806) {
@@ -30548,7 +30578,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_dm_send_multi_remote_attachment() != 63165) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_dm_send_reaction() != 50460) {
+    if (uniffi_xmtp_sdk_checksum_method_dm_send_reaction() != 32665) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_dm_send_read_receipt() != 22371) {
@@ -30746,7 +30776,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_group_send_multi_remote_attachment() != 5822) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_group_send_reaction() != 35818) {
+    if (uniffi_xmtp_sdk_checksum_method_group_send_reaction() != 10349) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_send_read_receipt() != 65359) {

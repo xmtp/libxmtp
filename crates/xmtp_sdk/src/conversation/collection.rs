@@ -512,6 +512,9 @@ impl Conversations {
         .await
     }
 
+    /// React to the message `id` in its conversation. A reaction whose
+    /// encoded `ReactionV2` is longer than 4096 bytes fails with a codec
+    /// encode error, and receivers do not decode one.
     #[uniffi::method(default(options = None))]
     pub async fn react_to_message(
         &self,

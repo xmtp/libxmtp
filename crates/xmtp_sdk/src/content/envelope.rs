@@ -56,9 +56,12 @@ impl TryFrom<ProtoEncodedContent> for EncodedContent {
             version_minor: kind.version_minor,
         };
         // Codec input must be uncompressed. Never replace failed decompression with empty content.
-        // implements: CTYPE-024, CTYPE-025
-        let value = xmtp_content_types::compression::decompress(value)
-            .map_err(|error| crate::XmtpError::codec_decode_failed(error.to_string()))?;
+        // implements: CTYPE-024, CTYPE-025, CTYPE-034
+        let value = xmtp_content_types::reaction::decompress_with_reaction_limit(
+            value,
+            &mut xmtp_content_types::compression::DecompressionBudget::new(),
+        )
+        .map_err(|error| crate::XmtpError::codec_decode_failed(error.to_string()))?;
         Ok(Self {
             r#type: kind,
             parameters: value.parameters.into_iter().collect(),

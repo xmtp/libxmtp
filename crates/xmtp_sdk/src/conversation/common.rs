@@ -287,6 +287,9 @@ macro_rules! common_conversation {
                 .await
             }
 
+            /// Send a reaction to the message `reference`. A reaction whose
+            /// encoded `ReactionV2` is longer than 4096 bytes fails with a
+            /// codec encode error, and receivers do not decode one.
             #[uniffi::method(default(options = None))]
             pub async fn send_reaction(
                 &self,

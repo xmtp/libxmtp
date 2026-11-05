@@ -17,7 +17,8 @@ pub const COMPRESSION_CHUNK_BYTES: usize = 64 * 1024;
 #[derive(Debug)]
 enum DecompressFailure {
     Invalid(io::Error),
-    Limit,
+    /// The output passed this many bytes.
+    Limit(usize),
 }
 
 /// Total decompressed bytes allowed while decoding one message and its nested content.
@@ -59,14 +60,18 @@ impl DecompressionBudget {
     }
 }
 
+/// Reads at most `limit` bytes, and never more than the shared budget has left.
 fn read_bounded(
     reader: &mut impl Read,
     budget: &mut DecompressionBudget,
+    limit: usize,
 ) -> Result<Vec<u8>, DecompressFailure> {
+    let shared = limit >= budget.remaining;
+    let ceiling = budget.remaining.min(limit);
     let mut output = Vec::new();
     let mut chunk = [0u8; COMPRESSION_CHUNK_BYTES];
     loop {
-        let remaining = budget.remaining - output.len();
+        let remaining = ceiling - output.len();
         let request = remaining.saturating_add(1).min(COMPRESSION_CHUNK_BYTES);
         let read = reader
             .read(&mut chunk[..request])
@@ -77,13 +82,16 @@ fn read_bounded(
             return Ok(output);
         }
         if read > remaining {
+            if !shared {
+                return Err(DecompressFailure::Limit(limit));
+            }
             budget.limit_exceeded = true;
-            return Err(DecompressFailure::Limit);
+            return Err(DecompressFailure::Limit(MAX_DECOMPRESSED_BYTES));
         }
         let needed = output.len() + read;
         if needed > output.capacity() {
-            // Double, but never past the budget.
-            let target = needed.max(2 * output.capacity()).min(budget.remaining);
+            // Double, but never past the limit.
+            let target = needed.max(2 * output.capacity()).min(ceiling);
             output.reserve_exact(target - output.len());
         }
         output.extend_from_slice(&chunk[..read]);
@@ -144,8 +152,19 @@ pub fn decompress(content: EncodedContent) -> Result<EncodedContent, CodecError>
 
 /// Decompresses one envelope and charges its output to a shared message budget.
 pub fn decompress_with_budget(
+    content: EncodedContent,
+    budget: &mut DecompressionBudget,
+) -> Result<EncodedContent, CodecError> {
+    decompress_with_limit(content, budget, MAX_DECOMPRESSED_BYTES)
+}
+
+/// Decompresses one envelope whose type allows at most `limit` bytes, and
+/// charges its output to a shared message budget. Decompression stops one
+/// byte past the smaller of `limit` and what the budget has left.
+pub fn decompress_with_limit(
     mut content: EncodedContent,
     budget: &mut DecompressionBudget,
+    limit: usize,
 ) -> Result<EncodedContent, CodecError> {
     let Some(raw_algorithm) = content.compression else {
         return Ok(content);
@@ -153,16 +172,24 @@ pub fn decompress_with_budget(
     let algorithm = Compression::try_from(raw_algorithm)
         .map_err(|_| CodecError::Decode(format!("unknown compression value {raw_algorithm}")))?;
     let result = match algorithm {
-        Compression::Gzip => {
-            read_bounded(&mut MultiGzDecoder::new(content.content.as_slice()), budget)
-        }
+        Compression::Gzip => read_bounded(
+            &mut MultiGzDecoder::new(content.content.as_slice()),
+            budget,
+            limit,
+        ),
         Compression::Deflate => {
-            match read_bounded(&mut ZlibDecoder::new(content.content.as_slice()), budget) {
+            match read_bounded(
+                &mut ZlibDecoder::new(content.content.as_slice()),
+                budget,
+                limit,
+            ) {
                 Ok(bytes) => Ok(bytes),
-                Err(DecompressFailure::Invalid(_)) => {
-                    read_bounded(&mut DeflateDecoder::new(content.content.as_slice()), budget)
-                }
-                Err(DecompressFailure::Limit) => Err(DecompressFailure::Limit),
+                Err(DecompressFailure::Invalid(_)) => read_bounded(
+                    &mut DeflateDecoder::new(content.content.as_slice()),
+                    budget,
+                    limit,
+                ),
+                Err(failure) => Err(failure),
             }
         }
     };
@@ -170,9 +197,9 @@ pub fn decompress_with_budget(
         DecompressFailure::Invalid(error) => {
             CodecError::Decode(format!("decompression failed: {error}"))
         }
-        DecompressFailure::Limit => CodecError::Decode(format!(
-            "decompressed content exceeds {MAX_DECOMPRESSED_BYTES} bytes"
-        )),
+        DecompressFailure::Limit(bytes) => {
+            CodecError::Decode(format!("decompressed content exceeds {bytes} bytes"))
+        }
     })?;
     content.compression = None;
     Ok(content)
@@ -194,7 +221,7 @@ mod tests {
     fn decompression_grows_geometrically_and_shrinks_on_return() {
         let source = vec![0; 5 * COMPRESSION_CHUNK_BYTES];
         let mut budget = DecompressionBudget::new();
-        let output = read_bounded(&mut source.as_slice(), &mut budget)?;
+        let output = read_bounded(&mut source.as_slice(), &mut budget, MAX_DECOMPRESSED_BYTES)?;
         assert_eq!(output, source);
         assert_eq!(budget.peak_capacity(), 8 * COMPRESSION_CHUNK_BYTES);
         assert_eq!(output.capacity(), output.len());
@@ -271,14 +298,36 @@ mod tests {
             inner: ZlibDecoder::new(compressed.as_slice()),
             bytes_read: 0,
         };
-        let result = read_bounded(&mut reader, &mut budget);
-        assert!(matches!(result, Err(DecompressFailure::Limit)));
+        let result = read_bounded(&mut reader, &mut budget, MAX_DECOMPRESSED_BYTES);
+        assert!(matches!(result, Err(DecompressFailure::Limit(_))));
         assert!(budget.limit_exceeded());
         // One extra byte detects the limit without reading the rest of the source.
         assert_eq!(reader.bytes_read, MAX_DECOMPRESSED_BYTES + 1);
         assert!(budget.peak_capacity() <= MAX_DECOMPRESSED_BYTES);
         let content = deflate_text(compressed);
         assert!(matches!(decompress(content), Err(CodecError::Decode(_))));
+    }
+
+    /// A per-type limit below the shared budget stops decompression at that
+    /// limit and names it, without marking the shared budget exceeded or
+    /// charging it. Output within the limit is charged.
+    // verifies: CTYPE-034
+    #[xmtp_common::test(unwrap_try = true)]
+    fn type_limit_stops_without_charging_the_shared_budget() {
+        let mut encoder = ZlibEncoder::new(Vec::new(), FlateCompression::default());
+        encoder.write_all(&[b'a'; 5000])?;
+        let content = deflate_text(encoder.finish()?);
+        let mut budget = DecompressionBudget::new();
+        let result = decompress_with_limit(content.clone(), &mut budget, 4096);
+        let Err(CodecError::Decode(message)) = result else {
+            panic!("decompressed past the type limit: {result:?}");
+        };
+        assert!(message.contains("4096"), "{message}");
+        assert!(!budget.limit_exceeded());
+        assert_eq!(budget.used(), 0);
+        let output = decompress_with_limit(content, &mut budget, 5000)?;
+        assert_eq!(output.content.len(), 5000);
+        assert_eq!(budget.used(), 5000);
     }
 
     // verifies: CTYPE-025
@@ -308,8 +357,12 @@ mod tests {
         compressed.extend_from_slice(&((s2 << 16) | s1).to_be_bytes());
 
         let mut budget = DecompressionBudget::new();
-        let result = read_bounded(&mut ZlibDecoder::new(compressed.as_slice()), &mut budget);
-        assert!(matches!(result, Err(DecompressFailure::Limit)));
+        let result = read_bounded(
+            &mut ZlibDecoder::new(compressed.as_slice()),
+            &mut budget,
+            MAX_DECOMPRESSED_BYTES,
+        );
+        assert!(matches!(result, Err(DecompressFailure::Limit(_))));
         assert!(budget.peak_capacity() <= MAX_DECOMPRESSED_BYTES);
         let content = deflate_text(compressed);
         assert!(matches!(decompress(content), Err(CodecError::Decode(_))));

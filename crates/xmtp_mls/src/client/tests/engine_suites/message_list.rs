@@ -94,6 +94,81 @@ async fn history_reaction_summary_is_bounded_per_message() {
         .for_each(|message| assert_summary(&message.decoded));
 }
 
+/// A reaction over the reaction limit stores no reference, so it is left out
+/// of its parent's summary and its count, on history and lookup.
+// verifies: CTYPE-034, PROC-053
+#[xmtp_common::test(unwrap_try = true)]
+async fn reaction_summary_drops_oversized_reactions() {
+    use prost::Message;
+    use xmtp_content_types::{compression, reaction::ReactionCodec};
+    use xmtp_proto::xmtp::mls::message_contents::{
+        Compression, EncodedContent, content_types::ReactionV2,
+    };
+
+    const OVERSIZED: i64 = 5;
+
+    let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    let group = client.create_group(None, Default::default())?;
+    let conn = client.context.db();
+    let base = now_ns();
+    let parent = vec![0xc7; 32];
+    create_test_message(
+        &group.group_id,
+        parent.clone(),
+        TestContentGenerator::text_content("target"),
+        base,
+    )
+    .store(&conn)?;
+    create_test_message(
+        &group.group_id,
+        vec![0xc7, 0],
+        TestContentGenerator::reaction_content(&parent.encode_hex(), "👍", ReactionAction::Added),
+        base + 1,
+    )
+    .store(&conn)?;
+    // Each expands to 1 MiB of reaction content from a small compressed row.
+    let oversized = EncodedContent {
+        r#type: Some(ReactionCodec::content_type()),
+        content: ReactionV2 {
+            reference: parent.encode_hex(),
+            action: ReactionAction::Added.into(),
+            content: "a".repeat(1 << 20),
+            ..Default::default()
+        }
+        .encode_to_vec(),
+        ..Default::default()
+    };
+    let oversized = compression::compress(oversized, Compression::Deflate)?;
+    for offset in 1..=OVERSIZED {
+        create_test_message(
+            &group.group_id,
+            vec![0xc7, offset as u8],
+            oversized.clone(),
+            base + 1 + offset,
+        )
+        .store(&conn)?;
+    }
+
+    let assert_summary = |message: &DecodedMessage| {
+        assert_eq!(message.metadata.id, parent);
+        let contents: Vec<String> = message
+            .reactions
+            .iter()
+            .map(|reaction| match &reaction.content {
+                // Short prefixes keep a failure readable.
+                MessageBody::Reaction(reaction) => reaction.content.chars().take(8).collect(),
+                _ => panic!("summary holds a non-reaction"),
+            })
+            .collect();
+        assert_eq!(contents, ["👍"]);
+        assert_eq!(message.num_reaction_messages, 1);
+    };
+    let history = group.find_messages_v2(&MsgQueryArgs::default())?;
+    assert_eq!(history.len(), 1);
+    assert_summary(&history[0]);
+    assert_summary(&client.message_v2(parent.clone())?);
+}
+
 /// History, lookup by id, and a reply's parent all keep a malformed row
 /// with its id and exact bytes, and later rows stay visible.
 // verifies: CTYPE-008

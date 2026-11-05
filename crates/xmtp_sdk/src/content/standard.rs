@@ -436,8 +436,12 @@ fn decode_standard_inner(encoded: EncodedContent) -> Result<StandardContent, cra
             }
             // implements: CTYPE-024
             // implements: CTYPE-025
-            let nested = xmtp_content_types::compression::decompress(value.content)
-                .map_err(|error| crate::XmtpError::codec_decode_failed(error.to_string()))?;
+            // implements: CTYPE-034
+            let nested = xmtp_content_types::reaction::decompress_with_reaction_limit(
+                value.content,
+                &mut xmtp_content_types::compression::DecompressionBudget::new(),
+            )
+            .map_err(|error| crate::XmtpError::codec_decode_failed(error.to_string()))?;
             xmtp_mls::messages::decoded_message::MessageBody::try_from(nested.clone())
                 .map_err(|error| crate::XmtpError::codec_decode_failed(error.to_string()))?;
             StandardContent::Reply {
