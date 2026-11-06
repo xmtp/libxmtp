@@ -3,7 +3,7 @@
 use std::{num::NonZeroUsize, ops::Deref, path::Path};
 
 use crate::{
-    Config, ConfigError,
+    Config, ConfigError, RateLimitConfig,
     attachments::{AttachmentsConfig, S3Config, TargetConfig},
 };
 
@@ -15,13 +15,19 @@ use crate::{
 pub struct ValidatedConfig {
     config: Config,
     scw_cache_entries: NonZeroUsize,
+    rate_limits: RateLimitConfig,
 }
 
 impl ValidatedConfig {
-    pub(crate) fn new(config: Config, scw_cache_entries: NonZeroUsize) -> Self {
+    pub(crate) fn new(
+        config: Config,
+        scw_cache_entries: NonZeroUsize,
+        rate_limits: RateLimitConfig,
+    ) -> Self {
         Self {
             config,
             scw_cache_entries,
+            rate_limits,
         }
     }
 
@@ -54,6 +60,11 @@ impl ValidatedConfig {
     /// The capacity of the smart contract wallet signature cache.
     pub fn scw_cache_entries(&self) -> NonZeroUsize {
         self.scw_cache_entries
+    }
+
+    /// The rate limits the `[rate_limits]` table resolves to.
+    pub fn rate_limits(&self) -> &RateLimitConfig {
+        &self.rate_limits
     }
 
     /// The attachment settings, when this deployment offers attachments.

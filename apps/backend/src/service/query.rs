@@ -50,7 +50,12 @@ impl api::query_service_server::QueryService for Backend {
         } else {
             (request.limit as usize).min(limits.max_query_limit)
         };
-        let page = self.store.query(&queries, limit as i64).await?;
+        // implements: API-282, API-283
+        let page = self
+            .store
+            .query(&queries, limit as i64, limits.max_response_bytes as i64)
+            .await?
+            .ok_or_else(|| Status::out_of_range("response exceeds max_response_bytes"))?;
         Ok(Response::new(api::QueryResponse {
             envelopes: page
                 .envelopes
@@ -90,9 +95,11 @@ impl api::query_service_server::QueryService for Backend {
             .map(|topic| topic.topic)
             .collect();
         let results = if request.include_full_envelope {
+            // implements: API-282, API-283
             self.store
-                .newest_envelopes(&topics)
+                .newest_envelopes(&topics, limits.max_response_bytes as i64)
                 .await?
+                .ok_or_else(|| Status::out_of_range("response exceeds max_response_bytes"))?
                 .into_iter()
                 .map(|row| {
                     let wire = api::ServerEnvelope::try_from(row)?;

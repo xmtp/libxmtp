@@ -47,9 +47,14 @@ pub(crate) struct Projection {
 
 pub(crate) struct IdentityAdmission {
     pub inbox_id: Vec<u8>,
-    pub head: i64,
+    /// The head of the history the update was validated against, or `None`
+    /// when the update failed before that history was read.
+    pub head: Option<i64>,
     /// The handle the update claims, once validation has accepted the claim.
     pub claim: Option<xmtp_id::associations::Handle>,
+    /// The installation keys the update adds, once validation has accepted
+    /// the update.
+    pub installations: Vec<Vec<u8>>,
 }
 
 pub(crate) struct PendingEnvelope {

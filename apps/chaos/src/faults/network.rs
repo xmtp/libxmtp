@@ -7,7 +7,7 @@ use std::{
 };
 
 use reqwest::{Client, Method, StatusCode};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use tonic_health::pb::{
     HealthCheckRequest, health_check_response::ServingStatus, health_client::HealthClient,
@@ -28,7 +28,9 @@ const HEALTH_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const HEALTH_RPC_TIMEOUT: Duration = Duration::from_secs(3);
 const HEALTH_RESPONSE_BYTES: usize = 1024;
 const CONTROL_RESPONSE_BYTES: usize = 64 * 1024;
-const HEALTH_TOPIC_GROUP_ID: [u8; 16] = [0; 16];
+// A 32-byte id: the backend refuses a group-message topic with a 16-byte id.
+const HEALTH_TOPIC_GROUP_ID: [u8; xmtp_configuration::GROUP_ID_BYTES] =
+    [0; xmtp_configuration::GROUP_ID_BYTES];
 const COMPOSE_TIMEOUT: Duration = Duration::from_secs(30);
 const PROXY_PREFIX: &str = "xchaos-";
 const UPSTREAM: &str = "backend:5050";
@@ -87,9 +89,9 @@ pub enum NetworkError {
     InvalidUrl(String),
     #[error("Toxiproxy control failed: {0}")]
     Control(#[from] reqwest::Error),
-    #[error("Toxiproxy health response exceeds {CONTROL_RESPONSE_BYTES} bytes")]
+    #[error("Toxiproxy control response exceeds {CONTROL_RESPONSE_BYTES} bytes")]
     OversizeControlResponse,
-    #[error("invalid Toxiproxy health response: {0}")]
+    #[error("invalid Toxiproxy control response: {0}")]
     InvalidControlResponse(#[from] serde_json::Error),
     #[error("proxy {proxy} is not healthy: {detail}")]
     ProxyHealth { proxy: String, detail: &'static str },
@@ -107,9 +109,6 @@ pub enum NetworkError {
     },
     #[error("health service at {endpoint} is not serving (status {status})")]
     NotServing { endpoint: String, status: i32 },
-    // The upstream helper returns String, rather than a typed error.
-    #[error("Toxiproxy discovery failed: {0}")]
-    Discovery(String),
     #[error("another chaos run owns proxies in this worktree: {0}")]
     Occupied(String),
     #[error("network control timed out")]
@@ -155,6 +154,42 @@ pub struct NetworkController {
     compose_file: PathBuf,
 }
 
+/// Read Toxiproxy's proxy table, refusing a body over `CONTROL_RESPONSE_BYTES`.
+async fn read_proxies<T: DeserializeOwned>(
+    client: &Client,
+    api: &str,
+) -> Result<HashMap<String, T>, NetworkError> {
+    let mut response = client
+        .get(format!("{}/proxies", api.trim_end_matches('/')))
+        .send()
+        .await?
+        .error_for_status()?;
+    if response
+        .content_length()
+        .is_some_and(|size| size > CONTROL_RESPONSE_BYTES as u64)
+    {
+        return Err(NetworkError::OversizeControlResponse);
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        if chunk.len() > CONTROL_RESPONSE_BYTES.saturating_sub(body.len()) {
+            return Err(NetworkError::OversizeControlResponse);
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(serde_json::from_slice(&body)?)
+}
+
+/// A proxy that an earlier run left in Toxiproxy, if any.
+async fn leftover_proxy(client: &Client, api: &str) -> Result<Option<String>, NetworkError> {
+    let existing: HashMap<String, Value> = timeout(CONTROL_TIMEOUT, read_proxies(client, api))
+        .await
+        .map_err(|_| NetworkError::Timeout)??;
+    Ok(existing
+        .into_keys()
+        .find(|name| name.starts_with(PROXY_PREFIX)))
+}
+
 impl NetworkController {
     pub async fn create(slot_count: usize) -> Result<Self, NetworkError> {
         if slot_count == 0 || slot_count > PROXY_CAPACITY {
@@ -166,12 +201,8 @@ impl NetworkController {
         let client = xmtp_common::http::client_builder()
             .timeout(CONTROL_TIMEOUT)
             .build()?;
-        let existing = timeout(CONTROL_TIMEOUT, xmtp_common::toxiproxy().all())
-            .await
-            .map_err(|_| NetworkError::Timeout)?
-            .map_err(NetworkError::Discovery)?;
-        if let Some(name) = existing.keys().find(|name| name.starts_with(PROXY_PREFIX)) {
-            return Err(NetworkError::Occupied(name.clone()));
+        if let Some(name) = leftover_proxy(&client, &api).await? {
+            return Err(NetworkError::Occupied(name));
         }
         let mut proxies = Vec::with_capacity(slot_count);
         for (slot, port) in PROXY_PORTS.iter().enumerate().take(slot_count) {
@@ -272,26 +303,8 @@ impl NetworkController {
                     endpoint: self.backend.clone(),
                     source,
                 })?;
-            let mut response = self
-                .client
-                .get(format!("{}/proxies", self.api))
-                .send()
-                .await?
-                .error_for_status()?;
-            if response
-                .content_length()
-                .is_some_and(|size| size > CONTROL_RESPONSE_BYTES as u64)
-            {
-                return Err(NetworkError::OversizeControlResponse);
-            }
-            let mut body = Vec::new();
-            while let Some(chunk) = response.chunk().await? {
-                if chunk.len() > CONTROL_RESPONSE_BYTES.saturating_sub(body.len()) {
-                    return Err(NetworkError::OversizeControlResponse);
-                }
-                body.extend_from_slice(&chunk);
-            }
-            let managed: HashMap<String, HealthProxy> = serde_json::from_slice(&body)?;
+            let managed: HashMap<String, HealthProxy> =
+                read_proxies(&self.client, &self.api).await?;
             for expected in &self.proxies {
                 let actual =
                     managed
@@ -578,7 +591,10 @@ mod tests {
             let request = request.into_inner();
             assert_eq!(request.topics.len(), 1);
             assert!(!request.include_full_envelope);
-            assert!(Topic::parse(&request.topics[0].topic).is_ok());
+            // The backend serves a group-message topic only with a 32-byte id.
+            let topic = Topic::parse(&request.topics[0].topic).expect("valid topic");
+            assert_eq!(topic.kind(), xmtp_proto::types::TopicKind::GroupMessagesV1);
+            assert_eq!(topic.identifier().len(), xmtp_configuration::GROUP_ID_BYTES);
             self.reads.fetch_add(1, Ordering::SeqCst);
             if self.unavailable {
                 Err(tonic::Status::unavailable("database unavailable"))
@@ -763,6 +779,25 @@ mod tests {
         let controller = test_controller(&direct.endpoint, &control.endpoint, "http://unused");
         assert!(matches!(
             controller.check_health().await,
+            Err(NetworkError::OversizeControlResponse)
+        ));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn discovery_finds_a_leftover_proxy() {
+        let client = xmtp_common::http::client_builder()
+            .timeout(CONTROL_TIMEOUT)
+            .build()?;
+        let control = mock_control(br#"{"other":{},"xchaos-3":{}}"#.to_vec()).await;
+        assert_eq!(
+            leftover_proxy(&client, &control.endpoint).await?,
+            Some("xchaos-3".to_string())
+        );
+        let control = mock_control(b"{}".to_vec()).await;
+        assert_eq!(leftover_proxy(&client, &control.endpoint).await?, None);
+        let control = mock_control(vec![b' '; CONTROL_RESPONSE_BYTES + 1]).await;
+        assert!(matches!(
+            leftover_proxy(&client, &control.endpoint).await,
             Err(NetworkError::OversizeControlResponse)
         ));
     }

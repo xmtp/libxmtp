@@ -3,8 +3,9 @@
 #
 # `ciSets.<system>.dev` holds what developers and CI jobs use;
 # `ciSets.<system>.release` holds what release jobs use. The post-merge
-# `build` job builds and pins both. `ciSets.<system>.rn` holds the RN outputs
-# and RN dev shells; the post-merge RN cache jobs build and pin it after
+# `build` job builds and pins both on each system. `ciSets.<system>.rn` holds
+# the RN outputs and RN dev shells of the systems that build RN (not
+# aarch64-linux); the post-merge RN cache jobs build and pin it after
 # `build`. The RN device chain is advisory, so an RN break can reach trunk.
 # dev and release hold only the RN outputs that blocking pull request suites
 # build (`rnBlocking`, Linux only), so such a break holds back only the RN
@@ -126,6 +127,10 @@ let
               xmtp-legacy-migration-fixture-host
               xmtp-backend
               backend-image-x86_64-unknown-linux-musl
+              # `just backend ci`: the RN smoke, RN releases, and developers.
+              services-test
+              # The cargo SDK route substitutes it when its inputs match trunk.
+              xmtp-sdk-bindgen
               ;
           }
         );
@@ -182,6 +187,14 @@ let
               xmtp-sdk-generated-browser
               services-test
               backend-image-aarch64-unknown-linux-musl
+              # The JNA test host of `just android test`.
+              xmtp-sdk-libs
+              # The cargo SDK route substitutes it when its inputs match trunk.
+              xmtp-sdk-bindgen
+              # `just sdk test-browser` copies these test fixtures.
+              xmtp-sdk-wasm-fixture-panic
+              xmtp-sdk-pure-fixture-codec
+              xmtp-legacy-migration-fixture-host
               ;
           }
         );
@@ -191,6 +204,18 @@ let
             xmtp-sdk-node-darwin-arm64
             ;
         };
+      };
+    # The arm64 backend test (test-backend.yml, manual runs) and arm64 Linux
+    # developers enter these shells, whose Node no public cache holds. No RN
+    # output builds here, so this system has no rn set and no ciStages.
+    # push-backend.yml's arm64 leg pushes its own image.
+    aarch64-linux =
+      { pkgs, self', ... }:
+      {
+        dev = mkSet pkgs "dev" {
+          inherit (shells self') shell-rust shell-default;
+        };
+        release = mkSet pkgs "release" { };
       };
   };
 in
@@ -245,5 +270,5 @@ in
         );
       }
     )
-  ) sets;
+  ) (builtins.removeAttrs sets [ "aarch64-linux" ]);
 }

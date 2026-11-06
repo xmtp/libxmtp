@@ -1,7 +1,7 @@
 use xmtp_proto::{
     api_client::{XmtpBackendClient, XmtpMlsStreams},
     backend_v1::*,
-    types::{GroupId, InstallationId, TopicCursor},
+    types::{GroupId, InstallationId, ReceivedQueryResponse, TopicCursor},
 };
 #[derive(Clone, Debug)]
 pub struct BoxedStreamsClient<C> {
@@ -41,6 +41,12 @@ impl<C: XmtpBackendClient> XmtpBackendClient for BoxedStreamsClient<C> {
     }
     async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Self::Error> {
         self.inner.query(request).await
+    }
+    async fn query_raw_envelopes(
+        &self,
+        request: QueryRequest,
+    ) -> Result<ReceivedQueryResponse, Self::Error> {
+        self.inner.query_raw_envelopes(request).await
     }
     async fn query_newest(
         &self,

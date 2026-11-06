@@ -19,8 +19,8 @@ pub(crate) fn handle_input(input: &str) -> Result<Handle, XmtpError> {
 }
 
 impl PublicIdentity {
-    /// The core target of this identity: an account, or a handle that only
-    /// the verified handle resolver turns into an inbox.
+    /// The core target of this identity: an account or a handle, which only
+    /// the verified resolver turns into an inbox.
     pub(crate) fn to_target(&self) -> Result<IdentityTarget, XmtpError> {
         match self.kind {
             PublicIdentityKind::Handle => {

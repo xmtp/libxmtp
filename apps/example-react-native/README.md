@@ -25,7 +25,8 @@ Captured from the iOS simulator with local test accounts.
 - `src/features/<feature>/` holds each screen with its store wiring and its copy: `connect`, `handles`, `chats`, `requests`, `settings`, `new-conversation`, `chat`, `reactions`, `emoji`, `details`, `member`, `permissions`, `disappearing`, `metadata` and `attachments`.
 - `ios/` and `android/` are committed native projects from the Expo bare template, edited by hand.
 
-`AGENTS.md` describes the recipes, the design system rules and the session API in more detail.
+See [development and session probes](docs/development.md), [UI conventions](docs/ui.md),
+and [testing conventions](docs/testing.md) when changing the app.
 
 ## Connect
 

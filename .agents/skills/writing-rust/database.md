@@ -3,7 +3,8 @@
 ## Client: `xmtp_db`
 
 Diesel over encrypted SQLite. No `sqlx`, no Postgres in a client crate or below
-`xmtp_mls`. Model traits, migrations, and errors: `crates/xmtp_db/AGENTS.md`.
+`xmtp_mls`. Migrations, storage encoding, and lifecycle rules:
+[storage development](../../../crates/xmtp_db/DEVELOPMENT.md).
 
 ### Transactions
 
@@ -11,7 +12,7 @@ Transactions live on the storage provider, not the connection. The closure and
 the method both return `Result<TransactionOutcome<T>, E>`.
 
 ```rust
-// crates/xmtp_mls/src/groups/intents/queue.rs
+// crates/xmtp_mls_engine/src/groups/intents/queue.rs
 use xmtp_db::{TransactionOutcome, TransactionOutcome::Continue, prelude::*};
 
 crate::state_tx::state_write(context.mls_storage(), |tx| {

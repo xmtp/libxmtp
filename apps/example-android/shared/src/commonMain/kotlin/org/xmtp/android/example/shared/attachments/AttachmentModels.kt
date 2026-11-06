@@ -24,6 +24,8 @@ data class AttachmentCardState(
     val transferredBytes: Long? = null,
     val totalBytes: Long? = null,
     val phase: AttachmentPhase = attachmentPhase(status, unknownOutcome, unavailable),
+    val imageWidth: Int? = null,
+    val imageHeight: Int? = null,
 )
 
 enum class AttachmentSelection { FILE, PHOTO_VIDEO }

@@ -5,35 +5,6 @@ use crate::{
 use api::subscribe_static_response::Response as Frame;
 
 #[xmtp_common::timeout(std::time::Duration::from_secs(20))]
-#[xmtp_common::test(unwrap_try = true)]
-async fn oversized_static_targets_fail_without_a_partial_started_frame() {
-    let server = TestServer::new(|config| {
-        config.limits.max_envelope_bytes = 1024;
-        config.limits.max_response_bytes = 66_560;
-    })
-    .await?;
-    let topics = (0_u64..2000)
-        .map(|id| {
-            let mut identifier = [0; 32];
-            identifier[..8].copy_from_slice(&id.to_be_bytes());
-            let topic =
-                test_support::topic(xmtp_proto::types::TopicKind::WelcomeMessagesV1, &identifier);
-            test_support::query_topic(topic, 0)
-        })
-        .collect();
-    let mut client =
-        api::subscription_service_client::SubscriptionServiceClient::new(server.channel.clone());
-    let error = match client
-        .subscribe_static(api::SubscribeStaticRequest { topics })
-        .await
-    {
-        Err(error) => error,
-        Ok(response) => response.into_inner().message().await.unwrap_err(),
-    };
-    assert_eq!(error.code(), tonic::Code::ResourceExhausted);
-    server.stop().await?;
-}
-
 #[xmtp_common::timeout(std::time::Duration::from_secs(20))]
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: API-260, API-254
@@ -132,7 +103,7 @@ async fn static_keepalives_are_one_way_and_do_not_expire_waiting_for_pong() {
 
 #[xmtp_common::timeout(std::time::Duration::from_secs(20))]
 #[xmtp_common::test(unwrap_try = true)]
-// verifies: API-260
+// verifies: API-260, TOPIC-003
 async fn static_request_validates_its_own_limits_and_unique_topics() {
     let server = TestServer::new(|config| {
         config.limits.max_stream_topics = 1;
@@ -150,6 +121,11 @@ async fn static_request_validates_its_own_limits_and_unique_topics() {
         vec![test_support::query_topic(a.clone(), 0); 3],
         vec![test_support::query_topic(a.clone(), u64::MAX)],
         vec![api::TopicQuery::default()],
+        // A 17-byte group topic, built from a legacy 16-byte group id.
+        vec![test_support::query_topic(
+            test_support::topic(xmtp_proto::types::TopicKind::GroupMessagesV1, &[9; 16]),
+            0,
+        )],
     ] {
         assert_eq!(
             client

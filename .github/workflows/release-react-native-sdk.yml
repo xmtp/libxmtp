@@ -15,6 +15,11 @@ on:
         required: false
         type: boolean
         default: false
+      build-only:
+        description: Retain checked products without publication
+        required: false
+        type: boolean
+        default: false
     outputs:
       version:
         description: "The published version string"
@@ -27,6 +32,9 @@ env:
 # stay on Blacksmith: they rebuild the versioned RN products on every release
 # (the warm set holds only the default version), and the Android consumer
 # job runs an emulator with native backend services and a Gradle build.
+permissions:
+  contents: read
+
 jobs:
   check-push-permissions:
     name: Source
@@ -59,6 +67,9 @@ jobs:
         with:
           cache-mode: "read"
           github-token: ${{ github.token }}
+      - name: Materialize the shared SDK version
+        uses: ./.github/actions/release-source
+
       - name: Build the RN product stage
         uses: ./.github/actions/react-native-product
         with:
@@ -84,6 +95,9 @@ jobs:
         with:
           cache-mode: "read"
           github-token: ${{ github.token }}
+      - name: Materialize the shared SDK version
+        uses: ./.github/actions/release-source
+
       - name: Build the RN product stage
         uses: ./.github/actions/react-native-product
         with:
@@ -131,6 +145,7 @@ jobs:
       NIX_DEVSHELL: ${{ matrix.platform == 'android' && 'android' || 'ios' }}
       # Every journey, also runtime reload and background launch, gates publish.
       XMTP_RN_JOURNEYS: full
+      XMTP_SDK_RELEASE_VERSION: ${{ inputs.version }}
     steps:
       - name: Check out the release source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -141,6 +156,9 @@ jobs:
         with:
           cache-mode: "read"
           github-token: ${{ github.token }}
+      - name: Materialize the shared SDK version
+        uses: ./.github/actions/release-source
+
       - name: Set up JavaScript
         uses: ./.github/actions/setup-js
         with:
@@ -164,7 +182,7 @@ jobs:
   publish:
     name: Publish
     needs: [build, consumers, check-push-permissions]
-    uses: ./.github/workflows/npm-publish.yml
+    uses: ./.github/workflows/npm-prepare.yml
     with:
       source-sha: ${{ needs.check-push-permissions.outputs.source-sha }}
       package-dir: target/sdk-packages/react-native-release/package
@@ -175,4 +193,5 @@ jobs:
       artifact-path: target/sdk-packages/react-native-release
       ignore-scripts: true
       dry-run: ${{ inputs.dry-run }}
+      prepare-only: ${{ inputs.build-only }}
     secrets: inherit

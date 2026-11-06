@@ -202,7 +202,7 @@ export async function open(path: string): Promise<string> {
     {
       backend: B.BackendSource.Options.new({
         options: {
-          url: `${location.origin}/backend`,
+          url: location.origin,
           appVersion: undefined,
           credential: undefined,
           credentials: undefined,
@@ -252,7 +252,7 @@ export async function failRegistration(path: string): Promise<unknown> {
       {
         backend: B.BackendSource.Options.new({
           options: {
-            url: `${location.origin}/backend`,
+            url: location.origin,
             appVersion: undefined,
             credential: undefined,
             credentials: undefined,
@@ -338,7 +338,7 @@ export async function abortCreateWhileSigning(
       {
         backend: B.BackendSource.Options.new({
           options: {
-            url: `${location.origin}/backend`,
+            url: location.origin,
             appVersion: undefined,
             credential: undefined,
             credentials: undefined,
@@ -432,7 +432,7 @@ export async function rejectBuildWithoutStoredIdentity(
       {
         backend: B.BackendSource.Options.new({
           options: {
-            url: `${location.origin}/backend`,
+            url: location.origin,
             appVersion: undefined,
             credential: undefined,
             credentials: undefined,

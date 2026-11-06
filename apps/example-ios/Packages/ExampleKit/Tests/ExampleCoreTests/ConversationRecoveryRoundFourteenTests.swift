@@ -58,7 +58,7 @@ import Testing
 		#expect(store.state.rows[60].title == "Hydrated 60")
 		#expect(store.state.rows[61].conversation.preview == "Preview 61")
 		#expect(store.state.rows[62].conversation.unread == 63)
-		#expect(await queries.detailReads.filter { $0 == "60" }.count == 1)
+		#expect(await queries.detailReads.count(where: { $0 == "60" }) == 1)
 	}
 
 	@Test func appearingRowDoesNotCancelEarlierInFlightDetails() async throws {
@@ -76,7 +76,7 @@ import Testing
 		#expect(store.state.rows[60].title == "Hydrated 60")
 		#expect(store.state.rows[61].title == "Hydrated 61")
 		#expect(store.state.rows[62].title == "Hydrated 62")
-		#expect(await queries.detailReads.filter { $0 == "60" }.count == 1)
+		#expect(await queries.detailReads.count(where: { $0 == "60" }) == 1)
 	}
 
 	@Test func paginationRetainsEarlierRequestedRows() async throws {

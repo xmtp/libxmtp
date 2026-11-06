@@ -29,7 +29,7 @@ enum SearchMetadataField: Sendable { case title, handle, preview }
 		await store.waitForLoad()
 		#expect(store.state.visibleRows.map(\.id) == ["25"])
 		#expect(await queries.primaryLimits == [50])
-		#expect(await queries.detailIDs.filter { $0 == "25" }.count == 2)
+		#expect(await queries.detailIDs.count(where: { $0 == "25" }) == 2)
 		await store.close()
 	}
 

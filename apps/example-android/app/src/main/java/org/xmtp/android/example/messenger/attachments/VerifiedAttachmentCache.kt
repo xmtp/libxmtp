@@ -21,7 +21,6 @@ internal class VerifiedAttachmentCache<T> {
         if (generation != this.generation || !accepts()) return false
         entries.remove(id)
         entries[id] = value
-        while (entries.size > MAX_RECORDS) entries.remove(entries.keys.first())
         retainedState.value = entries.keys.toSet()
         return true
     }
@@ -32,13 +31,14 @@ internal class VerifiedAttachmentCache<T> {
         return value
     }
 
+    @Synchronized fun remove(id: String) {
+        entries.remove(id)
+        retainedState.value = entries.keys.toSet()
+    }
+
     @Synchronized fun clear() {
         generation += 1
         entries.clear()
         retainedState.value = emptySet()
-    }
-
-    companion object {
-        const val MAX_RECORDS = 16
     }
 }

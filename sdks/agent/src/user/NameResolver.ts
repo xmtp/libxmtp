@@ -5,7 +5,10 @@ import { isAddress } from "viem";
 import { AgentError } from "@/core/AgentError";
 import { LimitedMap } from "@/util/LimitedMap";
 
-const cache = new LimitedMap<string, string | null>(1000);
+const CACHE_TTL_MS = 10 * 60 * 1000;
+const cache = new LimitedMap<string, { address: string; expiresAt: number }>(
+  1000,
+);
 
 const fetchFromWeb3Bio = async (
   name: string,
@@ -43,10 +46,10 @@ const resolveName = async (
     return name;
   }
 
-  const cachedAddress = cache.get(name);
+  const cached = cache.get(name);
 
-  if (cachedAddress !== undefined) {
-    return cachedAddress;
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.address;
   }
 
   const response = await fetchFromWeb3Bio(name, apiKey);
@@ -54,10 +57,10 @@ const resolveName = async (
     return null;
   }
   const address = response[0]?.address;
-  if (!address) {
+  if (typeof address !== "string" || !isAddress(address)) {
     return null;
   }
-  cache.set(name, address);
+  cache.set(name, { address, expiresAt: Date.now() + CACHE_TTL_MS });
   return address;
 };
 

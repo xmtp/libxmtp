@@ -52,6 +52,7 @@ mod migration;
 mod notifications;
 #[cfg(not(feature = "pure-only"))]
 mod preferences;
+mod push_hint;
 #[cfg(not(feature = "pure-only"))]
 mod secret_input;
 mod signer;
@@ -164,6 +165,7 @@ pub use notifications::{
 };
 #[cfg(not(feature = "pure-only"))]
 pub use preferences::{ConsentEntity, ConsentRecord, ConsentState, Preferences};
+pub use push_hint::{PushHint, Topic, parse_push_hint};
 #[cfg(not(feature = "pure-only"))]
 pub use secret_input::{SecretBytes, SecretString};
 #[cfg(not(feature = "pure-only"))]

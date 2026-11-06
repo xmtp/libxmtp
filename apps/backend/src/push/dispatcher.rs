@@ -164,7 +164,7 @@ struct Loader {
     boundary: i64,
     bounds: Option<(i64, i64)>,
     after: (i64, Vec<u8>),
-    payloads: HashMap<i64, Option<Vec<u8>>>,
+    payloads: HashMap<i64, (Option<Vec<u8>>, usize)>,
 }
 
 /// Own all cursor writes on the lock session. Loading and sending run in

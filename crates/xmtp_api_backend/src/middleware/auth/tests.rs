@@ -37,6 +37,19 @@ impl TestClient {
             expected_credential,
         }
     }
+
+    fn assert_headers(&self, headers: &http::HeaderMap) {
+        if let Some(expected) = &self.expected_credential {
+            let value = headers.get(&expected.name).unwrap();
+            assert_eq!(value, &expected.value);
+            assert!(
+                value.is_sensitive(),
+                "transport credential header must be sensitive"
+            );
+        } else {
+            assert!(headers.is_empty());
+        }
+    }
 }
 
 #[xmtp_common::async_trait]
@@ -51,15 +64,7 @@ impl Client for TestClient {
         _path: http::uri::PathAndQuery,
         body: Bytes,
     ) -> Result<http::Response<Bytes>, ApiClientError> {
-        let headers = request.headers_ref().unwrap();
-        if let Some(expected_credential) = &self.expected_credential {
-            assert_eq!(
-                headers.get(&expected_credential.name).unwrap(),
-                &expected_credential.value
-            );
-        } else {
-            assert!(headers.is_empty());
-        }
+        self.assert_headers(request.headers_ref().unwrap());
         Ok(http::Response::new(body))
     }
 
@@ -69,15 +74,7 @@ impl Client for TestClient {
         _path: http::uri::PathAndQuery,
         body: Bytes,
     ) -> Result<http::Response<BytesStream>, ApiClientError> {
-        let headers = request.headers_ref().unwrap();
-        if let Some(expected_credential) = &self.expected_credential {
-            assert_eq!(
-                headers.get(&expected_credential.name).unwrap(),
-                &expected_credential.value
-            );
-        } else {
-            assert!(headers.is_empty());
-        }
+        self.assert_headers(request.headers_ref().unwrap());
         Ok(http::Response::new(BytesStream::new(
             futures::stream::once(Box::pin(async move { Ok(body) })),
         )))
@@ -92,15 +89,7 @@ impl Client for TestClient {
         // Same header assertion as `stream`: this only passes if the
         // middleware actually forwarded `bidi_stream` (rather than inheriting
         // the trait's "unsupported" default) AND injected the auth header.
-        let headers = request.headers_ref().unwrap();
-        if let Some(expected_credential) = &self.expected_credential {
-            assert_eq!(
-                headers.get(&expected_credential.name).unwrap(),
-                &expected_credential.value
-            );
-        } else {
-            assert!(headers.is_empty());
-        }
+        self.assert_headers(request.headers_ref().unwrap());
         Ok(http::Response::new(BytesStream::new(
             futures::stream::empty(),
         )))
@@ -316,4 +305,29 @@ async fn test_auth_middleware_with_callback_and_handle_concurrent_requests() {
         let () = task;
     }
     assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 3);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn credentials_are_sensitive_for_default_and_custom_headers() {
+    for name in [
+        None,
+        Some(http::header::HeaderName::from_static("x-custom-auth")),
+    ] {
+        let value = http::header::HeaderValue::from_static("Bearer private-credential-sentinel");
+        let credential = Credential::new(name.clone(), value.clone(), now_secs() + 60);
+        let cloned = credential.clone();
+        assert_eq!(cloned.name, name.unwrap_or(http::header::AUTHORIZATION));
+        assert_eq!(cloned.value.as_bytes(), value.as_bytes());
+        assert_eq!(cloned.expires_at_seconds, now_secs() + 60);
+        assert!(
+            cloned.value.is_sensitive(),
+            "credential header must be sensitive"
+        );
+        assert!(!format!("{cloned:?}").contains("private-credential-sentinel"));
+        let handle = AuthHandle::new();
+        handle.set(cloned).await;
+        AuthMiddleware::new(TestClient::new(Some(credential)), None, Some(handle))
+            .make_requests(Ok(()))
+            .await;
+    }
 }

@@ -135,8 +135,9 @@ jobs:
             of this SDK, not contributors to this repo.
 
             Include changes to:
-            - Shared Rust crates (xmtp_mls, xmtp_db, xmtp_id, xmtp_cryptography,
-              xmtp_proto, xmtp_api) that affect SDK behavior
+            - Shared Rust crates (xmtp_mls and the xmtp_mls_* crates under it,
+              xmtp_db, xmtp_id, xmtp_cryptography, xmtp_proto, xmtp_api) that
+              affect SDK behavior
             - The SDK source and generator directories (crates/xmtp_sdk, apps/xmtp_sdk_bindgen and sdks/ios for iOS)
 
             Exclude changes to:
@@ -232,8 +233,9 @@ jobs:
             of this SDK, not contributors to this repo.
 
             Include changes to:
-            - Shared Rust crates (xmtp_mls, xmtp_db, xmtp_id, xmtp_cryptography,
-              xmtp_proto, xmtp_api) that affect SDK behavior
+            - Shared Rust crates (xmtp_mls and the xmtp_mls_* crates under it,
+              xmtp_db, xmtp_id, xmtp_cryptography, xmtp_proto, xmtp_api) that
+              affect SDK behavior
             - The SDK source and generator directories (crates/xmtp_sdk, apps/xmtp_sdk_bindgen and sdks/ios for iOS)
 
             Exclude changes to:

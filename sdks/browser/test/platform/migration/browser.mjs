@@ -18,10 +18,9 @@ const server = await createServer({
     port: 0,
     fs: { strict: false },
     proxy: {
-      "/backend": {
+      "/xmtp.": {
         target: process.env.XMTP_BACKEND_URL ?? "http://127.0.0.1:5050",
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/backend/, ""),
       },
     },
   },
@@ -285,7 +284,7 @@ connection.close()
           },
         };
         const client = await sdk.Client.create(signer, {
-          backend: { url: `${location.origin}/backend` },
+          backend: { url: location.origin },
           storage: {
             location: {
               dbPath: "/migration-current-destination.db3",

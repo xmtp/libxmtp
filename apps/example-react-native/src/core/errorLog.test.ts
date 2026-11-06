@@ -3,11 +3,11 @@ import { test } from "node:test";
 
 import { errorLogText, LOGGED_ID_LENGTH } from "./errorLog.ts";
 
-const groupId = "0123456789abcdef0123456789abcdef";
+const groupId = "0123456789abcdef".repeat(4);
 const inboxId = "fedcba98".repeat(8);
 const messageId = "A1B2C3D4".repeat(8);
 const address = `0x${"5e".repeat(20)}`;
-const groupBytes = Array.from({ length: 16 }, (_, index) => index * 16 + 1);
+const groupBytes = Array.from({ length: 32 }, (_, index) => index * 8 + 1);
 
 /** The shape of the SDK's `XmtpError`: a fixed code and free message text. */
 class SdkError extends Error {

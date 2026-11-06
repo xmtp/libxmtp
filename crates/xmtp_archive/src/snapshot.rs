@@ -22,11 +22,14 @@ use xmtp_db::{
     diesel::{Connection, SqliteConnection, connection::DefaultLoadingMode, prelude::*, sql_query},
     group::{ConversationType, GroupMembershipState, StoredGroup},
     group_message::{GroupMessageKind, StoredGroupMessage},
-    schema::{consent_records, group_messages, groups},
+    message_deletion::StoredMessageDeletion,
+    schema::{consent_records, group_messages, groups, message_deletions},
 };
-use xmtp_mls_common::{
+use xmtp_mls_group_state::{
     group_metadata::extract_group_metadata,
-    group_mutable_metadata::{GroupMutableMetadata, merge_dict_into_mutable_metadata},
+    group_mutable_metadata::{
+        GroupMutableMetadata, MetadataField, merge_dict_into_mutable_metadata,
+    },
 };
 use xmtp_proto::xmtp::device_sync::{
     BackupElementSelection as BackupElementSelectionProto, BackupMetadataSave,
@@ -43,7 +46,7 @@ const GROUP_PAGE: i64 = 100;
 
 /// Passes `emit` the archive metadata, then every element `opts` selects, as
 /// stored when the transaction began: all eligible groups, then their
-/// messages, then consent. The export time is measured once the snapshot is
+/// deletion records, then their messages, then consent. The export time is measured once the snapshot is
 /// taken, so nothing emitted postdates it. Fails, rather than omitting it, on
 /// any eligible group whose MLS state or immutable metadata cannot be read.
 /// `emit` runs inside the transaction and must not use the database. Returns
@@ -98,6 +101,21 @@ fn read_in_transaction(
                 emit(Element::Group(save))?;
             }
         }
+        // Every record of each exported conversation, after the groups and
+        // before the messages, with no window or expiry filter, so an archive
+        // split cannot lose a deletion. Ordered by time so an import marks a
+        // target from its earliest record.
+        // implements: ARCH-028
+        let records = message_deletions::table
+            .inner_join(groups::table.on(groups::id.eq(message_deletions::group_id)))
+            .filter(groups::conversation_type.ne_all(ConversationType::virtual_types()))
+            .filter(groups::membership_state.ne(GroupMembershipState::Restored))
+            .select(StoredMessageDeletion::as_select())
+            .order((message_deletions::deleted_at_ns, message_deletions::id))
+            .load_iter::<StoredMessageDeletion, DefaultLoadingMode>(conn)?;
+        for record in records {
+            emit(Element::MessageDeletion(record?.into()))?;
+        }
         let mut messages = group_messages::table
             .inner_join(groups::table)
             .filter(groups::conversation_type.ne_all(ConversationType::virtual_types()))
@@ -113,7 +131,11 @@ fn read_in_transaction(
             messages = messages.filter(group_messages::sent_at_ns.le(end_ns));
         }
         messages = if opts.exclude_disappearing_messages {
-            messages.filter(group_messages::expire_at_ns.is_null())
+            messages.filter(
+                group_messages::expire_at_ns
+                    .is_null()
+                    .and(group_messages::expiry_unknown.eq(false)),
+            )
         } else {
             messages.filter(
                 group_messages::expire_at_ns
@@ -150,6 +172,11 @@ fn group_save(
     let immutable = extract_group_metadata(extensions).map_err(|e| unreadable(e.into()))?;
     let mut mutable = GroupMutableMetadata::new(Default::default(), Vec::new(), Vec::new());
     merge_dict_into_mutable_metadata(&mut mutable, extensions).map_err(|e| unreadable(e.into()))?;
+    // A legacy group's dictionary may hold its commit-log private key. An
+    // archive never carries a group key, and the group root has no
+    // metadata attribute, so it never reaches the archive.
+    // implements: GMOD-042
+    mutable.remove_attribute(MetadataField::CommitLogSigner.as_str());
     let membership_state: GroupMembershipStateSave = group.membership_state.into();
     let conversation_type: ConversationTypeSave = group.conversation_type.into();
     Ok(GroupSave {

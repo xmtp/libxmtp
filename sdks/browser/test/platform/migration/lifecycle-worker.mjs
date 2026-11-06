@@ -8,6 +8,11 @@ const closed = { source: 0, working: 0 };
 let privateAttempts = 0;
 let faultCount = 0;
 let deleteFaults = 0;
+let deletingFamily = false;
+self.addEventListener("message", ({ data }) => {
+  if (phase === "delete-family" && data.key === "StorageAdmin.deleteFile")
+    deletingFamily = true;
+});
 const open = FileSystemFileHandle.prototype.createSyncAccessHandle;
 FileSystemFileHandle.prototype.createSyncAccessHandle = async function (
   ...args
@@ -43,6 +48,13 @@ FileSystemFileHandle.prototype.createSyncAccessHandle = async function (
   };
   const truncate = handle.truncate.bind(handle);
   handle.truncate = (size) => {
+    if (deletingFamily && size === 4096 && ++deleteFaults === 2) {
+      faultCount++;
+      throw new DOMException(
+        "Injected family deletion failure",
+        "UnknownError",
+      );
+    }
     if (phase === "delete" && copied && size === 4096) {
       deleteFaults++;
       throw new DOMException(

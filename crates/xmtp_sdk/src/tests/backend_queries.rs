@@ -597,3 +597,76 @@ async fn facade_hmac_keys_include_duplicate_dms() {
     a.end().await?;
     b.end().await?;
 }
+
+/// A transport that counts the requests it is asked to send and refuses each
+/// one, so a test can tell whether a helper reached the backend.
+struct CountingTransport(Arc<std::sync::atomic::AtomicUsize>);
+
+#[xmtp_common::async_trait]
+impl xmtp_proto::api::Client for CountingTransport {
+    fn host(&self) -> &str {
+        "mock://counting"
+    }
+
+    async fn request(
+        &self,
+        _request: http::request::Builder,
+        _path: http::uri::PathAndQuery,
+        _body: prost::bytes::Bytes,
+    ) -> Result<http::Response<prost::bytes::Bytes>, xmtp_proto::api::ApiClientError> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Err(xmtp_proto::api::ApiClientError::OtherUnretryable(
+            "the counting transport refuses every request".into(),
+        ))
+    }
+
+    async fn stream(
+        &self,
+        _request: http::request::Builder,
+        _path: http::uri::PathAndQuery,
+        _body: prost::bytes::Bytes,
+    ) -> Result<http::Response<xmtp_proto::api::BytesStream>, xmtp_proto::api::ApiClientError> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Err(xmtp_proto::api::ApiClientError::OtherUnretryable(
+            "the counting transport refuses every stream".into(),
+        ))
+    }
+}
+
+#[xmtp_common::async_trait]
+impl xmtp_proto::api::IsConnectedCheck for CountingTransport {
+    async fn is_connected(&self) -> bool {
+        false
+    }
+}
+
+/// A 32-character conversation id names a legacy conversation, which has no
+/// backend topic: a read naming its 17-byte topic would fail as a whole. The
+/// helper refuses it with `InvalidArgument` before it sends any request, even
+/// when the other ids are keyed.
+#[xmtp_common::test(unwrap_try = true)]
+async fn newest_metadata_refuses_a_legacy_conversation_id_before_any_request() {
+    use xmtp_proto::api::ToBoxedClient;
+    let sent = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let api = xmtp_api_backend::BackendClient::new(CountingTransport(sent.clone()).arced());
+    let source = BackendSource::Connected {
+        backend: Arc::new(crate::Backend {
+            api: Arc::new(xmtp_api_backend::TrackedStatsClient::new(api)),
+            auth_handle: None,
+            options: BackendOptions::default(),
+        }),
+    };
+    let legacy = ConversationId::try_from("11".repeat(16))?;
+    let keyed = ConversationId::try_from("22".repeat(32))?;
+    for ids in [vec![legacy.clone()], vec![keyed.clone(), legacy]] {
+        let error =
+            crate::static_helpers::newest_message_metadata_with_backend(source.clone(), ids)
+                .await
+                .expect_err("a 32-character conversation id is refused");
+        assert!(matches!(error, XmtpError::InvalidArgument(_)), "{error:?}");
+        assert_eq!(sent.load(Ordering::SeqCst), 0, "no request was sent");
+    }
+    // A keyed id reaches the transport, so the count above can see a request.
+    let _ = crate::static_helpers::newest_message_metadata_with_backend(source, vec![keyed]).await;
+    assert!(sent.load(Ordering::SeqCst) > 0, "a keyed id is sent");
+}

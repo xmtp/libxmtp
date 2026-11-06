@@ -28,15 +28,15 @@ mod tests {
     use super::*;
     use crate::xmtp::{
         backend::v1::{
-            CommitLogEntry, GroupMessage, KeyPackage, WelcomeMessage,
+            GroupMessage, KeyPackage, SealedCommitLogEntry, WelcomeMessage,
             client_envelope::Payload,
             welcome_message::{V1, Version},
         },
-        identity::associations::{IdentityUpdate, RecoverableEd25519Signature},
+        identity::associations::IdentityUpdate,
     };
 
     /// Same vector on native and wasm.
-    // verifies: API-211
+    // verifies: API-211, API-210
     #[xmtp_common::test(unwrap_try = true)]
     fn all_payloads_have_stable_canonical_bytes_and_distinct_outer_hashes() {
         // Reordered inner fields and an unknown outer field are noncanonical.
@@ -48,6 +48,7 @@ mod tests {
                 data: vec![0, 255, 66],
                 sender_hmac: vec![1, 2],
                 should_push: true,
+                signature: vec![],
             }))
         );
 
@@ -92,18 +93,31 @@ mod tests {
                 "220610071a026162",
                 "0aab40455ce3dacc36006ef421e2746016960606e24d125946e7a73dc9cf6f9b",
             ),
+            // The signature is field 4 of the group message.
             (
                 ClientEnvelope {
-                    payload: Some(Payload::CommitLogEntry(CommitLogEntry {
-                        serialized_commit_log_entry: vec![0x30, 0x31],
-                        signature: Some(RecoverableEd25519Signature {
-                            bytes: vec![0x32],
-                            public_key: vec![0x33, 0x34],
-                        }),
+                    payload: Some(Payload::GroupMessage(GroupMessage {
+                        data: vec![0, 255, 66],
+                        sender_hmac: vec![1, 2],
+                        should_push: true,
+                        signature: vec![0x41, 0x42],
                     })),
                 },
-                "2a0d0a02303112070a013212023334",
-                "108bc3029f48dda98d9d43238154830ae0ee71e7d2e083264a2b07a3d736bee2",
+                "0a0f0a0300ff4212020102180122024142",
+                "4b88066b5fe9b4de9d603021b078abe4b19255dddfce9d074237a717a2c7854d",
+            ),
+            // A sealed entry is field 6, with fields 1 to 4 in order.
+            (
+                ClientEnvelope {
+                    payload: Some(Payload::SealedCommitLogEntry(SealedCommitLogEntry {
+                        commit_log_id: vec![0x50, 0x51],
+                        nonce: vec![0x52],
+                        ciphertext: vec![0x53, 0x54],
+                        signature: vec![0x55],
+                    })),
+                },
+                "320e0a0250511201521a025354220155",
+                "a3d80629f11646414c6170dfe64f675b4d2328a23082169379fdd1b28b5581bf",
             ),
         ];
 
@@ -115,6 +129,13 @@ mod tests {
             assert_eq!(decoded, envelope);
             assert_eq!(canonical_envelope(&decoded), canonical);
         }
+
+        // Field 5, the retired `CommitLogEntry`, is reserved. An old client's
+        // entry decodes with no payload, and its bytes are not kept.
+        let retired =
+            ClientEnvelope::decode(hex::decode("2a0d0a02303112070a013212023334")?.as_slice())?;
+        assert_eq!(retired.payload, None);
+        assert!(canonical_envelope(&retired).bytes.is_empty());
 
         let Some(Payload::GroupMessage(group)) = group_envelope.payload else {
             unreachable!("first golden vector is a group message")

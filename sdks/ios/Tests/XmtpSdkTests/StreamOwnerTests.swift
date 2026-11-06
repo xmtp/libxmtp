@@ -49,7 +49,7 @@ private final class EmptyStreamConversationReader: ConversationReader, @unchecke
 }
 
 final class StreamOwnerTests: XCTestCase {
-	// verifies: CONS-030, CONS-042, CONS-043, CONS-044
+	// verifies: CONS-060, CONS-042, CONS-043, CONS-044
 	func testConversationStreamUsesSelectedReaderAndExactOptionsLazily() async throws {
 		let selectedCalls = ConversationSelections()
 		let namespaceCalls = ConversationSelections()

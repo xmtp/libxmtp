@@ -77,7 +77,7 @@ export function transferRoute(request, response, pathname, body, relay) {
         ? (reply) => {
             return redirectGrant(
               reply,
-              `http://${request.headers.host}/transfer/${id}/put`,
+              `http://127.0.0.1:${request.socket.localPort}/transfer/${id}/put`,
             );
           }
         : undefined;

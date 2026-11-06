@@ -1,17 +1,11 @@
 use std::collections::HashSet;
 
 use xmtp_common::Generate;
-use xmtp_db::{MemoryStorage, group_message::StoredGroupMessage, sql_key_store::SqlKeyStore};
 use xmtp_proto::types::Cursor;
 
-use crate::{
-    builder::DeviceSyncMode,
-    client::DeviceSync,
-    groups::{
-        mls_sync::GroupMessageProcessingError,
-        summary::{MessageIdentifier, ProcessSummary, SyncSummary},
-    },
-    worker::tasks::TaskWorkerChannels,
+use crate::groups::{
+    GroupMessageProcessingError,
+    summary::{MessageIdentifier, ProcessSummary, SyncSummary},
 };
 
 use super::*;
@@ -19,39 +13,7 @@ use rstest::*;
 
 #[fixture]
 pub fn context() -> NewMockContext {
-    let events = xmtp_events::EventBus::new();
-    XmtpMlsLocalContext {
-        attachments: Default::default(),
-        identity: Identity::mock_identity(),
-        api_client: ApiClientWrapper::new(Arc::new(MockBackendClient::new()), Default::default()),
-        store: xmtp_db::MockXmtpDb::new(),
-        mutexes: MutexRegistry::new(),
-        #[cfg(test)]
-        mls_commit_lock: Default::default(),
-        version_info: VersionInfo::default(),
-        server_configuration: Default::default(),
-        public_event_writer: Arc::new(xmtp_events::PublicBusWriter::new(&events)),
-        events,
-        registration_event_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        scw_verifier: Arc::new(Box::new(MockSmartContractSignatureVerifier::new(true))),
-        device_sync: DeviceSync {
-            mode: DeviceSyncMode::Disabled,
-        },
-        fork_recovery_opts: Default::default(),
-        change_callbacks: Default::default(),
-        worker_config: Default::default(),
-        mls_storage: SqlKeyStore::new(MemoryStorage::new()),
-        task_channels: TaskWorkerChannels::default(),
-        worker_metrics: Arc::default(),
-        cancellation_token: tokio_util::sync::CancellationToken::new(),
-        shutdown_complete: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        foreground_calls: Default::default(),
-        #[cfg(any(test, target_arch = "wasm32"))]
-        message_clock: Default::default(),
-        delivery_owner: Default::default(),
-        incoming_runtime: Default::default(),
-        identity_resolutions: Default::default(),
-    }
+    crate::context::test_support::mock_context()
 }
 
 pub use xmtp_id::utils::generate_inbox_id_credential;
@@ -74,43 +36,37 @@ pub fn generate_message(
 }
 
 pub fn generate_successful_summary(messages: &[xmtp_proto::types::GroupMessage]) -> SyncSummary {
-    SyncSummary {
-        publish_errors: vec![],
-        process: ProcessSummary {
-            total_messages: HashSet::from_iter(messages.iter().map(|m| m.cursor)),
-            new_messages: messages.iter().map(Into::into).collect(),
-            errored: Vec::new(),
-            app_data_changes: Vec::new(),
-        },
-        post_commit_errors: vec![],
-        other: None,
-    }
+    let mut summary = SyncSummary::default();
+    summary.add_process(ProcessSummary {
+        total_messages: HashSet::from_iter(messages.iter().map(|m| m.cursor)),
+        new_messages: messages.iter().map(Into::into).collect(),
+        errored: Vec::new(),
+        app_data_changes: Vec::new(),
+    });
+    summary
 }
 
 pub fn generate_errored_summary(error_cursors: &[u64], successful_cursors: &[u64]) -> SyncSummary {
-    SyncSummary {
-        publish_errors: vec![],
-        process: ProcessSummary {
-            total_messages: HashSet::from_iter(
-                error_cursors
-                    .iter()
-                    .copied()
-                    .chain(successful_cursors.iter().copied())
-                    .map(Cursor),
-            ),
-            new_messages: generate_messages_with_ids(successful_cursors)
+    let mut summary = SyncSummary::default();
+    summary.add_process(ProcessSummary {
+        total_messages: HashSet::from_iter(
+            error_cursors
                 .iter()
-                .map(Into::into)
-                .collect(),
-            errored: error_cursors
-                .iter()
-                .map(|c| (Cursor(*c), GroupMessageProcessingError::InvalidPayload))
-                .collect(),
-            app_data_changes: Vec::new(),
-        },
-        post_commit_errors: vec![],
-        other: None,
-    }
+                .copied()
+                .chain(successful_cursors.iter().copied())
+                .map(Cursor),
+        ),
+        new_messages: generate_messages_with_ids(successful_cursors)
+            .iter()
+            .map(Into::into)
+            .collect(),
+        errored: error_cursors
+            .iter()
+            .map(|c| (Cursor(*c), GroupMessageProcessingError::InvalidPayload))
+            .collect(),
+        app_data_changes: Vec::new(),
+    });
+    summary
 }
 
 /// Like `generate_errored_summary`, but every success `MessageIdentifier` shares `group_id`
@@ -120,58 +76,29 @@ pub fn generate_errored_summary_with_group(
     error_cursors: &[u64],
     successful_cursors: &[u64],
 ) -> SyncSummary {
-    SyncSummary {
-        publish_errors: vec![],
-        process: ProcessSummary {
-            total_messages: HashSet::from_iter(
-                error_cursors
-                    .iter()
-                    .copied()
-                    .chain(successful_cursors.iter().copied())
-                    .map(Cursor),
-            ),
-            new_messages: successful_cursors
+    let mut summary = SyncSummary::default();
+    summary.add_process(ProcessSummary {
+        total_messages: HashSet::from_iter(
+            error_cursors
                 .iter()
-                .map(|c| {
-                    let m = generate_message(*c, group_id);
-                    MessageIdentifier::from(&m)
-                })
-                .collect(),
-            errored: error_cursors
-                .iter()
-                .map(|c| (Cursor(*c), GroupMessageProcessingError::InvalidPayload))
-                .collect(),
-            app_data_changes: Vec::new(),
-        },
-        post_commit_errors: vec![],
-        other: None,
-    }
+                .copied()
+                .chain(successful_cursors.iter().copied())
+                .map(Cursor),
+        ),
+        new_messages: successful_cursors
+            .iter()
+            .map(|c| {
+                let m = generate_message(*c, group_id);
+                MessageIdentifier::from(&m)
+            })
+            .collect(),
+        errored: error_cursors
+            .iter()
+            .map(|c| (Cursor(*c), GroupMessageProcessingError::InvalidPayload))
+            .collect(),
+        app_data_changes: Vec::new(),
+    });
+    summary
 }
 
-pub fn generate_stored_msg(
-    cursor: Cursor,
-    group_id: xmtp_proto::types::GroupId,
-) -> StoredGroupMessage {
-    StoredGroupMessage {
-        id: xmtp_common::rand_vec::<32>(),
-        group_id,
-        decrypted_message_bytes: b"test message".to_vec(),
-        sent_at_ns: 100,
-        kind: xmtp_db::group_message::GroupMessageKind::Application,
-        sender_installation_id: xmtp_common::rand_vec::<32>(),
-        sender_inbox_id: "test inbox".into(),
-        delivery_status: xmtp_db::group_message::DeliveryStatus::Published,
-        content_type: xmtp_db::group_message::ContentType::Text,
-        version_major: 0,
-        version_minor: 0,
-        authority_id: "testauthority".to_string(),
-        reference_id: None,
-        sequence_id: cursor.0 as i64,
-        envelope_hash: None,
-        expiry_ns: None,
-        expire_at_ns: None,
-        inserted_at_ns: 0,
-        should_push: true,
-        idempotency_key: 100.to_string(),
-    }
-}
+pub use xmtp_mls_engine::groups::test_support::message_rows::generate_stored_msg;

@@ -212,7 +212,7 @@ export function relay(store: string): {
 } {
   const id = crypto.randomUUID();
   return {
-    url: `${store}/relay/${id}`,
+    url: store.replace("127.0.0.1", `${id}.relay.localhost`),
     async refuse() {
       equal((await fetch(`${store}/refuse/${id}`)).status, 200, "refuse");
     },

@@ -8,6 +8,7 @@ async fn unrepresentable_pong_deadline_returns_an_error_without_panicking() {
         nonce: 1,
         handed,
         deadline: None,
+        stall: Instant::now() + Duration::from_secs(60),
     };
     let error = challenge
         .start_deadline(Instant::now(), Duration::MAX)

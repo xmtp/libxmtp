@@ -7,7 +7,7 @@ with `#[from]`. Use `#[error(transparent)]` when the variant adds no context.
 Never stringify an inner error.
 
 ```rust
-// pattern, after crates/xmtp_mls/src/groups/error.rs
+// pattern, after crates/xmtp_mls_engine/src/groups/error.rs
 use xmtp_common::{ErrorCode, RetryableError, retryable};
 
 #[derive(Debug, thiserror::Error, ErrorCode)]

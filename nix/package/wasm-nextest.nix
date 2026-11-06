@@ -16,7 +16,6 @@
   stdenv,
   wasm-bindgen-cli,
   cargo-nextest,
-  nodejs_24,
   removeReferencesTo,
   flock,
   nukeReferences,
@@ -33,9 +32,19 @@ let
 
   wasmCrates = [
     "xmtp_mls"
+    "xmtp_mls_messages"
+    "xmtp_mls_server_config"
+    "xmtp_mls_core"
+    "xmtp_mls_identity"
+    "xmtp_mls_engine"
+    "xmtp_mls_attachments"
+    "xmtp_mls_streams"
+    "xmtp_mls_device_sync"
+    "xmtp_mls_notifications"
     "xmtp_cryptography"
     "xmtp_common"
     "xmtp_api"
+    "xmtp_api_grpc"
     "xmtp_id"
     "xmtp_db"
     "xmtp_api_backend"
@@ -63,7 +72,7 @@ let
         extra = [
           (root + /.config/nextest.toml)
           # db snapshots
-          (fileFilter (file: file.hasExt "xmtp") (root + /crates/xmtp_mls/tests/assets))
+          (fileFilter (file: file.hasExt "xmtp") (root + /crates/xmtp_mls_device_sync/tests/assets))
           (fileFilter (file: file.hasExt "json") (root + /crates))
         ];
       }
@@ -75,7 +84,7 @@ let
     nativeBuildInputs = base.commonArgs.nativeBuildInputs ++ [
       cargo-nextest
       wasm-bindgen-cli
-      nodejs_24
+      xmtp.nodejs_24
     ];
     CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
     preConfigure = ''

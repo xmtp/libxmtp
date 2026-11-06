@@ -1,4 +1,5 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, render, renderHook } from "@testing-library/react";
+import { createElement, useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -200,6 +201,38 @@ describe("useAppLock", () => {
 
       expect(onLockLost).toHaveBeenCalled();
       expect(result.current.lockState).toBe("locked");
+    });
+
+    it("does not call onLockLost when a child acquires the lock on mount", () => {
+      localStorage.setItem(APP_LOCK_ID_KEY, JSON.stringify("crashed-session"));
+      localStorage.setItem(
+        APP_LOCK_LAST_ACTIVE_KEY,
+        JSON.stringify(Date.now() - STALE_THRESHOLD - 1),
+      );
+      const onLockLost = vi.fn();
+
+      // Child effects run before parent effects, so the parent sees its
+      // pre-acquisition state in the same commit. Auto-connect does this.
+      const AutoConnect = ({ acquire }: { acquire: () => boolean }) => {
+        useEffect(() => {
+          acquire();
+        }, [acquire]);
+        return null;
+      };
+      const Provider = () => {
+        const lock = useAppLock(onLockLost);
+        return createElement(
+          "output",
+          null,
+          lock.lockState,
+          createElement(AutoConnect, { acquire: lock.acquireLock }),
+        );
+      };
+
+      const { container } = render(createElement(Provider));
+
+      expect(onLockLost).not.toHaveBeenCalled();
+      expect(container.textContent).toBe("active");
     });
 
     it("does not call onLockLost if lock was never acquired", () => {

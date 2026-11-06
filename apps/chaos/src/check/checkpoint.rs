@@ -112,7 +112,8 @@ impl CheckpointTracker {
                 let progress = receipt_progress
                     || topic.processed > pending.processed
                     || !pending.unresolved.is_subset(&unresolved);
-                if progress || pending.cause != cause {
+                // A different error does not advance the outstanding obligation.
+                if progress {
                     pending.last_progress_ms = elapsed_ms;
                 }
                 if pending.round != round || pending.repeats == 0 {

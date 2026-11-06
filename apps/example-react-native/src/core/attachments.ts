@@ -628,34 +628,30 @@ export class AttachmentDraftStore {
   }
 }
 
-/** The most recently used verified files, at most `LIMIT`. */
-export class VerifiedFileCache {
-  static readonly LIMIT = 16;
-  readonly #entries = new Map<string, VerifiedFile>();
-
-  get(id: string): VerifiedFile | undefined {
-    const value = this.#entries.get(id);
-    if (value !== undefined) {
-      this.#entries.delete(id);
-      this.#entries.set(id, value);
-    }
-    return value;
+/** Local plaintext is already verified; inspect only a short header for display type. */
+export function localMimeType(name: string, header: Uint8Array): string {
+  const starts = (...bytes: number[]) =>
+    bytes.every((byte, index) => header[index] === byte);
+  const text = (offset: number, value: string) =>
+    Array.from({ length: value.length }, (_, index) =>
+      value.charCodeAt(index),
+    ).every((byte, index) => header[offset + index] === byte);
+  if (starts(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a))
+    return "image/png";
+  if (starts(0xff, 0xd8, 0xff)) return "image/jpeg";
+  if (text(0, "GIF87a") || text(0, "GIF89a")) return "image/gif";
+  if (text(0, "RIFF") && text(8, "WEBP")) return "image/webp";
+  if (starts(0x49, 0x49, 0x2a, 0) || starts(0x4d, 0x4d, 0, 0x2a))
+    return "image/tiff";
+  if (text(0, "BM")) return "image/bmp";
+  if (text(4, "ftyp")) {
+    if (text(8, "avif") || text(8, "avis")) return "image/avif";
+    if (["heic", "heix", "hevc", "hevx"].some((brand) => text(8, brand)))
+      return "image/heic";
+    if (text(8, "mif1") || text(8, "msf1")) return "image/heif";
   }
-
-  /** Adds a file and returns the IDs it pushed out. */
-  put(id: string, file: VerifiedFile): string[] {
-    this.#entries.delete(id);
-    this.#entries.set(id, file);
-    const evicted: string[] = [];
-    for (const key of this.#entries.keys()) {
-      if (this.#entries.size <= VerifiedFileCache.LIMIT) break;
-      this.#entries.delete(key);
-      evicted.push(key);
-    }
-    return evicted;
-  }
-
-  clear(): void {
-    this.#entries.clear();
-  }
+  const fallback = mimeTypeFor(name);
+  if (fallback === "application/octet-stream" && text(0, "%PDF-"))
+    return "application/pdf";
+  return fallback;
 }

@@ -107,7 +107,7 @@ const GOLDEN_FILES: &[GoldenFile] = &[GoldenFile {
 
 const STORES: [&str; 3] = ["alice", "bob", "carol"];
 const COLUMNS: [&str; 3] = ["Credential", "StagedCommit", "XmtpInstallationCredential"];
-/// `ComponentId::COMMIT_LOG_SIGNER` in `xmtp_mls_common`, as XMTP groups use it.
+/// `ComponentId::COMMIT_LOG_SIGNER` in `xmtp_mls_group_state`, as XMTP groups use it.
 const COMMIT_LOG_SIGNER: u16 = 0x800B;
 const LATE_MESSAGE: &[u8] = b"sent in epoch 1, read in epoch 2";
 /// Self-updates before the group grows, so every stored epoch is above 255
@@ -119,7 +119,7 @@ const BURST: usize = 300;
 /// The draft-10 `last_resort_key_package` component that marks every XMTP key
 /// package.
 const LAST_RESORT_COMPONENT: u16 = 0x0004;
-/// `ComponentId::GROUP_MEMBERSHIP` in `xmtp_mls_common`, which XMTP updates
+/// `ComponentId::GROUP_MEMBERSHIP` in `xmtp_mls_group_state`, which XMTP updates
 /// with AppDataUpdate proposals.
 const GROUP_MEMBERSHIP: u16 = 0x8003;
 const PROPOSED_MEMBERSHIP: &[u8] = b"membership in a standalone proposal";
@@ -403,6 +403,9 @@ fn merge_commit(provider: &Provider, group: &mut MlsGroup, commit: &[u8]) {
 /// Commit every pending proposal, with inline `proposals` and `removals`,
 /// as XMTP commits: with the dictionary updates of every AppDataUpdate
 /// proposal, and with a path when `path` is set. The commit stays pending.
+// A codec fixture: it builds OpenMLS rows to freeze their encoding, and no
+// GroupInfo it may build leaves the test.
+#[allow(clippy::disallowed_methods)]
 fn commit_pending(
     provider: &Provider,
     group: &mut MlsGroup,
@@ -647,8 +650,8 @@ async fn build() -> Value {
     );
     let staged = second.pending_commit().expect("an own staged commit");
 
-    // The XMTP labels, through the writers `identity.rs` and
-    // `commit_log_key.rs` use.
+    // The XMTP labels, through the writers `identity.rs` uses and the
+    // commit-log signer writer older clients used.
     let hash_ref = bob_spare.key_package().hash_ref(bob.crypto()).unwrap();
     let init_key = tls(bob_spare.key_package().hpke_init_key());
     let storage = bob.storage();
@@ -896,6 +899,9 @@ fn round_trips<T: serde::Serialize + serde::de::DeserializeOwned>(what: &str, by
 /// and an export tree with several PPRF nodes is decoded and encoded again
 /// many times, each time with new hash map seeds.
 #[xmtp_common::test(unwrap_try = true)]
+// A codec fixture: it builds OpenMLS rows to freeze their encoding, and no
+// GroupInfo it may build leaves the test.
+#[allow(clippy::disallowed_methods)]
 async fn canonical_orders_hash_map_fields() {
     let (alice, bob, carol) = (provider().await, provider().await, provider().await);
     let signer = |provider: &Provider| {
@@ -1624,7 +1630,8 @@ async fn golden_rows_load_and_run_the_groups() {
 
         // The XMTP labels read back through their production keys and
         // readers, as `find_key_package_hash_ref`, `find_private_key` and
-        // `read_commit_log_key` read them. `build` wrote these values.
+        // older clients' commit-log signer reader read them. `build` wrote
+        // these values.
         let references = golden.stores["bob"]
             .iter()
             .find(|row| row.label == "KeyPackageReferences")

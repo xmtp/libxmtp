@@ -761,6 +761,22 @@ impl LocalStore for NativeStore {
         })
     }
 
+    // implements: STORE-018, ATCH-046
+    async fn delete_local_files(&self) -> Result<(), AttachmentError> {
+        for entry in self.root_dir.entries().map_err(storage_error)? {
+            let entry = entry.map_err(storage_error)?;
+            let Ok(name) = entry.file_name().into_string() else {
+                continue;
+            };
+            if is_reconcile_dir(&name) && self.prepare_remove_dir(&name).await? {
+                self.remove_dir_all(&name)
+                    .await
+                    .map_err(|error| error.error)?;
+            }
+        }
+        Ok(())
+    }
+
     async fn prepare_remove_dir(&self, path: &str) -> Result<bool, AttachmentError> {
         validate_relative(path)?;
         let (parent, name) = match self.parent(path, false) {

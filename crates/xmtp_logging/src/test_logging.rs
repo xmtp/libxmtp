@@ -113,6 +113,7 @@ pub fn logger() {
     {
         INIT.get_or_init(|| {
             let _ = tracing_subscriber::registry()
+                .with(crate::filter::group_context_guard())
                 .with(logger_layer())
                 .try_init();
         });
@@ -127,6 +128,7 @@ pub fn logger() {
                 .expect("invalid environment log filter");
 
             let _ = tracing_subscriber::registry()
+                .with(crate::filter::group_context_guard())
                 .with(crate::layers::web::console_layer())
                 .with(filter)
                 .try_init();

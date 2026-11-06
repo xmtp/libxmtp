@@ -26,6 +26,9 @@ pub enum EntityKind {
     Identity = 8,
     DeliveryAllocator = 9,
     Delivery = 10,
+    CommitLogPublisherBoundary = 11, // Group commit position at the publisher tenure boundary
+    CommitLogPublisherRecovery = 12, // Publication eligibility has been recovered for this membership
+    CommitLogReaderEpochFloor = 13,  // Minimum applied epoch admitted after a legacy reader upgrade
 }
 
 pub trait HasEntityKind {
@@ -57,6 +60,9 @@ impl std::fmt::Display for EntityKind {
             Identity => write!(f, "identity"),
             DeliveryAllocator => write!(f, "delivery_allocator"),
             Delivery => write!(f, "delivery"),
+            CommitLogPublisherBoundary => write!(f, "commit_log_publisher_boundary"),
+            CommitLogPublisherRecovery => write!(f, "commit_log_publisher_recovery"),
+            CommitLogReaderEpochFloor => write!(f, "commit_log_reader_epoch_floor"),
         }
     }
 }
@@ -86,6 +92,9 @@ where
             8 => Ok(EntityKind::Identity),
             9 => Ok(EntityKind::DeliveryAllocator),
             10 => Ok(EntityKind::Delivery),
+            11 => Ok(EntityKind::CommitLogPublisherBoundary),
+            12 => Ok(EntityKind::CommitLogPublisherRecovery),
+            13 => Ok(EntityKind::CommitLogReaderEpochFloor),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }

@@ -118,6 +118,7 @@ impl ContentCodec<Actions> for ActionsCodec {
 
     // implements: CTYPE-030
     fn decode(actions: EncodedContent) -> Result<Actions, CodecError> {
+        crate::decode_limits::check_json_values(&actions.content)?;
         let actions: Actions = serde_json::from_slice(&actions.content)
             .map_err(|e| CodecError::Decode(format!("Unable to deserialize actions. {e:?}")))?;
 

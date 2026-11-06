@@ -18,12 +18,23 @@ old installations on the backend from entering the new run's membership.
 ## Operations
 
 A round runs 24 operations: three same-epoch bursts, one recipe, and a mixed
-tail. The tail draws from group creation, member add, remove, and re-add,
+tail. When two independent devices for one inbox share a group, the first burst
+uses `same_inbox_contention` to race commits from those devices. The local writer
+for each member inbox rotates between its devices each round. The tail draws
+from group creation, member add, remove, and re-add,
 metadata, display name, description, disappearing settings, key update, admin
 promotion and demotion, leave, sends, syncs, consent, new installations, and
 stream restarts. Admin changes come from super admins, disappearing settings
 from admins, and leaves from members who are not super admins. Without such
 an actor, the operation runs as any actor and checks the refusal path.
+
+When churn leaves no group with two active inboxes, the scheduler adds an
+available inbox to an existing group. Scheduling this repair is not proof that
+it succeeded: a passing final round must start and end with an active group
+shared by distinct inboxes. A repair-only final round cannot pass even if
+the Add succeeds, because contention has not resumed. This keeps restoration
+within the group cap. A normal round with no group writes stops as a harness error;
+recovery rounds may still wait for existing obligations without new writes.
 
 Recipes are `same_epoch_contention`, `join_race`, `remove_and_readd`,
 `remove_with_pending_intent`, `installation_during_commits`,
@@ -100,12 +111,31 @@ completed work; they do not prove that a transaction committed.
 | `WARN` | A client reports a fork flag without observed state disagreement |
 | `HARNESS` | The harness or a required service failed |
 
-Exit codes are 0 for completion, 2 for a violation, 3 for a harness error,
-and 130 for interruption. Healthy stdout contains the seed and one summary
+Exit codes are 0 for completion with no unresolved obligations, 2 for a violation,
+3 for a harness error or an inconclusive run at its limit,
+and 130 for interruption. The configured time or round limit ends the workload
+phase. A separate fault-free closeout then has at most three rounds and a hard
+330-second work budget: the 60-second operation window plus three 90-second
+RPC budgets. Cleanup and evidence copying happen after that budget.
+
+Closeout clears new fault schedules. When a multi-inbox group is available,
+it runs one simultaneous metadata-write burst with one independent device from
+each of two distinct inboxes, without further membership churn. Both inboxes must
+successfully complete their writes in that burst, and the checkpoint, delivery,
+and restored-contention checks must all pass. Recovery-only or repair-only
+rounds cannot pass. Failed repair, unresolved work, or exhausted closeout bounds
+preserve a failure bundle and record `termination=INCONCLUSIVE`; disabling faults
+alone never turns them into a passing run. Fork/brick verdicts still stop the run.
+
+Bounded status reports `workload_rounds`, `workload_elapsed_ms`,
+`closeout_rounds`, `closeout_elapsed_ms`, the closeout bounds, and its successful
+writer count separately. Historical runs that stopped inconclusive remain so.
+Healthy stdout contains the seed and one summary
 line per round. Status includes contention counters.
 
 A `STALL` records an incomplete obligation and its cause. Repeated stalls can
-escalate without shortening the SDK retry budget. Inspect an escalated stall
+escalate without shortening the SDK retry budget. A changed error cause alone
+does not reset the no-progress timer. Inspect an escalated stall
 through traces before a longer run. A `WARN` alone does not stop a normal run;
 `--strict` enables the stricter policy. Pending roll-call checks use fault-free
 recovery rounds before new operations, restarts, or stream handoff. The round
@@ -147,4 +177,7 @@ owner to expire. It does not reset a live stream to hide a delivery stall.
 After a run stops, use `just chaos inspect --forks` to compare saved state and
 commit history. Add `--group GROUP_ID` to narrow the output. This command reads
 the encrypted databases through read-only connections. It does not start clients.
+Selecting a group also shows up to eight queued publication intents per database,
+with only their ids, kinds, and states. Error summaries keep the redacted start
+and end of the error chain so nested causes remain visible.
 A row cap or missing evidence is reported as inconclusive.

@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use crate::{XmtpError, client::CoreClient, conversation::on_sdk_worker};
-use xmtp_db::consent_record::{ConsentType, StoredConsentRecord};
+use xmtp_db::consent_record::ConsentType;
+use xmtp_mls::client::ConsentAct;
 
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Enum)]
 pub enum ConsentState {
@@ -74,11 +75,10 @@ impl Preferences {
             .into_iter()
             .map(|record| {
                 let (entity_type, entity) = consent_key(record.entity)?;
-                Ok(StoredConsentRecord {
+                Ok(ConsentAct {
                     entity_type,
                     entity,
                     state: record.state.into(),
-                    consented_at_ns: xmtp_common::time::now_ns(),
                 })
             })
             .collect::<Result<Vec<_>, XmtpError>>()?;

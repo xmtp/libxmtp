@@ -22,6 +22,7 @@ test-utils = [
   "xmtp_logging/test-utils",
   "xmtp_mls_validation/test-utils",
   "xmtp_proto/grpc_client_impls",
+  "xmtp_rate_limit/test-utils",
 ]
 
 [dependencies]
@@ -52,6 +53,7 @@ hyper-util = { workspace = true, features = [
   "http2",
   "tokio",
 ] }
+ipnet.workspace = true
 jsonwebtoken = { version = "10", default-features = false, features = [
   "rust_crypto",
   "use_pem",
@@ -102,10 +104,11 @@ xmtp_configuration.workspace = true
 xmtp_cryptography.workspace = true
 xmtp_id.workspace = true
 xmtp_logging = { workspace = true, features = ["metrics"] }
-xmtp_mls_common.workspace = true
+xmtp_mls_group_keys.workspace = true
 xmtp_mls_validation.workspace = true
 xmtp_proto = { workspace = true, features = ["grpc_server_impls"] }
 xmtp_push_types.workspace = true
+xmtp_rate_limit.workspace = true
 
 [dev-dependencies]
 h2 = "0.4"
@@ -124,10 +127,12 @@ tokio-rustls = { version = "0.26", default-features = false, features = [
 tonic-prost = "0.14"
 xmtp_attachments_server = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
+xmtp_cryptography = { workspace = true, features = ["test-utils"] }
 xmtp_id = { workspace = true, features = ["test-utils"] }
 xmtp_logging = { workspace = true, features = ["test-utils"] }
 xmtp_mls_validation = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["grpc_client_impls"] }
+xmtp_rate_limit = { workspace = true, features = ["test-utils"] }
 
 [lints]
 workspace = true

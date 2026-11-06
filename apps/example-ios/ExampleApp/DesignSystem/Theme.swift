@@ -7,6 +7,9 @@ enum Theme {
 	static let secondaryLabel = Color("SecondaryLabel")
 	static let incomingBubble = Color("IncomingBubble")
 	static let minimumHitTarget: CGFloat = 44
+	static let attachmentMaximumWidth: CGFloat = 360
+	static let attachmentCornerRadius: CGFloat = 18
+	static let attachmentAspectRatio: ClosedRange<CGFloat> = 0.7 ... 1.8
 }
 
 enum Symbol {

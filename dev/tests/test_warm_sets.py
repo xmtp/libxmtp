@@ -27,8 +27,8 @@ JOBS = yaml.safe_load((ROOT / ".github/workflows/post-merge.yml").read_text())["
 NIX = shutil.which("nix")
 # The jobs that warm and check the non-RN sets and publish the docs.
 NON_RN_JOBS = ("build", "closure", "docs-swift", "docs-kotlin", "docs", "deploy")
-# The RN jobs that cache and test; rn-alert checks the RN sets and reports.
-RN_CHAIN = ("rn-components", "rn-package", "rn-consumers", "rn-smoke")
+# The RN jobs that cache; rn-alert checks the RN sets and reports.
+RN_CHAIN = ("rn-components", "rn-package", "rn-consumers")
 STATUS_FUNCTION = re.compile(r"\b(?:success|failure|cancelled|always)\(\)")
 # The RN JavaScript layer: the SDK's JavaScript product and its build inputs.
 # The JavaScript suites and the docs read it through the Linux product group
@@ -511,9 +511,9 @@ class PostMergeOrderTests(unittest.TestCase):
             (None, True, True, True),
             # One rn-consumers leg failed: the other leg's set is checked.
             ({"rn-consumers": "failure"}, False, True, True),
-            ({"rn-smoke": "failure"}, False, True, True),
+            ({"rn-consumers": "cancelled"}, False, True, True),
             # A job that hits its timeout ends as cancelled.
-            ({"rn-smoke": "cancelled"}, False, True, True),
+            ({"rn-components": "cancelled"}, False, False, True),
             ({"rn-package": "failure"}, False, False, True),
         ):
             with self.subTest(broken=broken, check_fails=check_fails):
@@ -537,6 +537,24 @@ class PostMergeOrderTests(unittest.TestCase):
         # A cancelled run checks and alerts on nothing.
         finished = set(RN_CHAIN) | {"build"}
         self.assertEqual(run_graph({}, finished=finished)["rn-alert"], "skipped")
+
+    def test_rn_cache_alert_ignores_non_rn_failures(self):
+        check = step("rn-alert", "Dry-run the pushed RN sets in an empty store")
+        notify = step("rn-alert", "Notify Slack")
+        for broken in (*NON_RN_JOBS, "pnpm-store"):
+            for result in ("failure", "cancelled"):
+                with self.subTest(job=broken, result=result):
+                    results = run_graph({broken: result})
+                    self.assertEqual(results["rn-alert"], "success")
+                    needs = {name: results[name] for name in direct_needs("rn-alert")}
+                    self.assertTrue(evaluate(check["if"], needs=needs))
+                    self.assertFalse(
+                        evaluate(
+                            notify["if"],
+                            needs=needs,
+                            values={"steps.check.outcome": "success"},
+                        )
+                    )
 
 
 class WarmSetTests(unittest.TestCase):
@@ -574,9 +592,11 @@ class WarmSetTests(unittest.TestCase):
             for name, spec in system_sets.items()
             for member_name, member in spec["passthru"]["members"].items()
         }
+        # aarch64-linux builds no RN output, so it has no rn set.
+        cls.rn_systems = {system for system, sets in cls.sets.items() if "rn" in sets}
         cls.rn_set_digests = {
-            system: Path(system_sets["rn"]["outPath"]).name[:32]
-            for system, system_sets in stub.items()
+            system: Path(stub[system]["rn"]["outPath"]).name[:32]
+            for system in cls.rn_systems
         }
 
     def checked(self, paths):
@@ -687,6 +707,10 @@ class WarmSetTests(unittest.TestCase):
             missing_shells(self.sets, shells), {("aarch64-darwin", "react-native")}
         )
 
+    def test_build_has_a_leg_for_each_system(self):
+        legs = JOBS["build"]["strategy"]["matrix"]["include"]
+        self.assertEqual({leg["system"] for leg in legs}, set(self.sets))
+
     def test_build_pins_only_the_dev_and_release_sets(self):
         for system in self.sets:
             with self.subTest(system=system):
@@ -718,7 +742,7 @@ class WarmSetTests(unittest.TestCase):
         job = JOBS["rn-consumers"]
         self.assertEqual(job["env"]["SYSTEM"], "${{ matrix.system }}")
         legs = job["strategy"]["matrix"]["include"]
-        self.assertEqual({leg["system"] for leg in legs}, set(self.sets))
+        self.assertEqual({leg["system"] for leg in legs}, self.rn_systems)
         names = ("Build the RN warm set", "Push and pin the RN warm set")
         self.assertEqual(
             step("rn-consumers", names[1])["env"]["CACHIX_AUTH_TOKEN"],
@@ -775,9 +799,10 @@ class WarmSetTests(unittest.TestCase):
         checked = self.checked(dry_run)
         for system, system_sets in self.sets.items():
             with self.subTest(system=system):
+                # An empty set (aarch64-linux release) has nothing to check.
                 self.assertEqual(
                     {name for s, name in checked if s == system},
-                    set(system_sets) - {"rn"},
+                    {name for name, names in system_sets.items() if names} - {"rn"},
                 )
                 reached = {
                     self.paths[p][2]
@@ -793,7 +818,7 @@ class WarmSetTests(unittest.TestCase):
         self.assertEqual(
             check["env"]["RN_CONSUMERS"], "${{ needs.rn-consumers.result }}"
         )
-        both = set(self.sets)
+        both = self.rn_systems
         for consumers, present, returncode, checked in (
             ("success", both, 0, both),
             # One leg failed before its push: the other system is checked.
@@ -835,7 +860,7 @@ class WarmSetTests(unittest.TestCase):
             {system: set(value["drvs"]) for system, value in evaluated.items()},
             {system: set(sets) for system, sets in self.sets.items()},
         )
-        for system in self.sets:
+        for system in self.rn_systems:
             with self.subTest(system=system):
                 members = stub[system]["rn"]["passthru"]["members"]
                 drv = next(iter(members.values()))["drvPath"]
@@ -844,7 +869,8 @@ class WarmSetTests(unittest.TestCase):
                 self.assertIn(drv, result.stdout)
 
     def test_the_rn_set_holds_every_other_rn_output(self):
-        for system, sets in self.sets.items():
+        for system in self.rn_systems:
+            sets = self.sets[system]
             with self.subTest(system=system):
                 rn = set(sets["rn"])
                 blocking = self.blocking_rn[system]

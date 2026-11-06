@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use xmtp_proto::types::GroupId;
 
 use super::{
-    consent_record::{ConsentState, ConsentType},
+    consent_record::ConsentState,
     group::ConversationType,
     group_message::{DeliveryStatus, MsgQueryArgs, QueryGroupMessage, StoredGroupMessage},
     refresh_state::EntityKind,
@@ -321,28 +321,30 @@ pub trait QueryDelivery: ConnectionExt + Sized {
         Ok(())
     }
 
-    /// A buffered candidate can expire or be deleted while its previous item is held.
-    fn delivery_message_is_retained(
+    /// A buffered candidate can expire, be removed, or be marked deleted while
+    /// its previous item is held: return its current row, or `None`.
+    // implements: PROC-025, PROC-060
+    fn retained_delivery_message(
         &self,
         message_id: &[u8],
         cursor: DeliveryCursor,
         now_ns: i64,
-    ) -> Result<bool, StorageError> {
+    ) -> Result<Option<StoredGroupMessage>, StorageError> {
         self.raw_query(|conn| {
             Ok(conn.transaction::<_, StorageError, _>(|conn| {
                 validate_cursor(conn, cursor)?;
-                Ok(diesel::select(diesel::dsl::exists(
-                    messages::table
-                        .find(message_id)
-                        .filter(messages::delivery_sequence.eq(cursor.delivery_sequence as i64))
-                        .filter(messages::delivery_status.eq(DeliveryStatus::Published))
-                        .filter(
-                            messages::expire_at_ns
-                                .is_null()
-                                .or(messages::expire_at_ns.gt(now_ns)),
-                        ),
-                ))
-                .get_result::<bool>(conn)?)
+                Ok(messages::table
+                    .find(message_id)
+                    .filter(messages::delivery_sequence.eq(cursor.delivery_sequence as i64))
+                    .filter(messages::delivery_status.eq(DeliveryStatus::Published))
+                    .filter(
+                        messages::expire_at_ns
+                            .is_null()
+                            .or(messages::expire_at_ns.gt(now_ns)),
+                    )
+                    .select(StoredGroupMessage::as_select())
+                    .first(conn)
+                    .optional()?)
             }))
         })?
     }
@@ -748,11 +750,10 @@ fn read_messages(
             query = query.filter(groups::conversation_type.eq(kind));
         }
         if let Some(states) = &filter.consent_states {
-            let consent = diesel::dsl::sql::<Integer>(
-                "COALESCE((SELECT state FROM consent_records WHERE entity_type = ",
-            )
-            .bind::<Integer, _>(ConsentType::ConversationId as i32)
-            .sql(" AND entity = lower(hex(group_messages.group_id))), ")
+            let consent = diesel::dsl::sql::<Integer>(&format!(
+                "COALESCE((SELECT state FROM consent_records WHERE {}), ",
+                crate::group::consent_join_sql("groups")
+            ))
             .bind::<Integer, _>(ConsentState::Unknown as i32)
             .sql(")");
             query = query.filter(

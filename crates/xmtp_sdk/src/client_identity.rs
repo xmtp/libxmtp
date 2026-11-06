@@ -1,10 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use xmtp_id::associations::verify_signed_with_public_context;
-use xmtp_mls::{
-    context::{ForegroundCall, XmtpSharedContext},
-    inbox_handles::IdentityTarget,
-};
+use xmtp_mls::{context::ForegroundCall, inbox_handles::IdentityTarget};
 
 use crate::CatchUpSummary;
 use crate::{
@@ -160,7 +157,7 @@ impl Client {
         if !allow_inbox_reassign {
             let found = self
                 .inner
-                .find_inbox_id_from_identifier(&self.inner.context.db(), identifier.clone())
+                .find_inbox_id_from_identifier(identifier.clone())
                 .await
                 .map_err(XmtpError::from_client)?;
             if found.is_some_and(|inbox| inbox != self.inner.inbox_id()) {
@@ -172,7 +169,7 @@ impl Client {
             .identity_updates()
             .associate_identity(identifier)
             .await
-            .map_err(XmtpError::from_client)?;
+            .map_err(XmtpError::from_core)?;
         Ok(self.request(request))
     }
 
@@ -186,7 +183,7 @@ impl Client {
             .identity_updates()
             .revoke_identities(vec![identity.to_core()?])
             .await
-            .map_err(XmtpError::from_client)?;
+            .map_err(XmtpError::from_core)?;
         Ok(self.request(request))
     }
 
@@ -201,7 +198,7 @@ impl Client {
             .identity_updates()
             .revoke_installations(bytes)
             .await
-            .map_err(XmtpError::from_client)?;
+            .map_err(XmtpError::from_core)?;
         Ok(self.request(request))
     }
 
@@ -228,21 +225,36 @@ impl Client {
             .identity_updates()
             .revoke_installations(ids)
             .await
-            .map_err(XmtpError::from_client)?;
+            .map_err(XmtpError::from_core)?;
         Ok(Some(self.request(request)))
     }
 
+    /// Recovery moves only to an identity of the inbox, so a change to any
+    /// other identity fails here, against the inbox's state fetched from the
+    /// network, before anything asks a signer to sign.
     pub async fn unsafe_change_recovery_identifier_signature_request(
         &self,
         identity: PublicIdentity,
     ) -> Result<Arc<SignatureRequest>, XmtpError> {
         let _call = self.ensure_open()?;
+        // A handle fails here, before any request.
+        let identifier = identity.to_core()?;
+        let state = self
+            .inner
+            .inbox_state(true)
+            .await
+            .map_err(XmtpError::from_client)?;
+        if state.get(&identifier.clone().into()).is_none() {
+            return Err(XmtpError::invalid(
+                "the new recovery identity is not an identity of the inbox",
+            ));
+        }
         let request = self
             .inner
             .identity_updates()
-            .change_recovery_identifier(identity.to_core()?)
+            .change_recovery_identifier(identifier)
             .await
-            .map_err(XmtpError::from_client)?;
+            .map_err(XmtpError::from_core)?;
         Ok(self.request(request))
     }
 
@@ -262,7 +274,7 @@ impl Client {
                 .identity_updates()
                 .apply_signature_request(inner)
                 .await
-                .map_err(XmtpError::from_client)
+                .map_err(XmtpError::from_core)
         } else {
             self.inner
                 .register_identity(inner)
@@ -378,10 +390,10 @@ impl Client {
         Ok(result)
     }
 
-    /// The inbox of an account or a handle, or `None`. A handle resolves only
-    /// when the inbox the backend names holds it in its own identity log, and
-    /// an old handle of an inbox still resolves to it. This never derives an
-    /// inbox ID from a handle.
+    /// The inbox of an account or a handle, or `None`. Either resolves only
+    /// when the newest state of the inbox the backend names holds it in that
+    /// inbox's own identity log, and an old handle of an inbox still resolves
+    /// to it. This never derives an inbox ID.
     pub async fn inbox_id_for(
         &self,
         identity: PublicIdentity,
@@ -389,9 +401,7 @@ impl Client {
         let _call = self.ensure_open()?;
         let found = match identity.to_target()? {
             IdentityTarget::Account(identifier) => {
-                self.inner
-                    .find_inbox_id_from_identifier(&self.inner.context.db(), identifier)
-                    .await
+                self.inner.find_inbox_id_from_identifier(identifier).await
             }
             IdentityTarget::Handle(handle) => self
                 .inner
@@ -406,8 +416,11 @@ impl Client {
     }
 
     /// Returns one entry per core identity. Keys use `ethereum:<core text>`,
-    /// `passkey:<lowercase core hex>`, or `handle:<canonical handle>`. A
-    /// handle is available when the backend names an inbox for it.
+    /// `passkey:<lowercase core hex>`, or `handle:<canonical handle>`.
+    /// Reports whether the backend names an inbox for each identifier.
+    /// This is an unverified availability hint. The client does not independently
+    /// verify the lookup against current association state or check
+    /// key packages. This is not a delivery guarantee.
     pub async fn can_message(
         &self,
         identities: Vec<PublicIdentity>,
@@ -647,6 +660,6 @@ pub async fn fetch_server_configuration(
     let api = xmtp_api::ApiClientWrapper::new(backend.api.clone(), Default::default());
     let value = xmtp_mls::server_configuration::fetch_server_configuration(&api)
         .await
-        .map_err(XmtpError::from_client)?;
+        .map_err(|error| XmtpError::from_client(error.into()))?;
     Ok((&value).into())
 }

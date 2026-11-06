@@ -5,6 +5,11 @@ import UIKit
 extension ChatContentView {
 	@ViewBuilder func message(_ row: ChatMessage) -> some View {
 		let mine = row.sender == own
+		let attachment = if case .attachment = row.content {
+			true
+		} else {
+			false
+		}
 		HStack(alignment: .bottom, spacing: 6) {
 			if mine {
 				Spacer(minLength: 42)
@@ -12,12 +17,12 @@ extension ChatContentView {
 				senderAvatar(row)
 			}
 			VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
-				if !mine, timeline.conversation?.kind == .group {
+				if !mine, !attachment, timeline.conversation?.kind == .group {
 					IdentityText(inboxID: row.sender, handle: graph.identityDirectory?.identities[row.sender]?.handle,
 					             short: true).font(.caption2).foregroundStyle(.secondary)
 				}
 				messageBubble(row, mine: mine)
-				if mine {
+				if mine, !attachment || row.delivery != .published {
 					Text(row.delivery == .published ? "Sent" : row.delivery == .failed ? "Not sent · Tap to retry or edit" : "Sending")
 						.font(.caption2).foregroundStyle(.secondary)
 				}
@@ -35,13 +40,19 @@ extension ChatContentView {
 	}
 
 	func messageBubble(_ row: ChatMessage, mine: Bool) -> some View {
-		Bubble(isOutgoing: mine) { messageContent(row) }
-			.overlay(alignment: .topTrailing) { reactionBadges(row) }
-			.anchorPreference(key: MessageFlightAnchors.self, value: .bounds) { flight?.id == row.id ? [row.id: $0] : [:] }
-			.opacity(flight?.id == row.id ? 0 : 1)
-			.contextMenu { menu(row) } preview: { messagePreview(row) }
-			.simultaneousGesture(replyGesture(row))
-			.accessibilityActions { messageAccessibilityActions(row, mine: mine) }
+		Group {
+			if case .attachment = row.content {
+				messageContent(row)
+			} else {
+				Bubble(isOutgoing: mine) { messageContent(row) }
+					.contextMenu { menu(row) } preview: { messagePreview(row) }
+			}
+		}
+		.overlay(alignment: .topTrailing) { reactionBadges(row) }
+		.anchorPreference(key: MessageFlightAnchors.self, value: .bounds) { flight?.id == row.id ? [row.id: $0] : [:] }
+		.opacity(flight?.id == row.id ? 0 : 1)
+		.simultaneousGesture(replyGesture(row))
+		.accessibilityActions { messageAccessibilityActions(row, mine: mine) }
 	}
 
 	func reactionBadges(_ row: ChatMessage) -> some View {
@@ -55,21 +66,7 @@ extension ChatContentView {
 	}
 
 	func messagePreview(_ row: ChatMessage) -> some View {
-		GlassEffectContainer {
-			VStack {
-				if allowed {
-					HStack {
-						ForEach(["👍", "❤️", "😂", "😮", "😢"], id: \.self) { emoji in
-							Button(emoji) { runtime.actions.send(.react(row, emoji)) }.buttonStyle(.glass)
-						}
-						Button("More", systemImage: "plus") {
-							graph.navigate(.emojiPicker(conversationID: id, messageID: row.id))
-						}.labelStyle(.iconOnly).buttonStyle(.glass)
-					}
-				}
-				Text(row.content.text).padding()
-			}.padding(8).messengerGlass(in: RoundedRectangle(cornerRadius: 20))
-		}
+		Text(row.content.text).padding()
 	}
 
 	func replyGesture(_ row: ChatMessage) -> some Gesture {
@@ -109,6 +106,10 @@ extension ChatContentView {
 				store: runtime.attachments,
 				graph: graph,
 				allowed: allowed,
+				own: row.sender == own,
+				sender: row.sender,
+				sentAt: row.date,
+				messageActions: AnyView(menu(row)),
 			)
 		case let .reply(quote, body): VStack(alignment: .leading, spacing: 6) {
 				Text(quote).font(.caption).lineLimit(3).padding(8).background(
@@ -122,6 +123,17 @@ extension ChatContentView {
 	}
 
 	@ViewBuilder func menu(_ row: ChatMessage) -> some View {
+		if allowed, !row.content.isDeleted {
+			ControlGroup {
+				ForEach(["👍", "❤️", "😂", "😮", "😢"], id: \.self) { emoji in
+					Button(emoji) { runtime.actions.send(.react(row, emoji)) }
+				}
+				Button("More", systemImage: "plus") {
+					graph.navigate(.emojiPicker(conversationID: id, messageID: row.id))
+				}.labelStyle(.iconOnly)
+			}.controlGroupStyle(.palette).menuActionDismissBehavior(.enabled)
+		}
+
 		Button(String(localized: "Copy", table: "Chat"), systemImage: "doc.on.doc") {
 			UIPasteboard.general.string = row.content.text
 		}

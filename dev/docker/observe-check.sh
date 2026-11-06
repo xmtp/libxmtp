@@ -5,7 +5,8 @@ cd "$(dirname "$0")/../.."
 # Ports differ per worktree, so read them rather than assuming the defaults.
 # shellcheck source=load-env
 . dev/docker/load-env
-# Cachix serves the xdbg compile across commits; only its wrapper names the commit.
+# Only the wrapper names the commit. CI jobs substitute the compile from
+# xmtp-pr; no warm set holds it, so a developer builds it.
 xdbg="$(nix build --no-link --print-out-paths .#xdbg)" || { echo 'FAIL: build xdbg' >&2; exit 1; }
 export OBSERVE_XDBG="$xdbg/bin/xdbg"
 # The wrapper labels the build with the flake's short revision: the first 7 hex

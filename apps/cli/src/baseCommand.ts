@@ -340,6 +340,7 @@ const UNSUPPORTED_DATABASE_CODES: ReadonlySet<string> = new Set([
   "StorageError::PreTransitionDatabase",
   "StorageError::OldStreamDatabase",
   "StorageError::OldEncodingDatabase",
+  "StorageError::LegacyGroupDatabase",
 ]);
 
 /**

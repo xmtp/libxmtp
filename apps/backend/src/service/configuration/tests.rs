@@ -177,8 +177,10 @@ async fn a_small_response_budget_still_delivers_the_configuration() {
     let server = TestServer::from_toml(
         "[limits]
 max_envelope_bytes = 1
-max_request_bytes = 257
+max_request_bytes = 182068
 max_response_bytes = 257
+max_update_adds = 1
+max_static_topics = 1
 [chains]
 'eip155:1' = 'https://one.example.com'
 'eip155:10' = 'https://ten.example.com'

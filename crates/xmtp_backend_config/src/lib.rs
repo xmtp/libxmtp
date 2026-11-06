@@ -1,6 +1,12 @@
 //! Backend configuration loaded from a TOML file.
 
-use std::{collections::BTreeMap, fs, net::SocketAddr, num::NonZeroUsize, path::Path};
+use std::{
+    collections::BTreeMap,
+    fs,
+    net::{IpAddr, SocketAddr},
+    num::NonZeroUsize,
+    path::Path,
+};
 
 use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
@@ -17,8 +23,9 @@ use xmtp_configuration::{
     BACKEND_DEFAULT_MAX_STATIC_TOPICS, BACKEND_DEFAULT_MAX_STREAM_TOPICS,
     BACKEND_DEFAULT_MAX_UPDATE_ADDS, BACKEND_DEFAULT_MAX_UPDATE_BURST,
     BACKEND_DEFAULT_MAX_UPDATE_FRAMES_PER_SECOND, BACKEND_DEFAULT_MAX_UPDATE_REMOVES,
-    BACKEND_DEFAULT_QUERY_LIMIT, BACKEND_DEFAULT_WELCOME_SECONDS, MAX_SERVER_IDENTIFIER_BYTES,
-    MAX_TRANSPORT_BYTES, parse_eip155_chain_id, validate_server_identifier,
+    BACKEND_DEFAULT_QUERY_LIMIT, BACKEND_DEFAULT_WELCOME_SECONDS, MAX_SCW_SIGNATURES_PER_REQUEST,
+    MAX_SERVER_IDENTIFIER_BYTES, MAX_TRANSPORT_BYTES, NOTIFICATION_BATCH_MAX_BYTES,
+    parse_eip155_chain_id, validate_server_identifier,
 };
 
 pub mod application_components;
@@ -26,9 +33,12 @@ pub mod attachments;
 pub mod auth;
 pub mod handles;
 pub mod push;
+pub mod rate_limits;
 mod schema;
+mod shape;
 mod telemetry;
 mod validated;
+pub use rate_limits::{AuthType, CallerKey, CallerLimits, Category, LimitConfig, RateLimitConfig};
 pub use telemetry::{IDENTIFIER_ATTRIBUTE, TelemetryConfig};
 pub use validated::{Validated, ValidatedConfig};
 
@@ -51,6 +61,9 @@ const MAX_RETENTION_SECONDS: u64 = i64::MAX as u64 / NS_IN_SEC as u64;
 const MAX_DATABASE_TIMEOUT_MS: u64 = i32::MAX as u64;
 /// Advisory MLS group shapes are published as `uint32` and bounded here.
 pub const MAX_MLS_LIMIT: u32 = u16::MAX as u32;
+/// The most installations per inbox a deployment may publish: one identity
+/// update's actions.
+pub const MAX_INSTALLATIONS_LIMIT: u32 = xmtp_configuration::MAX_IDENTITY_UPDATE_ACTIONS as u32;
 
 const DEFAULT_LISTEN: &str = "0.0.0.0:5050";
 const DEFAULT_DRAIN_DURATION_MS: u64 = 10_000;
@@ -246,6 +259,8 @@ pub struct Config {
     #[serde(default)]
     pub limits: LimitsConfig,
     #[serde(default)]
+    pub rate_limits: rate_limits::RateLimitsSection,
+    #[serde(default)]
     pub mls: MlsConfig,
     #[serde(default)]
     pub handles: handles::HandlesConfig,
@@ -269,20 +284,20 @@ impl Config {
     pub fn from_toml_str(contents: &str) -> Result<Self, ConfigError> {
         let mut value: toml::Value = toml::from_str(contents).map_err(|_| ConfigError::Parse)?;
         resolve_environment(&mut value, "")?;
-        serde_path_to_error::deserialize(value).map_err(|error| decode_error(&error))
+        serde_path_to_error::deserialize(shape::Shaped(value)).map_err(|error| decode_error(&error))
     }
 
     /// Check every rule the document and the environment decide: scalar
     /// values and the relationships between values. A `ValidatedConfig`
     /// comes only from here.
     pub fn validate(self) -> Result<ValidatedConfig, ConfigError> {
-        let scw_cache_entries = self.check()?;
-        Ok(ValidatedConfig::new(self, scw_cache_entries))
+        let (scw_cache_entries, rate_limits) = self.check()?;
+        Ok(ValidatedConfig::new(self, scw_cache_entries, rate_limits))
     }
 
     /// Every document check. Returns the checked values `ValidatedConfig`
     /// keeps.
-    fn check(&self) -> Result<NonZeroUsize, ConfigError> {
+    fn check(&self) -> Result<(NonZeroUsize, RateLimitConfig), ConfigError> {
         if let Some(attachments) = &self.attachments {
             attachments.validate()?;
         }
@@ -320,10 +335,11 @@ impl Config {
         let scw_cache_entries = self.validation.validate()?;
         self.validate_chains()?;
         self.limits.validate()?;
+        let rate_limits = self.rate_limits.validate()?;
         self.mls.validate()?;
         self.handles.validate()?;
         application_components::validate(&self.application_components)?;
-        Ok(scw_cache_entries)
+        Ok((scw_cache_entries, rate_limits))
     }
 
     /// Require chain keys that the SCW verifier can route and HTTP(S) RPC URLs.
@@ -367,6 +383,7 @@ impl std::fmt::Debug for Config {
             )
             .field("validation", &self.validation)
             .field("limits", &self.limits)
+            .field("rate_limits", &self.rate_limits)
             .field("mls", &self.mls)
             .field("handles", &self.handles)
             .field("application_components", &self.application_components)
@@ -448,6 +465,25 @@ where
     } else {
         Ok(())
     }
+}
+
+/// The `ip address` standard check: an IPv4 address in dotted decimal with no
+/// leading zero, or an IPv6 address without brackets or a zone index.
+fn ip_address(value: &str) -> Option<IpAddr> {
+    value.parse().ok()
+}
+
+/// The `ip network` standard check: an `ip address`, `/`, and a decimal
+/// prefix length that fits the address, with every bit after the prefix 0.
+fn ip_network(value: &str) -> Option<ipnet::IpNet> {
+    let (address, prefix) = value.split_once('/')?;
+    // `u8::from_str` also takes a leading `+`.
+    if prefix.is_empty() || !prefix.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let address = ip_address(address)?;
+    let network = ipnet::IpNet::new(address, prefix.parse().ok()?).ok()?;
+    (network.network() == address).then_some(network)
 }
 
 #[derive(Clone, Copy)]
@@ -633,7 +669,9 @@ impl ValidationConfig {
 pub struct MlsConfig {
     #[schemars(schema_with = "schema::positive_integer::<{ MAX_MLS_LIMIT as u64 }>")]
     pub max_group_members: u32,
-    #[schemars(schema_with = "schema::positive_integer::<{ MAX_MLS_LIMIT as u64 }>")]
+    /// At most the number of actions one identity update may carry, so one
+    /// update can revoke every installation the ceiling allows.
+    #[schemars(schema_with = "schema::positive_integer::<{ MAX_INSTALLATIONS_LIMIT as u64 }>")]
     pub max_installations_per_inbox: u32,
     /// Publish and read the remote commit log. False switches both off for
     /// every client of this deployment.
@@ -652,16 +690,23 @@ impl Default for MlsConfig {
 
 impl MlsConfig {
     fn validate(&self) -> Result<(), ConfigError> {
-        for (field, value) in [
-            ("mls.max_group_members", self.max_group_members),
+        for (field, value, maximum, too_large) in [
+            (
+                "mls.max_group_members",
+                self.max_group_members,
+                MAX_MLS_LIMIT,
+                "must not exceed 65535",
+            ),
             (
                 "mls.max_installations_per_inbox",
                 self.max_installations_per_inbox,
+                MAX_INSTALLATIONS_LIMIT,
+                "must not exceed the actions of one identity update",
             ),
         ] {
             positive(value, field)?;
-            if value > MAX_MLS_LIMIT {
-                return Err(invalid(field, "must not exceed 65535"));
+            if value > maximum {
+                return Err(invalid(field, too_large));
             }
         }
         Ok(())
@@ -780,6 +825,10 @@ impl Default for PublishingConfig {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct StreamsConfig {
+    /// Interval between push dispatcher polls of the read database, and the
+    /// longest wait between stream tailer polls. After a poll that finds
+    /// envelopes, the tailer polls again after 50 ms, or after this interval
+    /// when it is shorter.
     #[schemars(schema_with = "schema::positive_integer::<{ MAX_U32_KEY }>")]
     pub poll_interval_ms: u64,
     #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
@@ -871,7 +920,11 @@ pub struct LimitsConfig {
     pub max_static_topics: usize,
     #[schemars(schema_with = "schema::positive_integer::<{ MAX_U32_KEY }>")]
     pub max_lookup_identifiers: usize,
-    #[schemars(schema_with = "schema::positive_integer::<{ MAX_U32_KEY }>")]
+    /// At most two for each action one identity update may carry, the most
+    /// ERC-6492 signatures one update holds.
+    #[schemars(
+        schema_with = "schema::positive_integer::<{ MAX_SCW_SIGNATURES_PER_REQUEST as u64 }>"
+    )]
     pub max_scw_signatures: usize,
     #[schemars(schema_with = "schema::positive_integer::<{ MAX_U32_KEY }>")]
     pub max_identity_entries: usize,
@@ -889,7 +942,7 @@ pub struct LimitsConfig {
 
 impl LimitsConfig {
     /// Check positive limits, downstream integer ranges, and related capacities.
-    // implements: CONF-008
+    // implements: CONF-096
     fn validate(&self) -> Result<(), ConfigError> {
         positive(self.max_push_topics, "limits.max_push_topics")?;
         positive(self.max_query_topics, "limits.max_query_topics")?;
@@ -921,6 +974,12 @@ impl LimitsConfig {
         positive(self.max_static_topics, "limits.max_static_topics")?;
         positive(self.max_lookup_identifiers, "limits.max_lookup_identifiers")?;
         positive(self.max_scw_signatures, "limits.max_scw_signatures")?;
+        if self.max_scw_signatures > MAX_SCW_SIGNATURES_PER_REQUEST {
+            return Err(invalid(
+                "limits.max_scw_signatures",
+                "must not exceed two signatures for each action of one identity update",
+            ));
+        }
         positive(self.max_identity_entries, "limits.max_identity_entries")?;
         positive(self.max_http2_streams, "limits.max_http2_streams")?;
         if self.max_http2_streams > u32::MAX as usize {
@@ -955,10 +1014,28 @@ impl LimitsConfig {
             ("limits.max_stream_topics", self.max_stream_topics),
             ("limits.max_static_topics", self.max_static_topics),
             ("limits.max_lookup_identifiers", self.max_lookup_identifiers),
-            ("limits.max_scw_signatures", self.max_scw_signatures),
             ("limits.max_identity_entries", self.max_identity_entries),
         ] {
             at_most_u32(value as u64, field)?;
+        }
+        let required = subscription_control_bytes(self.max_update_adds, 11)
+            .max(subscription_control_bytes(self.max_static_topics, 6));
+        if self.max_request_bytes < NOTIFICATION_BATCH_MAX_BYTES {
+            return Err(invalid(
+                "limits.max_request_bytes",
+                if self.max_response_bytes < required {
+                    "must fit a full notification subscription batch; \
+                     limits.max_response_bytes must fit complete subscription control frames"
+                } else {
+                    "must fit a full notification subscription batch"
+                },
+            ));
+        }
+        if self.max_response_bytes < required {
+            return Err(invalid(
+                "limits.max_response_bytes",
+                "must fit complete subscription control frames",
+            ));
         }
         // The relations come after each key's own checks, so a value outside
         // its own range is refused under its own key.
@@ -1000,6 +1077,17 @@ impl LimitsConfig {
         }
         Ok(())
     }
+}
+
+/// Complete control protobuf, excluding the gRPC header: each repeated target
+/// includes a 33-byte topic and INT64_MAX sequence; headers cover a UINT64_MAX
+/// Applied id or UINT32_MAX Started keepalive interval.
+fn subscription_control_bytes(count: usize, header: usize) -> usize {
+    const CATCHUP_TARGET_MAX_BYTES: usize = 49;
+    let body = count
+        .saturating_mul(CATCHUP_TARGET_MAX_BYTES)
+        .saturating_add(header);
+    body.saturating_add(1 + prost::encoding::encoded_len_varint(body as u64))
 }
 
 impl Default for LimitsConfig {

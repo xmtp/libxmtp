@@ -11,6 +11,7 @@ use tokio::sync::{Notify, Semaphore};
 use xmtp_common::time::{Duration, Instant, timeout};
 use xmtp_cryptography::secret::Zeroizing;
 
+mod keyed;
 mod lifecycle;
 mod maintenance;
 mod polling;
@@ -49,6 +50,13 @@ impl Fixture {
             .bind(sequence)
             .execute(&self.store.primary)
             .await?;
+        Ok(())
+    }
+
+    /// Unkeyed recipients with ids 1 to `count`, each subscribed to `topic`.
+    async fn subscribers(&self, count: i64, topic: &[u8]) -> TestResult {
+        sqlx::query("WITH r AS (INSERT INTO push_recipient (recipient_id, secret_hash, channel, delivery, signing_key, topic_count, renewed_ns) SELECT decode(lpad(to_hex(id), 64, '0'), 'hex'), decode(repeat('01', 32), 'hex'), 3, 'https://push.invalid', decode(repeat('07', 32), 'hex'), 1, (extract(epoch FROM clock_timestamp()) * 1000000000)::bigint FROM generate_series(1, $1) id RETURNING recipient_id) INSERT INTO push_subscription (recipient_id, topic, since_sequence_id, include_commits) SELECT recipient_id, $2, 0, false FROM r")
+            .bind(count).bind(topic).execute(&self.store.primary).await?;
         Ok(())
     }
 
@@ -114,6 +122,8 @@ impl Fixture {
 #[derive(Default)]
 struct FakeSender {
     calls: Mutex<Vec<(u64, PushChannel)>>,
+    /// The recipient of each call, in call order.
+    recipients: Mutex<Vec<Vec<u8>>>,
     gate: Option<Arc<Semaphore>>,
     outcomes: Mutex<VecDeque<Outcome>>,
 }
@@ -138,6 +148,9 @@ impl Sender for FakeSender {
             delivery.payload.sequence_id.parse().unwrap(),
             delivery.config.channel,
         ));
+        self.recipients
+            .lock()
+            .push(delivery.config.recipient_id.clone());
         if let Some(gate) = &self.gate {
             gate.acquire().await.unwrap().forget();
         }

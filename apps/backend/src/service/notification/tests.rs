@@ -9,6 +9,7 @@ use crate::{
 use sqlx::Row;
 use tonic::Code;
 
+mod charges;
 mod transport;
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -20,10 +21,10 @@ async fn a_thousand_topic_batch_and_key_only_renewal_preserve_the_count() {
     let adds: Vec<_> = (0..TOPICS)
         .map(|id| api::Subscription {
             topic: TopicKind::GroupMessagesV1
-                .create((id as u128).to_be_bytes())
+                .create([(id as u128).to_be_bytes(), [0; 16]].concat())
                 .to_vec(),
             hmac_epoch_base: 10,
-            hmac_keys: vec![vec![1; HMAC_KEY_BYTES]; MAX_HMAC_KEYS],
+            hmac_keys: vec![vec![1; HMAC_KEY_BYTES]; MAX_SUBSCRIPTION_HMAC_KEYS],
             include_commits: false,
         })
         .collect();
@@ -114,7 +115,7 @@ fn registration() -> api::RegisterRequest {
 
 fn subscription(id: u8, keys: usize) -> api::Subscription {
     api::Subscription {
-        topic: TopicKind::GroupMessagesV1.create([id; 16]).to_vec(),
+        topic: TopicKind::GroupMessagesV1.create([id; 32]).to_vec(),
         hmac_epoch_base: 7,
         hmac_keys: (0..keys)
             .map(|n| vec![n as u8 + 1; HMAC_KEY_BYTES])

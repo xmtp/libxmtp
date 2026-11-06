@@ -1,9 +1,11 @@
 //! Public codes for handle failures. The backend's refusals arrive as an
 //! `ApiError::HandleRejected` inside an identity update error. The client's
-//! own refusals arrive as a `ClientError::Handle`. Both reach the error walk
-//! through every wrapper that core puts around them, including `GroupError`,
-//! because the walk classifies `ApiError` and `ClientError` wherever it finds
-//! them. None of these codes is retryable: the same claim fails the same way.
+//! own refusals arrive as an `IdentityUpdateError::Handle` or a
+//! `ClientError::Handle`. Both reach the error walk through every wrapper that
+//! core puts around them, including `GroupError`, because the walk classifies
+//! `ApiError`, `IdentityUpdateError` and `ClientError` wherever it finds them.
+//! An account lookup that finds no inbox shares the handle lookup's code. None
+//! of these codes is retryable: the same claim fails the same way.
 
 use super::{ErrorCategory, XmtpError};
 use xmtp_api::HandleRejection;
@@ -61,5 +63,15 @@ impl XmtpError {
     /// No inbox holds the handle that a lookup named.
     pub(crate) fn handle_not_found() -> Self {
         Self::from_handle(&HandleError::NotFound)
+    }
+
+    /// No inbox holds the account that a lookup named.
+    pub(crate) fn account_not_found() -> Self {
+        Self::IdentityNotFound(Self::details(
+            "IdentityNotFound",
+            ErrorCategory::Identity,
+            false,
+            "no inbox holds the account",
+        ))
     }
 }

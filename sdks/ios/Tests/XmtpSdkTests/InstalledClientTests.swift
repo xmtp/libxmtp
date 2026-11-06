@@ -86,6 +86,8 @@ final class InstalledClientTests: XCTestCase {
 			XCTAssertEqual(related.replyCount, 1)
 			XCTAssertEqual(related.reactions.map(\.id), [reactionId])
 			_ = try await sent.delete()
+			// The deletion applies when it is published.
+			try await conversation.publishMessages()
 			let afterDelete = try await sent.refresh()
 			let deleted = try XCTUnwrap(afterDelete)
 			guard case .standard(.deletedMessage) = deleted.content else {

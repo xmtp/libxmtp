@@ -123,26 +123,7 @@ impl DecryptedWelcomePointer {
         DecryptedWelcomePointerBuilder::default()
     }
     pub fn decode(data: &[u8]) -> Result<Self, ConversionError> {
-        let wp = crate::xmtp::mls::message_contents::WelcomePointer::decode(data)?;
-        let wp = match wp.version {
-            Some(
-                crate::xmtp::mls::message_contents::welcome_pointer::Version::WelcomeV1Pointer(v1),
-            ) => v1,
-            None => {
-                return Err(ConversionError::InvalidValue {
-                    item: "WelcomePointer",
-                    expected: "WelcomeV1Pointer",
-                    got: "None".into(),
-                });
-            }
-        };
-        Ok(Self {
-            destination: wp.destination.try_into()?,
-            aead_type: wp.aead_type.try_into()?,
-            encryption_key: wp.encryption_key,
-            data_nonce: wp.data_nonce,
-            welcome_metadata_nonce: wp.welcome_metadata_nonce,
-        })
+        crate::xmtp::mls::message_contents::WelcomePointer::decode(data)?.try_into()
     }
     pub fn to_proto(self) -> crate::xmtp::mls::message_contents::WelcomePointer {
         crate::xmtp::mls::message_contents::WelcomePointer {
@@ -178,6 +159,7 @@ impl TryFrom<crate::xmtp::mls::message_contents::WelcomePointer> for DecryptedWe
                 });
             }
         };
+        validate_v1(&wp)?;
         Ok(Self {
             destination: wp.destination.try_into()?,
             aead_type: wp.aead_type.try_into()?,
@@ -186,6 +168,59 @@ impl TryFrom<crate::xmtp::mls::message_contents::WelcomePointer> for DecryptedWe
             welcome_metadata_nonce: wp.welcome_metadata_nonce,
         })
     }
+}
+
+/// Accept only a pointer that ChaCha20-Poly1305 can open: its `aead_type` is
+/// ChaCha20-Poly1305, its key is `WELCOME_POINTEE_KEY_BYTES`, and its two
+/// nonces are different `WELCOME_POINTEE_NONCE_BYTES` values. Any other pointer
+/// can never open a pointee, so it is invalid input, not a pointer to hold.
+// implements: JOIN-094
+fn validate_v1(
+    pointer: &crate::xmtp::mls::message_contents::welcome_pointer::WelcomeV1Pointer,
+) -> Result<(), ConversionError> {
+    use xmtp_configuration::{WELCOME_POINTEE_KEY_BYTES, WELCOME_POINTEE_NONCE_BYTES};
+
+    let aead_type = WelcomePointeeEncryptionAeadType::try_from(pointer.aead_type)?;
+    if aead_type != WelcomePointeeEncryptionAeadType::Chacha20Poly1305 {
+        return Err(ConversionError::InvalidValue {
+            item: "WelcomeV1Pointer.aead_type",
+            expected: "Chacha20Poly1305",
+            got: format!("{aead_type:?}"),
+        });
+    }
+    for (item, bytes, expected) in [
+        (
+            "WelcomeV1Pointer.encryption_key",
+            &pointer.encryption_key,
+            WELCOME_POINTEE_KEY_BYTES,
+        ),
+        (
+            "WelcomeV1Pointer.data_nonce",
+            &pointer.data_nonce,
+            WELCOME_POINTEE_NONCE_BYTES,
+        ),
+        (
+            "WelcomeV1Pointer.welcome_metadata_nonce",
+            &pointer.welcome_metadata_nonce,
+            WELCOME_POINTEE_NONCE_BYTES,
+        ),
+    ] {
+        if bytes.len() != expected {
+            return Err(ConversionError::InvalidLength {
+                item,
+                expected,
+                got: bytes.len(),
+            });
+        }
+    }
+    if pointer.data_nonce == pointer.welcome_metadata_nonce {
+        return Err(ConversionError::InvalidValue {
+            item: "WelcomeV1Pointer.welcome_metadata_nonce",
+            expected: "a nonce other than data_nonce",
+            got: "data_nonce".into(),
+        });
+    }
+    Ok(())
 }
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -209,8 +244,12 @@ impl xmtp_common::Generate for WelcomeMessage {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::xmtp::mls::message_contents::{
+        WelcomePointer as WelcomePointerProto, welcome_pointer,
+    };
     use rstest::rstest;
     use xmtp_common::Generate;
+    use xmtp_configuration::{WELCOME_POINTEE_KEY_BYTES, WELCOME_POINTEE_NONCE_BYTES};
 
     #[rstest]
     #[case(Cursor(123), 123)]
@@ -223,6 +262,52 @@ mod test {
         let mut welcome_message = WelcomeMessage::generate();
         welcome_message.cursor = cursor;
         assert_eq!(welcome_message.sequence_id(), expected_seq);
+    }
+
+    fn pointer_proto(
+        aead_type: WelcomePointeeEncryptionAeadType,
+        key_bytes: usize,
+        data_nonce: Vec<u8>,
+        welcome_metadata_nonce: Vec<u8>,
+    ) -> WelcomePointerProto {
+        WelcomePointerProto {
+            version: Some(welcome_pointer::Version::WelcomeV1Pointer(
+                welcome_pointer::WelcomeV1Pointer {
+                    destination: vec![1; 32],
+                    aead_type: aead_type.into(),
+                    encryption_key: vec![2; key_bytes],
+                    data_nonce,
+                    welcome_metadata_nonce,
+                },
+            )),
+        }
+    }
+
+    /// Only a pointer that ChaCha20-Poly1305 can open decodes, on both
+    /// construction paths.
+    // verifies: JOIN-094
+    #[xmtp_common::test]
+    fn decode_rejects_malformed_pointer_fields() {
+        use WelcomePointeeEncryptionAeadType::{Chacha20Poly1305, Unspecified};
+        let nonce = |byte| vec![byte; WELCOME_POINTEE_NONCE_BYTES];
+        let key = WELCOME_POINTEE_KEY_BYTES;
+
+        let valid = pointer_proto(Chacha20Poly1305, key, nonce(3), nonce(4));
+        assert!(DecryptedWelcomePointer::decode(&valid.encode_to_vec()).is_ok());
+        assert!(DecryptedWelcomePointer::try_from(valid).is_ok());
+
+        for malformed in [
+            pointer_proto(Chacha20Poly1305, 31, nonce(3), nonce(4)),
+            pointer_proto(Chacha20Poly1305, 33, nonce(3), nonce(4)),
+            pointer_proto(Chacha20Poly1305, 64 * 1024, nonce(3), nonce(4)),
+            pointer_proto(Chacha20Poly1305, key, vec![3; 11], nonce(4)),
+            pointer_proto(Chacha20Poly1305, key, nonce(3), vec![4; 13]),
+            pointer_proto(Chacha20Poly1305, key, nonce(3), nonce(3)),
+            pointer_proto(Unspecified, key, nonce(3), nonce(4)),
+        ] {
+            assert!(DecryptedWelcomePointer::decode(&malformed.encode_to_vec()).is_err());
+            assert!(DecryptedWelcomePointer::try_from(malformed).is_err());
+        }
     }
 
     #[xmtp_common::test]

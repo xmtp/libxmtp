@@ -1,5 +1,11 @@
+pub use crate::core::config::DeviceSync;
+use crate::subscriptions::catch_up::{CatchUpError, CatchUpSummary};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::subscriptions::router_callbacks::{self, ApiClientIdentity};
+#[cfg(any(test, feature = "test-utils"))]
+use crate::subscriptions::stream_messages::stream_stats::StreamWithStats;
 use crate::{
-    builder::DeviceSyncMode,
+    attachments::Attachments,
     context::XmtpSharedContext,
     groups::{
         ConversationListItem, GroupError, MlsGroup, group_permissions::PolicySet,
@@ -10,18 +16,21 @@ use crate::{
         IdentityUpdateError, IdentityUpdates, load_identity_updates,
         load_identity_updates_for_client,
     },
-    mls_store::{MlsStore, MlsStoreError},
+    inbox_handles::{self, HandleError, IdentityTarget, account_targets, resolve_verified_in},
+    mls_store::{KeyPackageResultsByInstallation, MlsStore, MlsStoreError},
+    server_configuration::{BlockedConnection, ServerConfigError},
     subscriptions::{
         LocalEventError,
-        internal::{PreferenceOrigin, emit_deleted_messages, emit_preference_updates},
+        internal::{emit_consent_changes, emit_deleted_messages},
     },
     utils::VersionInfo,
-    worker::device_sync::{
-        DeviceSyncClient, preference_sync::PreferenceUpdate, worker::SyncMetric,
-    },
+    worker::device_sync::{DeviceSyncClient, worker::SyncMetric},
     worker::{WorkerRunner, metrics::WorkerMetrics},
 };
-pub mod notifications;
+use crate::{
+    core::events::PreferenceUpdate,
+    subscriptions::{self, SubscribeError},
+};
 use crate::{
     groups::welcome_sync::GroupSyncSummary,
     identity_updates::{batch_get_association_state_with_verifier, get_creation_signature_kind},
@@ -30,31 +39,40 @@ use crate::{
         enrichment::{EnrichMessageError, enrich_messages},
     },
 };
-use itertools::Itertools;
+use futures::Stream;
+use notifications::{NotificationConfig, NotificationError, NotificationState};
 use openmls::prelude::tls_codec::Error as TlsCodecError;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::{Arc, atomic::Ordering},
 };
 use thiserror::Error;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_common::{ErrorCode, Event, Retry, retry_async, retryable};
-use xmtp_configuration::{CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS};
+use xmtp_common::{MaybeSend, StreamHandle};
+use xmtp_configuration::{
+    CONVERSATION_LIST_DEFAULT_LIMIT, CREATE_PQ_KEY_PACKAGE_EXTENSION,
+    KEY_PACKAGE_ROTATION_INTERVAL_NS, LOCAL_PAGE_MAX_LIMIT,
+};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::TransactionOutcome::Continue;
+use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::{
     ConnectionExt, NotFound, StorageError, TransactionOutcome, XmtpDb,
-    consent_record::{ConsentState, ConsentType, StoredConsentRecord},
+    consent_record::{
+        ConsentActError, ConsentKey, ConsentState, ConsentType, ConsentWrite, Decision, Owed,
+        conversation_consent, write_consent,
+    },
     db_connection::DbConnection,
     encrypted_store::conversation_list::ConversationListItem as DbConversationListItem,
-    group::{ConversationType, GroupMembershipState, GroupQueryArgs},
+    group::{ConversationType, GroupQueryArgs},
     group_message::StoredGroupMessage,
     identity::StoredIdentity,
-    identity_cache::StoredIdentityKind,
 };
 use xmtp_db::{group::GroupQueryOrderBy, prelude::*};
 use xmtp_events::DeletionCause;
-use xmtp_id::key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2};
+use xmtp_id::associations::handle::Handle;
+use xmtp_id::key_package::KeyPackageVerificationError;
 use xmtp_id::{
     AsIdRef, InboxId, InboxIdRef, InboxOwner,
     associations::{
@@ -64,19 +82,32 @@ use xmtp_id::{
     scw_verifier::SmartContractSignatureVerifier,
 };
 use xmtp_macro::log_event;
-use xmtp_mls_common::{
+use xmtp_mls_group_state::{
     group::{DMMetadataOptions, GroupMetadataOptions},
     group_metadata::DmMembers,
     group_mutable_metadata::MessageDisappearingSettings,
 };
+pub use xmtp_mls_notifications::client as notifications;
+#[cfg(not(target_arch = "wasm32"))]
+use xmtp_proto::api_client::XmtpMlsBidiStreams;
+use xmtp_proto::api_client::XmtpMlsStreams;
+use xmtp_proto::types::InstallationId;
 use xmtp_proto::{
-    ConversionError,
     api::HasStats,
     api_client::{ApiStats, IdentityStats, XmtpBackendClient},
 };
-use xmtp_proto::{types::InstallationId, xmtp::identity::associations::IdentifierKind};
 
 use xmtp_proto::types::GroupId;
+
+mod conversations;
+mod error;
+mod identity;
+mod registration;
+mod streams;
+mod sync;
+
+pub use error::{ClientError, stream_failure_details};
+
 /// Enum representing the network the Client is connected to
 #[derive(Clone, Copy, Default, Debug)]
 pub enum Network {
@@ -92,229 +123,28 @@ pub struct VisibilityConfirmationOptions {
     pub timeout_ms: u64,
 }
 
-const REGISTRATION_INITIAL_BACKOFF: std::time::Duration = std::time::Duration::from_millis(50);
-const REGISTRATION_MAX_BACKOFF: std::time::Duration = std::time::Duration::from_secs(1);
-
 impl Default for VisibilityConfirmationOptions {
     fn default() -> Self {
         Self { timeout_ms: 30_000 }
     }
 }
 
-#[derive(Debug, Error, ErrorCode)]
-pub enum ClientError {
-    #[error(transparent)]
-    #[error_code(inherit)]
-    AddressValidation(#[from] IdentifierValidationError),
-    /// Could not publish.
-    ///
-    /// Failed to publish messages to the network. May be retryable.
-    #[error("could not publish: {0}")]
-    PublishError(String),
-    /// Storage error.
-    ///
-    /// Database operation failed. May be retryable.
-    #[error("storage error: {0}")]
-    Storage(#[from] StorageError),
-    /// API error.
-    ///
-    /// Network request to XMTP backend failed. Retryable.
-    #[error("API error: {0}")]
-    Api(#[from] xmtp_api::ApiError),
-    /// Identity error.
-    ///
-    /// Problem with identity operations. Not retryable.
-    #[error("identity error: {0}")]
-    Identity(#[from] crate::identity::IdentityError),
-    /// TLS Codec error.
-    ///
-    /// Encoding/decoding MLS TLS structures failed. Not retryable.
-    #[error("TLS Codec error: {0}")]
-    TlsError(#[from] TlsCodecError),
-    /// Key package verification failed.
-    ///
-    /// Invalid key package received from network. Not retryable.
-    #[error("key package verification: {0}")]
-    KeyPackageVerification(#[from] KeyPackageVerificationError),
-    /// Stream inconsistency.
-    ///
-    /// Message stream state became inconsistent. Not retryable.
-    #[error("Stream inconsistency error: {0}")]
-    StreamInconsistency(String),
-    /// Association error.
-    ///
-    /// Identity association operation failed. Not retryable.
-    #[error("Association error: {0}")]
-    Association(#[from] AssociationError),
-    /// Signature validation error.
-    ///
-    /// A signature failed verification. Not retryable.
-    #[error("signature validation error: {0}")]
-    SignatureValidation(#[from] SignatureError),
-    /// Identity update error.
-    ///
-    /// Failed to process identity update. Not retryable.
-    #[error(transparent)]
-    IdentityUpdate(#[from] IdentityUpdateError),
-    /// Signature request error.
-    ///
-    /// Failed to create/process signature request. Not retryable.
-    #[error(transparent)]
-    SignatureRequest(#[from] SignatureRequestError),
-    /// Group error.
-    ///
-    /// Group operation failed. May be retryable.
-    // the box is to prevent infinite cycle between client and group errors
-    #[error(transparent)]
-    Group(Box<GroupError>),
-    /// Local event error.
-    ///
-    /// Failed to process local event. Not retryable.
-    #[error(transparent)]
-    LocalEvent(#[from] LocalEventError),
-    /// Database connection error.
-    ///
-    /// Connection to database failed. Retryable.
-    #[error(transparent)]
-    Db(#[from] xmtp_db::ConnectionError),
-    /// Generic error.
-    ///
-    /// Unclassified error. May be retryable.
-    #[error("generic:{0}")]
-    Generic(String),
-    /// MLS store error.
-    ///
-    /// OpenMLS key store operation failed. Not retryable.
-    #[error(transparent)]
-    MlsStore(#[from] MlsStoreError),
-    /// Message enrichment error.
-    ///
-    /// Failed to enrich message content. Not retryable.
-    #[error(transparent)]
-    EnrichMessage(#[from] EnrichMessageError),
-    /// Conversion Error
-    ///
-    /// Data type failed to convert. Not retryable.
-    #[error(transparent)]
-    Conversion(#[from] xmtp_proto::ConversionError),
-    #[error(transparent)]
-    #[error_code(inherit)]
-    Handle(#[from] crate::inbox_handles::HandleError),
-    /// Registration not visible.
-    ///
-    /// The registration receipt was invalid or was not visible before the timeout.
-    /// Call `register_identity` again to retry a pending registration.
-    #[error("Registration is not visible")]
-    RegistrationNotVisible,
-    /// Client is closed.
-    ///
-    /// Operation was attempted on a client that has been shut down via
-    /// `Client::close`. Not retryable — build a new client instead.
-    #[error("client is closed")]
-    AlreadyClosed,
-    /// Server configuration unavailable.
-    ///
-    /// The backend did not serve its configuration, or the answer could not be
-    /// stored. A backend older than spec 006 answers `UNIMPLEMENTED`; there is
-    /// no compatibility shim. Retryable exactly when the wrapped failure is:
-    /// an unreachable backend is worth another attempt, `UNIMPLEMENTED` is not.
-    #[error("server configuration unavailable: {0}")]
-    ConfigurationUnavailable(#[source] Box<crate::server_configuration::ConfigurationFetchError>),
-    /// Server configuration invalid.
-    ///
-    /// The backend published a configuration this client cannot use: a missing
-    /// or malformed identifier, a minimum version that does not parse, or a
-    /// chain that is not a CAIP-2 identifier. Not retryable.
-    #[error("server configuration invalid: {0}")]
-    ConfigurationInvalid(#[from] xmtp_configuration::ServerConfigurationError),
-    /// Backend mismatch.
-    ///
-    /// This database is bound to one backend deployment and a different one
-    /// answered. Not retryable — use a database created for the backend this
-    /// app now points at.
-    #[error("this database is bound to backend {stored}, but {received} answered")]
-    BackendMismatch { stored: String, received: String },
-    /// Client version too old.
-    ///
-    /// The backend requires a newer libxmtp than this build. Not retryable —
-    /// ship an updated client.
-    #[error("client version {client} is below the {minimum} this backend requires")]
-    ClientVersionTooOld { client: String, minimum: String },
-    /// Authentication required.
-    ///
-    /// The backend requires a credential and none was configured. Not
-    /// retryable — supply an auth callback or handle before building.
-    #[error(
-        "this backend requires authentication; required scopes: [{}]",
-        required_scopes.join(", ")
-    )]
-    AuthRequired { required_scopes: Vec<String> },
-    /// Chain not accepted.
-    ///
-    /// The backend does not verify smart contract wallet signatures on this
-    /// chain. Not retryable — use a chain the deployment accepts.
-    #[error(
-        "this backend does not accept smart contract wallet signatures on {chain}; accepted: [{}]",
-        accepted.join(", ")
-    )]
-    ChainNotAccepted {
-        chain: String,
-        accepted: Vec<String>,
-    },
+/// An app's consent decision about one entity. It carries no
+/// time: the client times it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConsentAct {
+    pub entity_type: ConsentType,
+    pub entity: String,
+    pub state: ConsentState,
 }
 
-impl ClientError {
-    pub fn db_needs_connection(&self) -> bool {
-        match self {
-            Self::Storage(s) => s.db_needs_connection(),
-            Self::Db(c) => c.db_needs_connection(),
-            _ => false,
+impl ConsentAct {
+    pub fn new(entity_type: ConsentType, state: ConsentState, entity: String) -> Self {
+        Self {
+            entity_type,
+            entity,
+            state,
         }
-    }
-}
-
-impl From<NotFound> for ClientError {
-    fn from(value: NotFound) -> Self {
-        ClientError::Storage(StorageError::NotFound(value))
-    }
-}
-
-impl From<GroupError> for ClientError {
-    fn from(err: GroupError) -> ClientError {
-        ClientError::Group(Box::new(err))
-    }
-}
-
-impl xmtp_common::RetryableError for ClientError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            ClientError::Group(group_error) => retryable!(group_error),
-            ClientError::Api(api_error) => retryable!(api_error),
-            ClientError::Storage(storage_error) => retryable!(storage_error),
-            ClientError::Db(db) => retryable!(db),
-            // SCW verification errors carry retryability through SignatureError;
-            // transient RPC provider failures must not advance the welcome cursor.
-            // See xmtp/libxmtp#3394.
-            ClientError::SignatureValidation(e) => retryable!(e),
-            // A backend that was briefly unreachable, or a database that was
-            // briefly locked, is worth another attempt: the refresh worker's
-            // backoff depends on this answer.
-            ClientError::ConfigurationUnavailable(e) => retryable!(e),
-            ClientError::Generic(err) => err.contains("database is locked"),
-            _ => false,
-        }
-    }
-}
-
-impl From<String> for ClientError {
-    fn from(value: String) -> Self {
-        Self::Generic(value)
-    }
-}
-
-impl From<&str> for ClientError {
-    fn from(value: &str) -> Self {
-        Self::Generic(value.to_string())
     }
 }
 
@@ -340,11 +170,6 @@ impl<Context> Drop for Client<Context> {
     fn drop(&mut self) {
         log_event!(Event::ClientDropped, self.installation_id);
     }
-}
-
-#[derive(Clone)]
-pub struct DeviceSync {
-    pub(crate) mode: DeviceSyncMode,
 }
 
 // most of these things are `Arc`'s
@@ -508,7 +333,7 @@ where
     pub async fn refresh_server_configuration(
         &self,
     ) -> Result<xmtp_configuration::ServerConfiguration, ClientError> {
-        crate::server_configuration::refresh(&self.context).await
+        Ok(crate::core::preflight::refresh(&self.context).await?)
     }
 
     /// Retrieves the client's installation public key, sometimes also called `installation_id`
@@ -541,201 +366,27 @@ where
         )
     }
 
-    /// Calls the server to look up the `inbox_id` associated with a given identifier
-    pub async fn find_inbox_id_from_identifier(
-        &self,
-        conn: &impl DbQuery,
-        identifier: Identifier,
-    ) -> Result<Option<String>, ClientError> {
-        let results = self
-            .find_inbox_ids_from_identifiers(conn, &[identifier])
-            .await?;
-        Ok(results.into_iter().next().flatten())
-    }
-
-    /// Calls the server to look up the `inbox_id`s` associated with a list of identifiers.
-    /// If no `inbox_id` is found, returns None.
-    pub(crate) async fn find_inbox_ids_from_identifiers(
-        &self,
-        conn: &impl DbQuery,
-        identifiers: &[Identifier],
-    ) -> Result<Vec<Option<String>>, ClientError> {
-        let ids: Vec<(String, StoredIdentityKind)> = identifiers
+    /// Store the app's consent decisions in one transaction. An
+    /// act on a group id the client does not hold fails the whole call, and
+    /// nothing is stored.
+    pub async fn set_consent_states(&self, acts: &[ConsentAct]) -> Result<(), ClientError> {
+        let own = self.context.inbox_id();
+        let keys = acts
             .iter()
-            .map(|i| {
-                Ok::<_, ConversionError>((
-                    i.clone().to_string(),
-                    StoredIdentityKind::try_from(IdentifierKind::from(i))?,
-                ))
-            })
-            .try_collect()?;
-        let cached_inbox_ids = conn.fetch_cached_inbox_ids(&ids)?;
-        let mut new_inbox_ids: HashMap<&Identifier, Option<String>> = HashMap::new();
-
-        let missing: Vec<_> = identifiers
-            .iter()
-            .filter(|ident| !cached_inbox_ids.contains_key(&format!("{ident}")))
-            .collect();
-
-        if !missing.is_empty() {
-            let requests = missing
-                .iter()
-                .map(|identifier| (*identifier).into())
-                .collect();
-            let results = self.context.api().get_inbox_ids(requests).await?;
-            new_inbox_ids = missing.into_iter().zip(results).collect();
-        }
-
-        let inbox_ids = identifiers
-            .iter()
-            .map(|ident| {
-                let cache_key = format!("{ident}");
-                if let Some(inbox_id) = cached_inbox_ids.get(&cache_key) {
-                    return Some(inbox_id.clone());
-                }
-                new_inbox_ids.get(ident).cloned().flatten()
-            })
-            .collect();
-        Ok(inbox_ids)
-    }
-
-    /// Get the highest `sequence_id` from the local database for the client's `inbox_id`.
-    /// This may not be consistent with the latest state on the backend.
-    pub fn inbox_sequence_id(
-        &self,
-        conn: &DbConnection<<Context::Db as XmtpDb>::Connection>,
-    ) -> Result<i64, StorageError> {
-        self.context
-            .identity()
-            .sequence_id(conn)
-            .map_err(Into::into)
-    }
-
-    /// Get the [`AssociationState`] for the client's `inbox_id`
-    pub async fn inbox_state(
-        &self,
-        refresh_from_network: bool,
-    ) -> Result<AssociationState, ClientError> {
-        let conn = self.context.db();
-        let inbox_id = self.inbox_id();
-        if refresh_from_network {
-            load_identity_updates_for_client(&self.context, &conn, &[inbox_id]).await?;
-        }
-        let identity_service = IdentityUpdates::new(&self.context);
-        let state = identity_service
-            .get_association_state(&conn, inbox_id, None)
-            .await?;
-        Ok(state)
-    }
-
-    /// Get the [`AssociationState`] for each `inbox_id`
-    pub async fn inbox_addresses(
-        &self,
-        refresh_from_network: bool,
-        inbox_ids: Vec<InboxIdRef<'_>>,
-    ) -> Result<Vec<AssociationState>, ClientError> {
-        let conn = self.context.db();
-        if refresh_from_network {
-            load_identity_updates_for_client(&self.context, &conn, &inbox_ids).await?;
-        }
-        let identity_service = IdentityUpdates::new(&self.context);
-        let state = identity_service
-            .batch_get_association_state(
-                &conn,
-                &inbox_ids.into_iter().map(|i| (i, None)).collect::<Vec<_>>(),
-            )
-            .await?;
-        Ok(state)
-    }
-
-    /// Get the total number of inbox updates for `inbox_ids`. `refresh_from_network` will force
-    /// a network refresh. May still access network if an inbox_id does not yet exist in the local
-    /// cache.
-    pub async fn fetch_inbox_updates_count(
-        &self,
-        refresh_from_network: bool,
-        inbox_ids: Vec<InboxIdRef<'_>>,
-    ) -> Result<HashMap<InboxId, u32>, ClientError> {
-        let conn = self.context.db();
-        if refresh_from_network {
-            load_identity_updates_for_client(&self.context, &conn, &inbox_ids).await?;
-        }
-        let inbox_id_strs = inbox_ids.to_vec();
-        let counts = conn.count_inbox_updates(&inbox_id_strs)?;
-        Ok(counts.into_iter().map(|(k, v)| (k, v as u32)).collect())
-    }
-
-    /// Get the total number of inbox updates for the client's inbox_id.
-    /// Setting `refresh_from_network` forces a network refresh, otherwise
-    /// this operation is offline.
-    pub async fn fetch_own_inbox_updates_count(
-        &self,
-        refresh_from_network: bool,
-    ) -> Result<u32, ClientError> {
-        let inbox_id = self.inbox_id();
-        Ok(self
-            .fetch_inbox_updates_count(refresh_from_network, vec![inbox_id])
-            .await?
-            .get(inbox_id)
-            .copied()
-            .unwrap_or(0))
-    }
-
-    /// Get the signature kind used to create an inbox.
-    ///
-    /// # Arguments
-    /// * `inbox_id` - The inbox ID to check
-    /// * `refresh_from_network` - Whether to fetch updates from the network first
-    ///
-    /// # Returns
-    /// * `Some(SignatureKind)` - The signature kind used to create the inbox
-    /// * `None` - Inbox doesn't exist or creation info is unavailable
-    pub async fn inbox_creation_signature_kind(
-        &self,
-        inbox_id: InboxIdRef<'_>,
-        refresh_from_network: bool,
-    ) -> Result<Option<xmtp_id::associations::SignatureKind>, ClientError> {
-        let conn = self.context.db();
-
-        // Load the first identity update (creation update) for this inbox if requested
-        if refresh_from_network {
-            load_identity_updates_for_client(&self.context, &conn, &[inbox_id]).await?;
-        }
-
-        let verifier = self.context.scw_verifier();
-
-        let signature_kind = get_creation_signature_kind(&conn, verifier, inbox_id).await?;
-
-        Ok(signature_kind)
-    }
-
-    /// Set a consent record in the local database.
-    /// If the consent record is an address set the consent state for both the address and `inbox_id`
-    pub async fn set_consent_states(
-        &self,
-        records: &[StoredConsentRecord],
-    ) -> Result<(), ClientError> {
-        // One transaction exposes only each entity's final state.
-        let mut seen = HashSet::new();
-        let mut final_records: Vec<_> = records
-            .iter()
-            .rev()
-            .filter(|record| seen.insert((record.entity_type as i32, record.entity.as_str())))
-            .cloned()
-            .collect();
-        final_records.reverse();
+            .map(|act| ConsentKey::for_app(&self.context.db(), own, act.entity_type, &act.entity))
+            .collect::<Result<Vec<_>, _>>()?;
         crate::state_tx::state_write_with_events(
             self.context.mls_storage(),
             self.context.events(),
             |tx, events| {
                 let storage = tx.storage();
                 let db = storage.db();
-                let changed = db.insert_or_replace_consent_records(&final_records)?;
-                let updates: Vec<_> = changed.into_iter().map(PreferenceUpdate::Consent).collect();
-                if !updates.is_empty() {
-                    self.context.task_channels().mark_notification_changed();
+                let mut changes = vec![];
+                for (key, act) in keys.iter().zip(acts) {
+                    let decision = ConsentWrite::Decide(Decision::Set(act.state));
+                    changes.extend(write_consent(&db, key, decision, Owed::Mark)?);
                 }
-                emit_preference_updates(events, updates, PreferenceOrigin::Local, &db)?;
+                emit_consent_changes(&self.context, events, &db, &changes)?;
                 Ok::<_, StorageError>(Continue(()))
             },
         )?
@@ -744,19 +395,24 @@ where
         Ok(())
     }
 
-    /// Get the consent state for a given entity
+    /// The consent an app reads for an entity: a conversation's under
+    /// its key, held or not, or an inbox's record.
+    // implements: CONS-001
     pub async fn get_consent_state(
         &self,
         entity_type: ConsentType,
         entity: String,
     ) -> Result<ConsentState, ClientError> {
-        let conn = self.context.db();
-        let record = conn.get_consent_record(entity, entity_type)?;
-
-        match record {
-            Some(rec) => Ok(rec.state),
-            None => Ok(ConsentState::Unknown),
-        }
+        let db = self.context.db();
+        let Some(key) = ConsentKey::parse(entity_type, &entity) else {
+            return Ok(ConsentState::Unknown);
+        };
+        Ok(match key.group_id() {
+            Some(id) => conversation_consent(&db, self.context.inbox_id(), &id)?,
+            None => db
+                .consent_row(&key)?
+                .map_or(ConsentState::Unknown, |r| r.state),
+        })
     }
 
     /// Release the client's database connection
@@ -775,7 +431,9 @@ where
 
     /// Ensures identity is ready before performing operations.
     /// Call `register_identity()` first if this fails.
-    pub(crate) fn ensure_identity_ready(&self) -> Result<(), ClientError> {
+    pub(crate) fn ensure_identity_ready<E: From<BlockedConnection> + From<IdentityError>>(
+        &self,
+    ) -> Result<(), E> {
         // Once the connection is blocked, every later call fails with the
         // reason. This is the gate every client-level operation already passes
         // through, so the check costs nothing extra.
@@ -789,771 +447,39 @@ where
         }
         Ok(())
     }
+}
 
-    /// Create a new group with the default settings
-    /// Applies a custom [`PolicySet`] to the group if one is specified
-    pub fn create_group(
+impl<Context: XmtpSharedContext> Client<Context> {
+    pub fn attachments(&self) -> Attachments<Context> {
+        Attachments::new(self.context.clone())
+    }
+
+    /// The kinds of the workers this client registered.
+    #[cfg(any(test, feature = "test-utils"))]
+    #[doc(hidden)]
+    pub fn registered_worker_kinds(&self) -> Vec<crate::worker::WorkerKind> {
+        self.workers.registered_kinds()
+    }
+}
+
+impl<Context: XmtpSharedContext> Client<Context> {
+    /// Store configuration, then register inline. The task retries transient errors.
+    pub async fn enable_notifications(
         &self,
-        permissions_policy_set: Option<PolicySet>,
-        opts: Option<GroupMetadataOptions>,
-    ) -> Result<MlsGroup<Context>, ClientError> {
-        self.ensure_identity_ready()?;
-
-        let group: MlsGroup<Context> = MlsGroup::create_and_insert(
-            self.context.clone(),
-            ConversationType::Group,
-            permissions_policy_set.unwrap_or_default(),
-            opts.unwrap_or_default(),
-            None,
-        )?;
-
-        log_event!(
-            Event::CreatedGroup,
-            self.context.installation_id(),
-            group_id = group.group_id
-        );
-
-        Ok(group)
+        config: NotificationConfig,
+    ) -> Result<NotificationState, NotificationError> {
+        notifications::enable_notifications(&self.context, config).await
     }
 
-    /// Create a group with an initial set of members added
-    pub async fn create_group_with_identifiers(
-        &self,
-        account_identifiers: &[Identifier],
-        permissions_policy_set: Option<PolicySet>,
-        opts: Option<GroupMetadataOptions>,
-    ) -> Result<MlsGroup<Context>, ClientError> {
-        let group = self.create_group(permissions_policy_set, opts)?;
-
-        group.add_members_by_identity(account_identifiers).await?;
-
-        Ok(group)
+    /// Disable locally before unregistering. The recipient identity and overrides stay.
+    /// A failed unregister leaves the client disabled with its recipient reset owed.
+    pub async fn disable_notifications(&self) -> Result<(), NotificationError> {
+        notifications::disable_notifications(&self.context).await
     }
 
-    #[tracing::instrument(level = "debug", skip_all, fields(size = inbox_ids.len()))]
-    pub async fn create_group_with_members(
-        &self,
-        inbox_ids: &[impl AsIdRef],
-        permissions_policy_set: Option<PolicySet>,
-        opts: Option<GroupMetadataOptions>,
-    ) -> Result<MlsGroup<Context>, ClientError> {
-        tracing::info!("creating group");
-        let group = self.create_group(permissions_policy_set, opts)?;
-
-        group.add_members(inbox_ids).await?;
-
-        Ok(group)
-    }
-
-    /// Create a new Direct Message with the default settings
-    #[tracing::instrument(level = "debug", skip_all)]
-    async fn create_dm_by_inbox_id(
-        &self,
-        target_inbox_id: InboxId,
-        opts: Option<DMMetadataOptions>,
-    ) -> Result<MlsGroup<Context>, ClientError> {
-        let group: MlsGroup<Context> = MlsGroup::create_dm_and_insert(
-            &self.context,
-            GroupMembershipState::Allowed,
-            target_inbox_id.clone(),
-            GroupMetadataOptions {
-                message_disappearing_settings: opts
-                    .unwrap_or_default()
-                    .message_disappearing_settings,
-                ..Default::default()
-            },
-            None,
-        )?;
-
-        log_event!(
-            Event::CreatedDM,
-            self.context.installation_id(),
-            group_id = group.group_id,
-            target_inbox = target_inbox_id
-        );
-        group.add_members(&[target_inbox_id]).await?;
-
-        Ok(group)
-    }
-
-    /// Find or create a Direct Message with the default settings
-    pub async fn find_or_create_dm_by_identity(
-        &self,
-        target_identity: Identifier,
-        opts: Option<DMMetadataOptions>,
-    ) -> Result<MlsGroup<Context>, ClientError> {
-        self.ensure_identity_ready()?;
-        tracing::info!("finding or creating dm with address: {target_identity}");
-        let inbox_id = match self
-            .find_inbox_id_from_identifier(&self.context.db(), target_identity.clone())
-            .await?
-        {
-            Some(id) => id,
-            None => {
-                return Err(NotFound::InboxIdForAddress(target_identity.to_string()).into());
-            }
-        };
-
-        self.find_or_create_dm(inbox_id, opts).await
-    }
-
-    /// Find or create a Direct Message by inbox_id with the default settings
-    pub async fn find_or_create_dm(
-        &self,
-        inbox_id: impl AsIdRef,
-        opts: Option<DMMetadataOptions>,
-    ) -> Result<MlsGroup<Context>, ClientError> {
-        self.ensure_identity_ready()?;
-        let inbox_id = inbox_id.as_ref();
-        tracing::info!("finding or creating dm with inbox_id: {}", inbox_id);
-        let db = self.context.db();
-        let group = db.find_active_dm_group(&DmMembers {
-            member_one_inbox_id: self.inbox_id(),
-            member_two_inbox_id: inbox_id,
-        })?;
-
-        if let Some(group) = group {
-            return Ok(MlsGroup::new(
-                self.context.clone(),
-                group.id,
-                group.dm_id,
-                group.conversation_type,
-                group.created_at_ns,
-            ));
-        }
-        self.create_dm_by_inbox_id(inbox_id.to_string(), opts).await
-    }
-
-    /// Look up a group by its ID
-    ///
-    /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
-    ///
-    pub fn group(&self, group_id: &GroupId) -> Result<MlsGroup<Context>, ClientError> {
-        MlsStore::new(self.context.clone())
-            .group(group_id)
-            .map_err(Into::into)
-    }
-
-    /// Look up a group by its ID while stitching DMs
-    ///
-    /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
-    ///
-    pub fn stitched_group(&self, group_id: &GroupId) -> Result<MlsGroup<Context>, ClientError> {
-        let conn = self.context.db();
-        let stored_group = conn.fetch_stitched(group_id)?;
-        stored_group
-            .map(|g| {
-                MlsGroup::new(
-                    self.context.clone(),
-                    g.id,
-                    g.dm_id,
-                    g.conversation_type,
-                    g.created_at_ns,
-                )
-            })
-            .ok_or(NotFound::GroupById(*group_id))
-            .map_err(Into::into)
-    }
-
-    /// Find all the duplicate dms for this group
-    pub fn find_duplicate_dms_for_group(
-        &self,
-        group_id: &GroupId,
-    ) -> Result<Vec<MlsGroup<Context>>, ClientError> {
-        let (group, _) = MlsGroup::new_cached(self.context.clone(), group_id)?;
-        group.find_duplicate_dms()
-    }
-
-    /// Fetches the message disappearing settings for a given group ID.
-    ///
-    /// Returns `Some(MessageDisappearingSettings)` if the group exists and has valid settings,
-    /// `None` if the group or settings are missing, or `Err(ClientError)` on a database error.
-    pub fn group_disappearing_settings(
-        &self,
-        group_id: &GroupId,
-    ) -> Result<Option<MessageDisappearingSettings>, ClientError> {
-        let (group, _) = MlsGroup::new_cached(self.context.clone(), group_id)?;
-        Ok(group.disappearing_settings()?)
-    }
-
-    /**
-     * Look up a DM group by the target's inbox_id.
-     *
-     * Returns a [`MlsGroup`] if the group exists, or an error if it does not
-     */
-    pub fn dm_group_from_target_inbox(
-        &self,
-        target_inbox_id: String,
-    ) -> Result<MlsGroup<Context>, ClientError> {
-        let conn = self.context.db();
-
-        let group = conn
-            .find_active_dm_group(&DmMembers {
-                member_one_inbox_id: self.inbox_id(),
-                member_two_inbox_id: &target_inbox_id,
-            })?
-            .ok_or(NotFound::DmByInbox(target_inbox_id))?;
-        Ok(MlsGroup::new(
-            self.context.clone(),
-            group.id,
-            group.dm_id,
-            group.conversation_type,
-            group.created_at_ns,
-        ))
-    }
-
-    /// Look up a message by its ID
-    /// Returns a [`StoredGroupMessage`] if the message exists, or an error if it does not
-    pub fn message(&self, message_id: Vec<u8>) -> Result<StoredGroupMessage, ClientError> {
-        let conn = &mut self.context.db();
-        // implements: META-051
-        let message =
-            conn.get_app_visible_group_message(&message_id, xmtp_common::time::now_ns())?;
-        Ok(message.ok_or(NotFound::MessageById(message_id))?)
-    }
-
-    /// Look up a stored message and its current conversation.
-    /// A message in a duplicate DM resolves to the stitched conversation.
-    pub async fn message_with_group(
-        &self,
-        id: &[u8],
-    ) -> Result<Option<(StoredGroupMessage, MlsGroup<Context>)>, ClientError> {
-        let message = match self.message(id.to_vec()) {
-            Ok(message) => message,
-            Err(ClientError::Storage(StorageError::NotFound(NotFound::MessageById(_)))) => {
-                return Ok(None);
-            }
-            Err(error) => return Err(error),
-        };
-        let group = self.stitched_group(&message.group_id)?;
-        Ok(Some((message, group)))
-    }
-
-    /// Look up and enrich a message by its ID, returning a [`DecodedMessage`]
-    /// Returns an error if the message is not found or if it cannot be decoded/enriched
-    #[xmtp_common::mls_span]
-    pub fn message_v2(&self, message_id: Vec<u8>) -> Result<DecodedMessage, ClientError> {
-        let conn = self.context.db();
-        let message = conn
-            .get_app_visible_group_message(&message_id, xmtp_common::time::now_ns())?
-            .ok_or_else(|| NotFound::MessageById(message_id.clone()))?;
-
-        let group_id = message.group_id;
-
-        let enriched = enrich_messages(conn, &group_id, vec![message])?;
-
-        // Since enrich_messages returns a Vec<DecodedMessage>, we can use .into_iter().next().ok_or(...) to take ownership without cloning.
-        enriched
-            .into_iter()
-            .next()
-            // In practice `enrich_messages` should always return an array of the same length as the input
-            .ok_or_else(|| ClientError::Generic("Failed to decode message".to_string()))
-    }
-
-    /// Delete a message by its ID
-    /// This method is idempotent and will not error if the message is not found
-    /// Returns the number of messages deleted (0 or 1)
-    pub fn delete_message(&self, message_id: Vec<u8>) -> Result<usize, ClientError> {
-        Ok(crate::state_tx::state_write_with_events(
-            self.context.mls_storage(),
-            self.context.events(),
-            |tx, events| {
-                let storage = tx.storage();
-                let db = storage.db();
-                let message = db.get_group_message(&message_id)?;
-                let deleted = db.delete_message_by_id(&message_id)?;
-                if deleted > 0
-                    && let Some(message) = message
-                {
-                    emit_deleted_messages(
-                        events,
-                        vec![message],
-                        DeletionCause::DeletedLocally,
-                        // A local removal of the row: no inbox sent a delete.
-                        None,
-                        &db,
-                    )?;
-                }
-                Ok::<_, StorageError>(Continue(deleted))
-            },
-        )?
-        .into_continued())
-    }
-
-    /// Query for groups with optional filters
-    ///
-    /// Filters:
-    /// - allowed_states: only return groups with the given membership states
-    /// - created_after_ns: only return groups created after the given timestamp (in nanoseconds)
-    /// - created_before_ns: only return groups created before the given timestamp (in nanoseconds)
-    /// - limit: only return the first `limit` groups
-    pub fn find_groups(&self, args: GroupQueryArgs) -> Result<Vec<MlsGroup<Context>>, ClientError> {
-        MlsStore::new(self.context.clone())
-            .find_groups(args)
-            .map_err(Into::into)
-    }
-
-    pub fn list_conversations(
-        &self,
-        args: GroupQueryArgs,
-    ) -> Result<Vec<ConversationListItem<Context>>, ClientError> {
-        let mut args = args.clone();
-        // Default to last activity order by for this endpoint
-        if args.order_by.is_none() {
-            args.order_by = Some(GroupQueryOrderBy::LastActivity);
-        }
-        Ok(self
-            .context
-            .db()
-            .fetch_conversation_list(args)?
-            .into_iter()
-            .map(|conversation_item: DbConversationListItem| {
-                let message = conversation_item.message_id.and_then(|message_id| {
-                    if conversation_item
-                        .expire_at_ns
-                        .is_some_and(|deadline| deadline <= xmtp_common::time::now_ns())
-                    {
-                        return None;
-                    }
-                    // Only construct StoredGroupMessage if all fields are Some
-                    let msg: Option<StoredGroupMessage> = Some(StoredGroupMessage {
-                        id: message_id,
-                        group_id: conversation_item.id,
-                        decrypted_message_bytes: conversation_item.decrypted_message_bytes?,
-                        sent_at_ns: conversation_item.sent_at_ns?,
-                        sender_installation_id: conversation_item.sender_installation_id?,
-                        sender_inbox_id: conversation_item.sender_inbox_id?,
-                        kind: conversation_item.kind?,
-                        delivery_status: conversation_item.delivery_status?,
-                        content_type: conversation_item.content_type?,
-                        version_major: conversation_item.version_major?,
-                        version_minor: conversation_item.version_minor?,
-                        authority_id: conversation_item.authority_id?,
-                        reference_id: None, // conversation_item does not use message reference_id
-                        sequence_id: conversation_item.sequence_id?,
-                        envelope_hash: None,
-                        expiry_ns: conversation_item.expiry_ns,
-                        expire_at_ns: conversation_item.expire_at_ns,
-                        inserted_at_ns: 0, // Not used for conversation list display
-                        should_push: true, // Not used for conversation list display
-                        // The conversation-list query does not carry the key; use
-                        // the timestamp proxy (display-only, never republished).
-                        idempotency_key: conversation_item.sent_at_ns.unwrap_or_default().to_string(),
-                    });
-                    if msg.is_none() {
-                        tracing::warn!("tried listing message, but message had missing fields so it was skipped");
-                    }
-                    msg
-                });
-
-                ConversationListItem {
-                    membership_state: conversation_item.membership_state,
-                    added_by_inbox_id: conversation_item.added_by_inbox_id,
-                    group: MlsGroup::new(
-                        self.context.clone(),
-                        conversation_item.id,
-                        conversation_item.dm_id,
-                        conversation_item.conversation_type,
-                        conversation_item.created_at_ns,
-                    ),
-                    last_message: message,
-                    is_commit_log_forked: conversation_item.is_commit_log_forked,
-                }
-            })
-            .collect())
-    }
-
-    /// Register this installation with an inbox owner and wait until it is visible.
-    pub async fn register_with_owner(&self, owner: &impl InboxOwner) -> Result<(), ClientError> {
-        if self.identity().is_ready() {
-            return self.ensure_registration_visible().await;
-        }
-
-        let mut signature_request = self
-            .context
-            .signature_request()
-            .ok_or(SignatureRequestError::MissingSigner)?;
-        let signature = owner
-            .sign(&signature_request.signature_text())
-            .map_err(SignatureError::from)?;
-        signature_request
-            .add_signature(signature, self.scw_verifier())
-            .await?;
-        self.register_identity(signature_request).await
-    }
-
-    /// Upload the key package before the identity update exposes this installation.
-    /// Record its receipt for key retirement and retain the registration cursor.
-    /// Return success only after the backend can read the registration receipt.
-    #[xmtp_common::mls_span]
-    pub async fn register_identity(
-        &self,
-        signature_request: SignatureRequest,
-    ) -> Result<(), ClientError> {
-        tracing::info!("registering identity");
-        // Registration is a network call like any other.
-        self.context.server_configuration().check()?;
-
-        // Resume visibility confirmation after a stored registration.
-        let stored_identity: Option<StoredIdentity> = self.context.db().fetch(&())?;
-        if stored_identity.is_some() {
-            tracing::info!("Resuming stored identity registration");
-            self.identity().set_ready();
-            return self.ensure_registration_visible().await;
-        }
-
-        // Step 1: Generate key package and store locally (not uploaded yet)
-        let (kp_bytes, history_id) = self.identity().generate_and_store_key_package(
-            self.context.mls_storage(),
-            CREATE_PQ_KEY_PACKAGE_EXTENSION,
-        )?;
-
-        // Step 2: Validate signatures (fails here if invalid - no network pollution)
-        let identity_update = signature_request
-            .build_identity_update()
-            .map_err(IdentityUpdateError::from)?;
-        identity_update
-            .to_verified(&self.context.scw_verifier())
-            .await?;
-
-        // Step 3: Upload key package first (prevents race condition)
-        let key_package_meta = self.context.api().upload_key_package(kp_bytes).await?;
-        let key_package_cursor = key_package_meta
-            .cursor
-            .filter(|cursor| cursor.sequence_id > 0)
-            .ok_or(xmtp_api::ApiError::InvalidResponse(
-                "key package publish cursor",
-            ))?;
-
-        // Record the state before publication. A conflict retry can load
-        // another installation's update into this database before the final
-        // reload, so the event comparison must start here.
-        let _own_refresh = self
-            .context
-            .identity_resolution_registry()
-            .own_inbox_refresh()
-            .lock()
-            .await;
-        let inbox_id = self.inbox_id().to_string();
-        let previous_sequence = self
-            .context
-            .db()
-            .get_latest_sequence_id(&[inbox_id.as_str()])?
-            .get(&inbox_id)
-            .copied();
-        let before = if previous_sequence.is_some() {
-            Some(
-                self.identity_updates()
-                    .get_association_state(&self.context.db(), &inbox_id, None)
-                    .await?,
-            )
-        } else {
-            None
-        };
-
-        // Step 4: Publish identity update (makes installation visible)
-        let registration_cursor = crate::identity_updates::publish_with_conflict_retry(
-            self.context.api(),
-            &self.context.db(),
-            identity_update,
-            &self.context.scw_verifier(),
-        )
-        .await?;
-
-        // Step 5: Fetch and store in local DB (needed for group operations)
-        retry_async!(
-            Retry::default(),
-            (async {
-                load_identity_updates(self.context.api(), &self.context.db(), &[inbox_id.as_str()])
-                    .await
-            })
-        )?;
-        self.identity_updates()
-            .emit_own_installation_updates(&self.context.db(), &inbox_id, before, previous_sequence)
-            .await?;
-
-        // Backend publication order can differ from local generation order.
-        crate::state_tx::state_write(self.context.mls_storage(), |tx| {
-            let storage = tx.storage();
-            storage.db().record_key_package_publication(
-                history_id,
-                xmtp_proto::types::Cursor(key_package_cursor.sequence_id),
-            )?;
-            storage
-                .db()
-                .reset_key_package_rotation_queue(KEY_PACKAGE_ROTATION_INTERVAL_NS)?;
-            Ok::<_, StorageError>(Continue(()))
-        })
-        .map(TransactionOutcome::into_continued)?;
-
-        // Mark identity as ready
-        let mut stored_identity = StoredIdentity::try_from(self.identity())?;
-        stored_identity.registration_cursor_sequence_id = Some(registration_cursor.0 as i64);
-        stored_identity.store(&self.context.db())?;
-        self.context
-            .registration_event_pending()
-            .store(true, Ordering::Release);
-        self.identity().set_ready();
-        drop(_own_refresh);
-        self.ensure_registration_visible().await
-    }
-
-    /// Whether registration has completed its visibility confirmation.
-    /// A stored identity with a pending receipt is not yet registered.
-    pub fn is_registration_visible(&self) -> Result<bool, ClientError> {
-        let stored: Option<StoredIdentity> = self.context.db().fetch(&())?;
-        Ok(self.identity().is_ready()
-            && stored.is_some_and(|identity| identity.registration_cursor_sequence_id.is_none()))
-    }
-
-    /// Confirm a stored registration before reporting success.
-    pub async fn ensure_registration_visible(&self) -> Result<(), ClientError> {
-        let stored: Option<StoredIdentity> = self.context.db().fetch(&())?;
-        if stored.is_some_and(|identity| identity.registration_cursor_sequence_id.is_some()) {
-            self.wait_for_registration_visible(VisibilityConfirmationOptions::default())
-                .await?;
-        }
-        Ok(())
-    }
-
-    /// Wait until the serving database exposes the registration identity-topic head.
-    /// A missing or older head is polled. The timeout also bounds each request.
-    pub async fn wait_for_registration_visible(
-        &self,
-        options: VisibilityConfirmationOptions,
-    ) -> Result<(), ClientError> {
-        use xmtp_common::time::{Duration, sleep, timeout};
-        if !self.identity().is_ready() {
-            return Err(ClientError::RegistrationNotVisible);
-        }
-        let stored: Option<StoredIdentity> = self.context.db().fetch(&())?;
-        let stored = stored.ok_or(ClientError::RegistrationNotVisible)?;
-        let Some(receipt) = stored.registration_cursor_sequence_id else {
-            return Ok(());
-        };
-        self.context.server_configuration().check()?;
-        let sequence_id = u64::try_from(receipt)
-            .ok()
-            .filter(|sequence_id| *sequence_id != 0)
-            .ok_or(ClientError::RegistrationNotVisible)?;
-        timeout(Duration::from_millis(options.timeout_ms), async {
-            let mut delay = REGISTRATION_INITIAL_BACKOFF;
-            let inbox = hex::decode(self.inbox_id())
-                .map_err(|_| xmtp_api::ApiError::InvalidRequest("registration inbox id"))?;
-            let topic = xmtp_proto::types::Topic::new_identity_update(inbox);
-            xmtp_proto::types::Topic::parse(&topic)?;
-            loop {
-                let heads = self
-                    .context
-                    .api()
-                    .newest_topic_cursors(vec![topic.clone()])
-                    .await?;
-                let head = heads
-                    .get(&topic)
-                    .ok_or(xmtp_api::ApiError::InvalidResponse(
-                        "registration identity head",
-                    ))?;
-                // implements: IDENT-072
-                if head.0 >= sequence_id {
-                    return Ok::<(), ClientError>(());
-                }
-                sleep(delay).await;
-                delay = (delay * 2).min(REGISTRATION_MAX_BACKOFF);
-            }
-        })
-        .await
-        .map_err(|_| ClientError::RegistrationNotVisible)??;
-        if self
-            .context
-            .registration_event_pending()
-            .swap(false, Ordering::AcqRel)
-        {
-            xmtp_events::EventWriter::emit(
-                self.context.events(),
-                Some(xmtp_events::ClientEvent::IdentityRegistered(
-                    xmtp_events::IdentityRegistered {
-                        inbox_id: self.inbox_id().to_string(),
-                        installation_key: self.installation_id.to_vec(),
-                    },
-                )),
-                None,
-            );
-        }
-        self.context.db().clear_registration_cursor(receipt)?;
-        Ok(())
-    }
-
-    /// If no key rotation is scheduled, queue it to occur in the next 5 seconds.
-    pub fn queue_key_rotation(&self) -> Result<(), ClientError> {
-        crate::worker::key_package_maintenance::queue_key_rotation(&self.context)?;
-        Ok(())
-    }
-
-    /// Upload a new key package to the network replacing an existing key package
-    /// This is expected to be run any time the client receives new Welcome messages
-    pub async fn rotate_and_upload_key_package(&self) -> Result<(), ClientError> {
-        // A client with a blocked connection publishes nothing. This one
-        // reaches `Identity` directly instead of going through a group or the
-        // publish path, so it carries its own gate.
-        self.ensure_identity_ready()?;
-        self.identity()
-            .rotate_and_upload_key_package(
-                self.context.api(),
-                self.context.mls_storage(),
-                CREATE_PQ_KEY_PACKAGE_EXTENSION,
-            )
-            .await?;
-        // The rotation marked superseded KPs delete_at=now+grace; without this
-        // the parked KpDeletion task would sweep them up to ~30d late.
-        crate::worker::key_package_maintenance::nudge_deletion(&self.context)?;
-
-        Ok(())
-    }
-
-    /// Fetches the current key package from the network for each of the `installation_id`s specified
-    #[tracing::instrument(skip_all)]
-    pub async fn get_key_packages_for_installation_ids(
-        &self,
-        installation_ids: Vec<Vec<u8>>,
-    ) -> Result<
-        HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>,
-        ClientError,
-    > {
-        MlsStore::new(self.context.clone())
-            .get_key_packages_for_installation_ids(installation_ids)
-            .await
-            .map_err(Into::into)
-    }
-
-    /// Download all unread welcome messages and converts to a group struct, ignoring malformed messages.
-    /// Returns any new groups created in the operation
-    #[tracing::instrument(skip_all)]
-    pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Context>>, GroupError> {
-        self.ensure_identity_ready()?;
-        WelcomeService::new(self.context.clone())
-            .sync_welcomes()
-            .await
-            .map_err(|error| self.context.server_configuration().blocked_or(error))
-    }
-
-    /// Sync all groups for the current installation and return the number of groups that were synced.
-    /// Only active groups will be synced.
-    #[tracing::instrument(err, skip_all, fields(operation = "sync_all_groups"))]
-    pub async fn sync_all_groups(
-        &self,
-        groups: Vec<MlsGroup<Context>>,
-    ) -> Result<GroupSyncSummary, GroupError> {
-        self.ensure_identity_ready()?;
-        WelcomeService::new(self.context.clone())
-            .sync_all_groups(groups)
-            .await
-            .map_err(|error| self.context.server_configuration().blocked_or(error))
-    }
-
-    /// Sync all unread welcome messages and then sync all groups.
-    /// Returns the total number of active groups synced.
-    #[xmtp_common::mls_span]
-    pub async fn sync_all_welcomes_and_groups(
-        &self,
-        consent_states: Option<Vec<ConsentState>>,
-    ) -> Result<GroupSyncSummary, GroupError> {
-        self.ensure_identity_ready()?;
-        WelcomeService::new(self.context.clone())
-            .sync_all_welcomes_and_groups(consent_states)
-            .await
-            .map_err(|error| self.context.server_configuration().blocked_or(error))
-    }
-
-    /// Sweep every group flagged `paused_for_version` and clear the
-    /// pause flag for any whose floor is now satisfied by this
-    /// client's `pkg_version`. Pure local-state operation — no
-    /// network calls. Returns the count of groups unstuck.
-    ///
-    /// `sync_all_welcomes_and_groups` already runs this sweep as a
-    /// preamble; the standalone entry point is for SDKs that want a
-    /// cheap "post-upgrade recovery" hook independent of the normal
-    /// sync flow.
-    pub async fn unstick_paused_groups(&self) -> Result<usize, GroupError> {
-        self.ensure_identity_ready()?;
-        WelcomeService::new(self.context.clone())
-            .unstick_paused_groups()
-            .await
-    }
-
-    pub async fn sync_all_welcomes_and_device_sync_groups(
-        &self,
-    ) -> Result<GroupSyncSummary, ClientError> {
-        self.sync_welcomes().await?;
-        self.sync_all_device_sync_groups().await
-    }
-
-    pub async fn sync_all_device_sync_groups(&self) -> Result<GroupSyncSummary, ClientError> {
-        let groups = self
-            .context
-            .db()
-            .all_sync_groups()?
-            .into_iter()
-            .map(|g| {
-                MlsGroup::new(
-                    self.context.clone(),
-                    g.id,
-                    g.dm_id,
-                    g.conversation_type,
-                    g.created_at_ns,
-                )
-            })
-            .collect();
-
-        Ok(self.sync_all_groups(groups).await?)
-    }
-
-    /**
-     * Validates a credential against the given installation public key
-     *
-     * This will go to the network and get the latest association state for the inbox.
-     * It ensures that the installation_pub_key is in that association state
-     */
-    pub async fn validate_credential_against_network(
-        &self,
-        conn: &DbConnection<<Context::Db as XmtpDb>::Connection>,
-        credential: &[u8],
-        installation_pub_key: Vec<u8>,
-    ) -> Result<InboxId, ClientError> {
-        let inbox_id = parse_credential(credential)?;
-        let association_state = IdentityUpdates::new(&self.context)
-            .get_latest_association_state(conn, &inbox_id)
-            .await?;
-        let ident = MemberIdentifier::installation(installation_pub_key);
-
-        match association_state.get(&ident) {
-            Some(_) => Ok(inbox_id),
-            None => Err(IdentityError::InstallationIdNotFound(inbox_id).into()),
-        }
-    }
-
-    /// Check whether an account_identifier has a key package registered on the network
-    ///
-    /// Arguments:
-    /// - account_identifier: a list of account identifiers to check
-    ///
-    /// Returns:
-    /// A Vec of booleans indicating whether each account address has a key package registered on the network
-    pub async fn can_message(
-        &self,
-        account_identifiers: &[Identifier],
-    ) -> Result<HashMap<Identifier, bool>, ClientError> {
-        // A client with a blocked connection issues no request. The blocked connection
-        // alone, not `ensure_identity_ready`, because this answers before the
-        // caller has registered an identity.
-        self.context.server_configuration().check()?;
-        let requests = account_identifiers.iter().map(Into::into).collect();
-
-        let results = self.context.api().get_inbox_ids(requests).await?;
-        Ok(account_identifiers
-            .iter()
-            .cloned()
-            .zip(results.into_iter().map(|inbox_id| inbox_id.is_some()))
-            .collect())
+    /// Read the locally stored state without a backend call.
+    pub fn notification_state(&self) -> Result<NotificationState, StorageError> {
+        notifications::notification_state(&self.context)
     }
 }
 

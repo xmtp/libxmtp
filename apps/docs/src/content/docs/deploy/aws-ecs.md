@@ -194,6 +194,8 @@ resource "aws_lb_target_group" "backend" {
   vpc_id               = var.vpc_id
   target_type          = "ip"
   deregistration_delay = 30
+  # Tasks see each client's address, which rate limits charge.
+  preserve_client_ip = "true"
   health_check {
     protocol = "TCP"
   }
@@ -285,7 +287,23 @@ output "task_security_group_id" {
 
 The NLB gets its security group at creation. An NLB created without one cannot
 have one added later without replacement. The task rule references the NLB
-security group and still works if client IP preservation is enabled.
+security group, so it still admits the NLB's traffic with client IP
+preservation enabled.
+
+### Client addresses
+
+Backend images with [rate limits](/deploy/overview/#rate-limits) limit each caller,
+and charge a caller without a credential to its address. An NLB adds no
+`X-Forwarded-For` header. Instead, the target group above preserves the
+client's address on the connection. AWS documents that an IP target group with
+the TCP protocol does not do this by default: the task then sees "the private
+IP addresses of the load balancer nodes", and every caller would share their
+allowance. See [client IP preservation](https://docs.aws.amazon.com/elasticloadbalancing/latest/network/edit-target-group-attributes.html#client-ip-preservation).
+
+Leave `rate_limits.trusted_proxies` empty. The connection's peer is the client,
+so a client's own `X-Forwarded-For` header is ignored. This NLB accepts IPv4
+only. If you make it dual-stack, an IPv6 client reaches these IPv4 targets from
+the load balancer's address, and such clients share one allowance.
 
 `HTTP2Preferred` supports native gRPC and HTTP/1.1 gRPC-Web. Do not replace this
 with an ALB target group set to `protocolVersion: GRPC`: it returns HTTP 464 to

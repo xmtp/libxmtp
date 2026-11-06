@@ -3,6 +3,7 @@ mod keepalive;
 mod output;
 pub(crate) use output::StreamEnd;
 mod registry;
+mod rent;
 mod session;
 mod tailer;
 #[cfg(test)]

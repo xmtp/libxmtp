@@ -37,8 +37,9 @@ pub(crate) struct Page {
 }
 
 /// Read one page and suppress only matching senders. The cache belongs to the
-/// current row, including all of its pages. Ordered fan-out needs at most one
-/// cached payload. A database failure loads no work.
+/// current row, including all of its pages, and holds its decoded data and
+/// remaining check budget. Ordered fan-out needs at most one cached entry.
+/// A database failure loads no work.
 // implements: PUSH-230
 #[xmtp_common::db_span]
 pub(crate) async fn load(
@@ -46,7 +47,7 @@ pub(crate) async fn load(
     position: i64,
     boundary: i64,
     after: &(i64, Vec<u8>),
-    payloads: &mut HashMap<i64, Option<Vec<u8>>>,
+    payloads: &mut HashMap<i64, (Option<Vec<u8>>, usize)>,
 ) -> Result<Page, Error> {
     let rows = sqlx::query_file_as!(
         Row,
@@ -99,21 +100,21 @@ pub(crate) async fn load(
                 )
                 .fetch_optional(&store.read)
                 .await?;
-                payloads.insert(sequence_id, payload);
+                let data = payload.as_deref().and_then(super::suppress::data);
+                payloads.insert(sequence_id, (data, super::suppress::BUDGET_BYTES));
             }
-            if payloads
-                .get(&sequence_id)
-                .and_then(Option::as_deref)
-                .is_some_and(|payload| {
-                    super::suppress::matches(
-                        payload,
-                        key,
-                        row.sender_hmac.as_deref().unwrap_or_default(),
-                    )
-                })
-            {
-                page.suppressed.push(channel);
-                continue;
+            let (data, budget) = payloads.get_mut(&sequence_id).ok_or_else(missing)?;
+            // Past the budget, deliver unchecked.
+            if let Some(data) = data.as_deref().filter(|data| data.len() <= *budget) {
+                *budget -= data.len();
+                if super::suppress::matches(
+                    data,
+                    key,
+                    row.sender_hmac.as_deref().unwrap_or_default(),
+                ) {
+                    page.suppressed.push(channel);
+                    continue;
+                }
             }
         }
         page.deliveries.push(Delivery {

@@ -99,7 +99,7 @@ impl<C: ConnectionExt> QueryGroupVersion for DbConnection<C> {
                             id_hex = %hex::encode(&id),
                             id_len = id.len(),
                             "get_paused_groups_with_versions: skipping row with \
-                             unparseable group id (not 16 bytes)"
+                             unparseable group id (not 16 or 32 bytes)"
                         );
                         None
                     }

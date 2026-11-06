@@ -6,122 +6,73 @@ use xmtp_common::assert_ok;
 
 use super::helpers::*;
 
-#[xmtp_common::test]
-fn test_get_latest_message_times_by_sender_single_sender() {
-    with_connection(|conn| {
-        let group = generate_group(None);
-        group.store(conn).unwrap();
+// verifies: META-051
+#[xmtp_common::test(unwrap_try = true)]
+fn test_get_latest_message_times_by_sender() {
+    use DeliveryStatus::{Failed, Published, Unpublished};
 
-        // Create messages from a single sender with different timestamps
-        let sender_id = "0x123".to_string();
-        let messages = vec![
-            generate_message(
-                None,
-                Some(&group.id),
-                Some(1000),
-                Some(ContentType::Text),
-                None,
-                Some(sender_id.clone()),
-            ),
-            generate_message(
-                None,
-                Some(&group.id),
-                Some(5000), // Latest message
-                Some(ContentType::Text),
-                None,
-                Some(sender_id.clone()),
-            ),
-            generate_message(
-                None,
-                Some(&group.id),
-                Some(3000),
-                Some(ContentType::Text),
-                None,
-                Some(sender_id.clone()),
-            ),
-        ];
-
-        assert_ok!(messages.store(conn));
-
-        // Test getting latest message times
-        let latest_times = conn
-            .get_latest_message_times_by_sender(group.id, &[ContentType::Text])
-            .unwrap();
-
-        assert_eq!(latest_times.len(), 1);
-        assert_eq!(latest_times.get(&sender_id).unwrap(), &5000);
-    })
-}
-
-#[xmtp_common::test]
-fn test_get_latest_message_times_by_sender_multiple_senders() {
-    with_connection(|conn| {
-        let group = generate_group(None);
-        group.store(conn).unwrap();
-
-        let sender1_id = "0x111".to_string();
-        let sender2_id = "0x222".to_string();
-        let sender3_id = "0x333".to_string();
-
-        // Create messages from multiple senders
-        let messages = vec![
-            // Sender 1 messages
-            generate_message(
-                None,
-                Some(&group.id),
-                Some(1000),
-                Some(ContentType::Text),
-                None,
-                Some(sender1_id.clone()),
-            ),
-            generate_message(
-                None,
-                Some(&group.id),
-                Some(5000), // Latest for sender1
-                Some(ContentType::Text),
-                None,
-                Some(sender1_id.clone()),
-            ),
-            // Sender 2 messages
-            generate_message(
-                None,
-                Some(&group.id),
-                Some(2000),
-                Some(ContentType::Text),
-                None,
-                Some(sender2_id.clone()),
-            ),
-            generate_message(
-                None,
-                Some(&group.id),
-                Some(8000), // Latest for sender2
-                Some(ContentType::Text),
-                None,
-                Some(sender2_id.clone()),
-            ),
-            // Sender 3 messages
-            generate_message(
-                None,
-                Some(&group.id),
-                Some(3000), // Only message for sender3
-                Some(ContentType::Text),
-                None,
-                Some(sender3_id.clone()),
-            ),
-        ];
-
-        assert_ok!(messages.store(conn));
-
-        // Test getting latest message times
-        let latest_times = conn
-            .get_latest_message_times_by_sender(group.id, &[ContentType::Text])
-            .unwrap();
-
-        assert_eq!(latest_times.len(), 3);
-        assert_eq!(latest_times.get(&sender1_id).unwrap(), &5000);
-        assert_eq!(latest_times.get(&sender2_id).unwrap(), &8000);
-        assert_eq!(latest_times.get(&sender3_id).unwrap(), &3000);
-    })
+    for (content_type, rows, expected) in [
+        (
+            ContentType::Text,
+            vec![
+                ("0x123", 1000, Published, None),
+                ("0x123", 5000, Published, None),
+                ("0x123", 3000, Published, None),
+            ],
+            vec![("0x123", 5000)],
+        ),
+        (
+            ContentType::Text,
+            vec![
+                ("0x111", 1000, Published, None),
+                ("0x111", 5000, Published, None),
+                ("0x222", 2000, Published, None),
+                ("0x222", 8000, Published, None),
+                ("0x333", 3000, Published, None),
+            ],
+            vec![("0x111", 5000), ("0x222", 8000), ("0x333", 3000)],
+        ),
+        (
+            ContentType::ReadReceipt,
+            vec![
+                ("mixed", 1000, Published, None),
+                ("mixed", 2000, Published, Some(i64::MAX)),
+                ("mixed", 5000, Published, Some(1)),
+                ("mixed", 6000, Unpublished, None),
+                ("mixed", 7000, Failed, None),
+                ("null-expiry", 3000, Published, None),
+                ("expired-only", 5000, Published, Some(1)),
+                ("unpublished-only", 6000, Unpublished, None),
+                ("failed-only", 7000, Failed, None),
+            ],
+            vec![("mixed", 2000), ("null-expiry", 3000)],
+        ),
+    ] {
+        with_connection(|conn| {
+            let group = generate_group(None);
+            group.store(conn)?;
+            for (sender, time, status, expiry) in rows {
+                let mut message = generate_message(
+                    None,
+                    Some(&group.id),
+                    Some(time),
+                    Some(content_type),
+                    expiry,
+                    Some(sender.to_string()),
+                );
+                message.delivery_status = status;
+                message.store(conn)?;
+            }
+            let expected: LatestMessageTimeBySender = expected
+                .into_iter()
+                .map(|(sender, time)| (sender.to_string(), time))
+                .collect();
+            assert_eq!(
+                conn.get_latest_message_times_by_sender(group.id, &[content_type])?,
+                expected,
+            );
+        });
+    }
 }
 
 #[xmtp_common::test]

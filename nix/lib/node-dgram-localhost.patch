@@ -1,0 +1,17 @@
+diff --git a/test/parallel/test-dgram-connect-sync.js b/test/parallel/test-dgram-connect-sync.js
+--- a/test/parallel/test-dgram-connect-sync.js
++++ b/test/parallel/test-dgram-connect-sync.js
+@@ -121,9 +121,9 @@
+   const blockList = new net.BlockList();
+-  blockList.addAddress('127.0.0.1');
++  blockList.addAddress('127.0.0.2');
+   const sock = dgram.createSocket({ type: 'udp4', sendBlockList: blockList });
+-  assert.throws(() => sock.connectSync(12345, '127.0.0.1'), {
++  assert.throws(() => sock.connectSync(12345, '127.0.0.2'), {
+     code: 'ERR_IP_BLOCKED',
+   });
+-  sock.connectSync(12345, '127.0.0.2');
+-  assert.strictEqual(sock.remoteAddress().address, '127.0.0.2');
++  sock.connectSync(12345, '127.0.0.1');
++  assert.strictEqual(sock.remoteAddress().address, '127.0.0.1');
+   sock.close();

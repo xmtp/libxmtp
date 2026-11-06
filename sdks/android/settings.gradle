@@ -21,3 +21,7 @@ dependencyResolutionManagement {
 }
 rootProject.name = "xmtp-android"
 include ':library'
+// Publishing jobs consume the signed bundle without rebuilding the SDK.
+if (System.getenv('XMTP_ANDROID_RELEASE_BUNDLE')) {
+    include ':publisher'
+}

@@ -1,93 +1,54 @@
-import { Box, Button, List, Space, Text, Tooltip } from "@mantine/core";
-import type { TransactionReference, WalletSendCalls } from "@xmtp/browser-sdk";
-import { useCallback } from "react";
-import { useChainId, useSendTransaction, useSwitchChain } from "wagmi";
-
-import { useConversationContext } from "@/contexts/ConversationContext";
-import { useClient } from "@/contexts/XMTPContext";
-import { useSettings } from "@/hooks/useSettings";
+import { Box, List, Space, Text } from "@mantine/core";
+import type { WalletSendCalls } from "@xmtp/browser-sdk";
 
 export type WalletSendCallsContentProps = {
   content: WalletSendCalls;
 };
 
+const callFields = [
+  ["to", "To"],
+  ["value", "Value"],
+  ["data", "Data"],
+  ["gas", "Gas"],
+] as const;
+
 export const WalletSendCallsContent: React.FC<WalletSendCallsContentProps> = ({
   content,
-}) => {
-  const client = useClient();
-  const { conversationId } = useConversationContext();
-  const { sendTransactionAsync } = useSendTransaction();
-  const { switchChainAsync } = useSwitchChain();
-  const wagmiChainId = useChainId();
-  const { ephemeralAccountEnabled } = useSettings();
-
-  const handleSubmit = useCallback(async () => {
-    const chainId = parseInt(content.chainId, 16);
-    if (chainId !== wagmiChainId) {
-      console.log(
-        `Current Chain Id (${wagmiChainId}) doesn't match; switching to Chain Id ${chainId}.`,
-      );
-      await switchChainAsync({ chainId });
-      await new Promise((r) => setTimeout(r, 300)); // Metamask requires some delay
-    }
-    for (const call of content.calls) {
-      const wagmiTxData = {
-        ...call,
-        data: call.data as `0x${string}`,
-        to: call.to as `0x${string}`,
-        value: BigInt(parseInt(call.value || "0x0", 16)),
-        chainId,
-        gas: call.gas ? BigInt(parseInt(call.gas, 16)) : undefined,
-      };
-      const txHash = await sendTransactionAsync(wagmiTxData, {
-        onError(error) {
-          console.error(error);
-        },
-      });
-      const transactionReference: TransactionReference = {
-        networkId: content.chainId,
-        reference: txHash,
-      };
-      const conversation = await client.conversations.getById(conversationId);
-      if (!conversation) {
-        console.error("Couldn't find conversation by Id");
-        return;
-      }
-      await conversation.sendTransactionReference(transactionReference, {
-        shouldPush: true,
-      });
-    }
-  }, [
-    client,
-    content,
-    conversationId,
-    sendTransactionAsync,
-    switchChainAsync,
-    wagmiChainId,
-  ]);
-
-  return (
-    <Box flex="flex">
-      <Text size="sm">Review the following transactions:</Text>
-      <List size="sm">
-        {content.calls.map((call, idx) => (
-          <List.Item key={idx}>{call.metadata?.description}</List.Item>
-        ))}
-      </List>
-      <Space h="md" />
-      <Tooltip
-        label="Transactions are not supported for ephemeral wallets"
-        disabled={!ephemeralAccountEnabled}>
-        <Button
-          fullWidth
-          disabled={ephemeralAccountEnabled}
-          onClick={(event) => {
-            event.stopPropagation();
-            void handleSubmit();
-          }}>
-          Submit
-        </Button>
-      </Tooltip>
-    </Box>
-  );
-};
+}) => (
+  <Box style={{ wordBreak: "break-word" }}>
+    <Text size="sm">Transaction request from a conversation member.</Text>
+    <Text size="sm">xmtp.chat does not send transactions.</Text>
+    <Space h="xs" />
+    <Text size="sm">
+      Chain ID:{" "}
+      <Text span inherit>
+        {content.chainId}
+      </Text>
+    </Text>
+    <Text size="sm">
+      From (provided by sender):{" "}
+      <Text span inherit>
+        {content.from}
+      </Text>
+    </Text>
+    <Space h="xs" />
+    <List size="sm" spacing="sm">
+      {content.calls.map((call, idx) => (
+        <List.Item key={idx}>
+          <Text size="sm" fw={500}>
+            Description from sender
+          </Text>
+          <Text size="sm">{call.metadata?.description ?? "none"}</Text>
+          {callFields.map(([field, label]) => (
+            <Text key={field} size="sm">
+              {label}:{" "}
+              <Text span inherit>
+                {call[field] ?? "none"}
+              </Text>
+            </Text>
+          ))}
+        </List.Item>
+      ))}
+    </List>
+  </Box>
+);

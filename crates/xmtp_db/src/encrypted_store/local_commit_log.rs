@@ -79,6 +79,7 @@ impl From<&LocalCommitLog> for PlaintextCommitLogEntry {
             commit_result: local_commit_log.commit_result.into(),
             applied_epoch_number: local_commit_log.applied_epoch_number as u64,
             applied_epoch_authenticator: local_commit_log.applied_epoch_authenticator.clone(),
+            ..Default::default()
         }
     }
 }

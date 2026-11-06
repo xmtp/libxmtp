@@ -17,12 +17,12 @@ The examples below compare `main` at `cc878025dab2f93bca18b67fa9fca562a65f2247` 
 
 ## Install the recommended version
 
-Use Swift SDK **8.0.0-rc3** with backend **8.0.0-rc3**. Select the
-`ios-8.0.0-rc3` tag from `xmtp/libxmtp` and add the `XmtpSdk` product to your app:
+Use Swift SDK **8.0.0-rc4** with backend **8.0.0-rc4**. Select the
+`ios-8.0.0-rc4` tag from `xmtp/libxmtp` and add the `XmtpSdk` product to your app:
 
 ```swift
 // In Package.dependencies:
-.package(url: "https://github.com/xmtp/libxmtp.git", revision: "ios-8.0.0-rc3")
+.package(url: "https://github.com/xmtp/libxmtp.git", revision: "ios-8.0.0-rc4")
 
 // In your app target's dependencies:
 .product(name: "XmtpSdk", package: "libxmtp")
@@ -190,28 +190,28 @@ For a smart contract wallet, return `.scw(chainId:blockNumber:)` from `kind()`. 
 
 ## Read client identity and use lookup helpers
 
-| Old call or property                                                | New call                                                   | Result change                                                                                                                                        |
-| ------------------------------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `client.inboxID`                                                    | `client.inboxId()`                                         | `InboxId`.                                                                                                                                           |
-| `client.installationID`                                             | `client.installationId()`                                  | `InstallationId`. Use `installationIdBytes()` only when bytes are needed.                                                                            |
-| `client.publicIdentity`                                             | `client.identity()`                                        | `PublicIdentity`.                                                                                                                                    |
-| `client.libXMTPVersion`                                             | `client.libxmtpVersion()`                                  | `String`. `sdkVersion()` is also a package function.                                                                                                 |
-| `client.environment`                                                | `client.serverConfiguration()` / `client.options()`        | There is no environment enum result. Read the selected deployment and its configuration.                                                             |
-| `client.isInMemory`                                                 | `client.isInMemory()`                                      | `Bool`.                                                                                                                                              |
-| `client.dbPath`                                                     | `client.storagePath()`                                     | `String?`; an in-memory client has no file path.                                                                                                     |
-| `client.conversations`, `.preferences`, `.debugInformation`         | `client.conversations`, `.preferences()`, `.diagnostics()` | Accessor methods return service objects.                                                                                                             |
-| `Client.connectToApiBackend(api:)`                                  | `Backend.connect(options:)`                                | Async throwing connection returns `Backend`. Pass `.connected(backend:)` as a `BackendSource`.                                                       |
-| `Client.getOrCreateInboxId(api:publicIdentity:)`                    | `SDKClient.inboxIdFor(identity:backend:)`                  | Async throwing `InboxId`. Use `generateInboxId(identity:nonce:)` for a pure derivation. Do not reproduce the old network-error fallback in app code. |
-| `client.inboxIdFromIdentity(identity:)`                             | `client.inboxIdFor(identity:)`                             | Async throwing `InboxId?`.                                                                                                                           |
-| `Client.canMessage(accountIdentities:api:)`                         | `SDKClient.canMessage(identities:backend:)`                | Async throwing `[String: Bool]`; keys include identity kind.                                                                                         |
-| `client.canMessage(identities:)`                                    | `client.canMessage(identities:)`                           | Same method shape; map keys now use `ethereum:<core text>`, `passkey:<lowercase core hex>`, or `handle:<lowercase handle>`.                          |
-| `client.canMessage(identity:)`                                      | `client.canMessage(identities: [identity])`                | The single-identity `Bool` overload is absent. Read the typed-key map.                                                                               |
-| `Client.inboxStatesForInboxIds(inboxIds:api:)`                      | `SDKClient.inboxStates(ids:backend:)`                      | `[InboxState]`.                                                                                                                                      |
-| `client.inboxStatesForInboxIds(refreshFromNetwork:inboxIds:)`       | `client.inboxStates(ids:refreshFromNetwork:)`              | `[InboxState]`; labels and order change.                                                                                                             |
-| `client.inboxState(refreshFromNetwork:)`                            | Same method                                                | `InboxState`; installation timestamps are now `Timestamp?`.                                                                                          |
-| `Client.keyPackageStatusesForInstallationIds(installationIds:api:)` | `SDKClient.keyPackageStatuses(ids:backend:)`               | `[String: KeyPackageStatus]`; no `FfiKeyPackageStatus`.                                                                                              |
-| `Client.getNewestMessageMetadata(groupIds:api:)`                    | `SDKClient.newestMessageMetadata(ids:backend:)`            | `[String: MessageMetadataEntry]`; `cursor: FfiCursor` becomes `sequenceId: UInt64`; `createdNs: Int64` becomes `createdAt: Timestamp`.               |
-| `client.catchUpToLive(timeoutMs:)`                                  | Same name                                                  | The new wrapper requires the `timeoutMs` argument, including `nil`. `CatchUpSummary` adds `failed: UInt64`. Check `completed`.                       |
+| Old call or property                                                | New call                                                   | Result change                                                                                                                                                                                                                                |
+| ------------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `client.inboxID`                                                    | `client.inboxId()`                                         | `InboxId`.                                                                                                                                                                                                                                   |
+| `client.installationID`                                             | `client.installationId()`                                  | `InstallationId`. Use `installationIdBytes()` only when bytes are needed.                                                                                                                                                                    |
+| `client.publicIdentity`                                             | `client.identity()`                                        | `PublicIdentity`.                                                                                                                                                                                                                            |
+| `client.libXMTPVersion`                                             | `client.libxmtpVersion()`                                  | `String`. `sdkVersion()` is also a package function.                                                                                                                                                                                         |
+| `client.environment`                                                | `client.serverConfiguration()` / `client.options()`        | There is no environment enum result. Read the selected deployment and its configuration.                                                                                                                                                     |
+| `client.isInMemory`                                                 | `client.isInMemory()`                                      | `Bool`.                                                                                                                                                                                                                                      |
+| `client.dbPath`                                                     | `client.storagePath()`                                     | `String?`; an in-memory client has no file path.                                                                                                                                                                                             |
+| `client.conversations`, `.preferences`, `.debugInformation`         | `client.conversations`, `.preferences()`, `.diagnostics()` | Accessor methods return service objects.                                                                                                                                                                                                     |
+| `Client.connectToApiBackend(api:)`                                  | `Backend.connect(options:)`                                | Async throwing connection returns `Backend`. Pass `.connected(backend:)` as a `BackendSource`.                                                                                                                                               |
+| `Client.getOrCreateInboxId(api:publicIdentity:)`                    | `SDKClient.inboxIdFor(identity:backend:)`                  | Async throwing `InboxId`. Use `generateInboxId(identity:nonce:)` for a pure derivation. Do not reproduce the old network-error fallback in app code.                                                                                         |
+| `client.inboxIdFromIdentity(identity:)`                             | `client.inboxIdFor(identity:)`                             | Async throwing `InboxId?`.                                                                                                                                                                                                                   |
+| `Client.canMessage(accountIdentities:api:)`                         | `SDKClient.canMessage(identities:backend:)`                | Async throwing `[String: Bool]`; keys include identity kind.                                                                                                                                                                                 |
+| `client.canMessage(identities:)`                                    | `client.canMessage(identities:)`                           | Same method shape; map keys now use `ethereum:<core text>`, `passkey:<lowercase core hex>`, or `handle:<lowercase handle>`.                                                                                                                  |
+| `client.canMessage(identity:)`                                      | `client.canMessage(identities: [identity])`                | The single-identity `Bool` overload is absent. Read the typed-key map.                                                                                                                                                                       |
+| `Client.inboxStatesForInboxIds(inboxIds:api:)`                      | `SDKClient.inboxStates(ids:backend:)`                      | `[InboxState]`.                                                                                                                                                                                                                              |
+| `client.inboxStatesForInboxIds(refreshFromNetwork:inboxIds:)`       | `client.inboxStates(ids:refreshFromNetwork:)`              | `[InboxState]`; labels and order change.                                                                                                                                                                                                     |
+| `client.inboxState(refreshFromNetwork:)`                            | Same method                                                | `InboxState`; installation timestamps are now `Timestamp?`.                                                                                                                                                                                  |
+| `Client.keyPackageStatusesForInstallationIds(installationIds:api:)` | `SDKClient.keyPackageStatuses(ids:backend:)`               | `[String: KeyPackageStatus]`; no `FfiKeyPackageStatus`.                                                                                                                                                                                      |
+| `Client.getNewestMessageMetadata(groupIds:api:)`                    | `SDKClient.newestMessageMetadata(ids:backend:)`            | `[String: MessageMetadataEntry]`; `cursor: FfiCursor` becomes `sequenceId: UInt64`; `createdNs: Int64` becomes `createdAt: Timestamp`. A 32-character ID from an older group fails the whole call with `InvalidArgument` before any request. |
+| `client.catchUpToLive(timeoutMs:)`                                  | Same name                                                  | The new wrapper requires the `timeoutMs` argument, including `nil`. `CatchUpSummary` adds `failed: UInt64`. Check `completed`.                                                                                                               |
 
 `InboxState` retains `inboxId`, `identities`, `installations`, `recoveryIdentity`, and `creationSignatureKind`. `Installation.createdAt` changes from `Date?` to `Timestamp?`. `KeyPackageStatus` has `lifetime: KeyPackageLifetime?` and `validationError: String?`. The lifetime has `notBefore` and `notAfter` as `UInt64` values.
 
@@ -259,7 +259,7 @@ func lookup(client: SDKClient, address: String) async throws -> ([String: Bool],
 | `SignatureRequest.addScwSignature(...)`                                | `addSignature(signature: .scw(...))`                                                             | Supply address and unsigned chain/block values in the enum.                                                        |
 | `SignatureRequest.signatureText()`                                     | Same method                                                                                      | Async `String`; no `throws`.                                                                                       |
 
-New operations include `changeRecoveryIdentifier(signer:identity:)`, its unsafe request form, and `SignatureRequest.sign(signer:)`. All account operations still need the appropriate account signature.
+New operations include `changeRecoveryIdentifier(signer:identity:)`, its unsafe request form, and `SignatureRequest.sign(signer:)`. All account operations still need the appropriate account signature. `changeRecoveryIdentifier` accepts only an identity that is already an identity of the inbox; see [Remove an identity](/sdk/inboxes/#remove-an-identity).
 
 ```swift title="Before"
 func revoke(client: Client, key: SigningKey, ids: [String]) async throws {
@@ -346,10 +346,13 @@ func recentGroups(client: SDKClient, afterNs: Int64) async throws -> [Group] {
 }
 ```
 
-Conversation lists now default to creation time instead of last activity.
-Set `orderBy` explicitly to retain the old order. Message lists now default to
-ascending order instead of descending order. Set `direction` explicitly when
-newest-first order is required.
+Conversation lists sort by last activity when you pass no `orderBy`.
+Conversation lists return at most 100 conversations when you pass no `limit`. A `limit` below 1 or above 1000 fails with `InvalidArgument`. To read every conversation, order by creation time and pass the last conversation's `createdAt()` as `createdBefore` and its ID as `beforeId`. See [Paginate conversations](/sdk/read/#paginate-conversations).
+
+Message lists return the 100 newest matching messages, in the requested order, when you pass no `limit`. A `limit` below 1 or above 1000 fails with `InvalidArgument`. To read more, page with `messageHistoryPage`. See [Paginate messages](/sdk/read/#paginate-messages).
+
+Message lists now default to ascending order instead of descending order. Set
+`direction` explicitly when newest-first order is required.
 
 ## Read conversation and group state
 
@@ -578,6 +581,8 @@ func messageText(_ message: Message) -> String? {
 | `Reply.inReplyTo`                                                      | `inReplyTo: ReplyParent?`, `inReplyToContent`, `replyContent` | Parent and body use typed records/enums.                                               |
 | `kind: FfiConversationMessageKind`                                     | `kind: MessageKind`                                           | Keep `.application` and `.membershipChange`.                                           |
 | No matching old field                                                  | `replyCount: UInt64`, `deliveryCursor: String?`               | Reply totals and replay position are explicit.                                         |
+
+`reactions` holds at most the 50 latest reaction messages to a message. `reactionMessageCount` counts every unexpired reaction message to it, removals included, so it is not a per-emoji tally. Read older reactions with `messageReactions(messageId, before, limit)`. See [Reactions](/sdk/read/#reactions).
 
 A custom decode failure is a result, not a failed message list. `.custom` holds `encoded`, `rawBytes`, optional decoded `value`, and optional `ErrorDetails`. `.unknown` holds the optional envelope, bytes, and an error. A standard result is `MessageContent`, including text, markdown, reaction, reply, attachment, group update, leave request, or deletion.
 
@@ -956,7 +961,7 @@ The statistics schema changes with the backend. `ApiStats` now has `publish`, `q
 
 The new writer entry takes a directory `String`, `LogRotation`, `maxFiles: UInt32`, `LogLevel`, and `LogProcessType`. The old helper took an optional directory `URL`, `maxFiles: Int`, and FFI enum types. Entry and exit are now throwing `Void` calls. `initLogging` is async throwing. `setLogSink` is async throwing and accepts `nil` to remove the sink. `flushTelemetry()` is async and nonthrowing.
 
-Use public `ErrorDetails` and typed SDK errors. Do not use old `ClientError.creationError` text as an error-code contract. A database written in an older, unsupported format is an `XmtpError.Storage` whose `details.code` is `StorageError::PreTransitionDatabase`, `StorageError::OldStreamDatabase` or `StorageError::OldEncodingDatabase`. Pure envelope functions can throw; client and reader operations also report typed failures and cancellation.
+Use public `ErrorDetails` and typed SDK errors. Do not use old `ClientError.creationError` text as an error-code contract. A database written in an older, unsupported format is an `XmtpError.Storage` whose `details.code` is `StorageError::PreTransitionDatabase`, `StorageError::OldStreamDatabase`, `StorageError::OldEncodingDatabase` or `StorageError::LegacyGroupDatabase`. Pure envelope functions can throw; client and reader operations also report typed failures and cancellation.
 
 The old `XMTPEnvironment.customLocalAddress`, `customHistorySyncUrl`, `isSecure`, and `getHistorySyncUrl()` members, and `getLocalAddressFromEnvironment()` / `getHistorySyncUrlFromEnvironment()` functions, are absent. Read your app configuration and pass the backend URL directly. The old `getVersionInfo()` helper becomes the public SDK/version reads. The generated Ethereum signing and address helpers (`ethereumAddressFromPubkey`, `ethereumGeneratePublicKey`, `ethereumHashPersonal`, `ethereumSignRecoverable`) have no direct exported replacements; use a `Signer` and your wallet library. `generateInboxId(accountIdentifier:nonce:)` now takes `identity: PublicIdentity` and optional `nonce`. Raw `connectToBackend`, `createClient`, `applySignatureRequest`, `getInboxIdForIdentifier`, `inboxStateFromInboxIds`, `isConnected`, and `revokeInstallations` calls must move to the client/backend methods above.
 

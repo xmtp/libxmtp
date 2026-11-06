@@ -10,10 +10,7 @@ use openmls_rust_crypto::RustCrypto;
 use std::{collections::HashSet, sync::Arc};
 use xmtp_api::{ApiClientWrapper, GetIdentityUpdatesV2Filter};
 use xmtp_cryptography::XmtpInstallationCredential;
-use xmtp_proto::{
-    types::{InstallationId, Topic, TopicCursor},
-    xmtp::mls::message_contents::CommitResult,
-};
+use xmtp_proto::types::{InstallationId, Topic, TopicCursor};
 
 pub struct Query {
     opts: &'static args::Query,
@@ -128,47 +125,31 @@ impl Query {
         Ok(())
     }
 
+    /// Print each envelope on the given commit-log topics. Entries are
+    /// sealed under the group root, so only their positions and sizes show.
     pub async fn batch_query_commit_log(&self, opts: &args::BatchQueryCommitLog) -> Result<()> {
         tracing::info!("Batch querying commit log");
         let client = ApiClientWrapper::new(self.network.connect()?, Default::default());
-        for group_id in &opts.group_ids {
-            let group_id = hex::decode(group_id)?;
-            let cursors: TopicCursor = [(Topic::new_commit_log(&group_id), Default::default())]
-                .into_iter()
-                .collect();
+        for commit_log_id in &opts.commit_log_ids {
+            let commit_log_id = hex::decode(commit_log_id)?;
+            let cursors: TopicCursor =
+                [(Topic::new_commit_log(&commit_log_id), Default::default())]
+                    .into_iter()
+                    .collect();
             let commits = client.query_commit_log(cursors).await?;
             println!(
-                "  group_id: {}, commits: {}",
-                hex::encode(group_id),
+                "  commit_log_id: {}, entries: {}",
+                hex::encode(&commit_log_id),
                 commits.len()
             );
             for commit in commits {
-                let entry = commit.entry;
-                let commit_result = CommitResult::try_from(entry.commit_result)
-                    .unwrap_or(CommitResult::Unspecified);
-                if opts.skip_unspecified && commit_result == CommitResult::Unspecified {
-                    continue;
+                println!("    sequence_id: {}", commit.cursor.0);
+                match commit.sealed {
+                    Some(sealed) => {
+                        println!("      ciphertext bytes: {}", sealed.ciphertext.len())
+                    }
+                    None => println!("      not a sealed entry"),
                 }
-                println!(
-                    "    sequence_id: {}",
-                    commit
-                        .meta
-                        .cursor
-                        .map(|cursor| cursor.sequence_id)
-                        .unwrap_or_default()
-                );
-                println!("      commit_sequence_id: {}", entry.commit_sequence_id);
-                println!(
-                    "      last_epoch_authenticator: {}",
-                    hex::encode(entry.last_epoch_authenticator)
-                );
-
-                println!("      commit_result: {commit_result:?}");
-                println!("      applied_epoch_number: {}", entry.applied_epoch_number);
-                println!(
-                    "      applied_epoch_authenticator: {}",
-                    hex::encode(entry.applied_epoch_authenticator)
-                );
             }
         }
         Ok(())
@@ -243,17 +224,21 @@ fn print_kps(kps: &xmtp_api::KeyPackageMap, keys: HashSet<InstallationId>) -> Re
             println!("    key_package: absent");
             continue;
         };
-        let verified = xmtp_id::key_package::VerifiedKeyPackageV2::from_bytes(
+        // A package stored before a verification rule existed is still served,
+        // so report it and keep listing the others.
+        let verified = match xmtp_id::key_package::VerifiedKeyPackageV2::from_bytes(
             &RustCrypto::default(),
             package.key_package_tls_serialized.as_slice(),
-        )?;
+        ) {
+            Ok(verified) => verified,
+            Err(error) => {
+                println!("  installation_id: {key}");
+                println!("    key_package: fails verification: {error}");
+                continue;
+            }
+        };
         let installation_id = verified.installation_id();
         let is_verified = keys.contains(&InstallationId::try_from(installation_id.clone())?);
-        let wrapper_encryption = verified
-            .wrapper_encryption()
-            .ok()
-            .flatten()
-            .map(|e| e.algorithm);
 
         let lifetime = verified.life_time().unwrap();
         let not_before = lifetime.not_before;
@@ -264,12 +249,7 @@ fn print_kps(kps: &xmtp_api::KeyPackageMap, keys: HashSet<InstallationId>) -> Re
 
         println!("  installation_id: {}", hex::encode(installation_id));
         println!("    verified: {is_verified}");
-        println!(
-            "    wrapper_encryption: {:?}",
-            wrapper_encryption
-                .map(|e| format!("{e:?}"))
-                .unwrap_or_else(|| "Unknown".into())
-        );
+        println!("    wrapper_encryption: {:?}", verified.wrapper.algorithm);
         println!("    not_before: {not_before_date}");
         println!("    not_after: {not_after_date}");
         println!("    last_resort: {last_resort}");

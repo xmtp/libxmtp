@@ -18,6 +18,18 @@ pub fn count_sql_queries<R>(f: impl FnOnce() -> R) -> (R, u64, u64) {
     })
 }
 
+/// [`count_sql_queries`] for a future that may yield.
+#[cfg(all(any(test, feature = "test-utils"), not(target_arch = "wasm32")))]
+pub async fn count_sql_queries_async<F: std::future::Future>(future: F) -> (F::Output, u64, u64) {
+    SQL_COUNTS
+        .scope(std::cell::Cell::new((0, 0)), async {
+            let result = future.await;
+            let (queries, begins) = SQL_COUNTS.with(std::cell::Cell::get);
+            (result, queries, begins)
+        })
+        .await
+}
+
 // Logs query errors. Panics on `database is locked` by default — a held lock in
 // a pure Rust test is a real bug. Consumers with the client's retry machinery opt
 // OUT via `XMTP_NO_PANIC_ON_DB_LOCK` (e.g. node-sdk Vitest workers, #3765).

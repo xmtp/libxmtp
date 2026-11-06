@@ -3,7 +3,7 @@ mod handle_claims;
 #[cfg(test)]
 mod identity_invalid_mutations;
 mod verify_updates;
-pub use verify_updates::verify_updates;
+pub use verify_updates::{verify_admitted_updates, verify_updates};
 mod association_log;
 pub mod builder;
 pub mod handle;
@@ -21,7 +21,10 @@ pub mod verified_signature;
 pub use self::association_log::*;
 pub use self::handle::{Handle, InvalidHandle, MAX_HANDLE_CLAIMS, MAX_HANDLE_NAME_LEN};
 pub use self::member::{HasMemberKind, Identifier, Member, MemberIdentifier, MemberKind};
-pub use self::serialization::{DeserializationError, map_vec, try_map_vec};
+pub use self::serialization::{
+    DeserializationError, UpdateShapeError, check_update_shape, erc6492_signatures, map_vec,
+    try_map_vec,
+};
 pub use self::signature::*;
 pub use self::state::{AssociationState, AssociationStateDiff};
 
@@ -588,12 +591,29 @@ pub(crate) mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = test)]
-    // verifies: IDENT-043, IDENT-045
+    // verifies: IDENT-043, IDENT-091
     fn change_recovery_address() {
         let initial_state = new_test_inbox_with_installation();
         let inbox_id = initial_state.inbox_id().to_string();
         let initial_recovery_address = initial_state.recovery_identifier().clone();
         let new_recovery_identifier = Identifier::rand_ethereum();
+        let new_recovery_member: MemberIdentifier = new_recovery_identifier.clone().into();
+        // Recovery moves only to a member, so the same update adds it first.
+        let add_new_recovery = Action::AddAssociation(AddAssociation {
+            new_member_identifier: new_recovery_member.clone(),
+            new_member_signature: VerifiedSignature::new(
+                new_recovery_member,
+                SignatureKind::Erc191,
+                rand_vec::<32>(),
+                None,
+            ),
+            existing_member_signature: VerifiedSignature::new(
+                initial_recovery_address.clone().into(),
+                SignatureKind::Erc191,
+                rand_vec::<32>(),
+                None,
+            ),
+        });
         let update_recovery = Action::ChangeRecoveryIdentity(ChangeRecoveryIdentity {
             new_recovery_identifier: new_recovery_identifier.clone(),
             recovery_identifier_signature: VerifiedSignature::new(
@@ -606,7 +626,10 @@ pub(crate) mod tests {
 
         let new_state = apply_update(
             initial_state,
-            IdentityUpdate::new_test(vec![update_recovery], inbox_id.to_string()),
+            IdentityUpdate::new_test(
+                vec![add_new_recovery, update_recovery],
+                inbox_id.to_string(),
+            ),
         )
         .expect("expected update to succeed");
         assert_eq!(new_state.recovery_identifier(), &new_recovery_identifier);

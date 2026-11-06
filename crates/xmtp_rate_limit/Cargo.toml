@@ -1,0 +1,27 @@
+[package]
+name = "xmtp_rate_limit"
+description = "Fixed-memory per-caller rate limiter"
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+# No server, transport, or configuration crate: another server can reuse this one.
+[dependencies]
+getrandom.workspace = true
+parking_lot.workspace = true
+siphasher.workspace = true
+thiserror.workspace = true
+
+[features]
+# `ManualClock`, for tests in crates that use the limiter.
+test-utils = []
+
+[dev-dependencies]
+proptest.workspace = true
+shuttle.workspace = true
+xmtp_common = { workspace = true, features = ["test-utils"] }

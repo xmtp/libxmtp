@@ -75,7 +75,10 @@ async fn standard_codec_bytes_match_typed_send_wire_bytes() {
                 .as_ref()
                 .expect("usable encoded content")
                 .parameters,
-            expected.parameters
+            expected
+                .parameters
+                .into_iter()
+                .collect::<std::collections::HashMap<_, _>>()
         );
         assert_eq!(
             stored
@@ -98,6 +101,47 @@ async fn standard_codec_bytes_match_typed_send_wire_bytes() {
         sent += 1;
     }
     assert_eq!(sent, 12);
+    use xmtp_db::group_intent::{IntentKind, IntentState, QueryGroupIntent};
+    let before = group.inner.find_messages(&MsgQueryArgs::default())?.len();
+    let mut first = None;
+    for _ in 0..16 {
+        let mut nested = crate::encode_text("retry".into())?;
+        nested.parameters = ["alpha", "beta", "gamma"]
+            .map(|key| (key.into(), key.into()))
+            .into_iter()
+            .collect();
+        let id = group
+            .send_reply(
+                MessageId::from_bytes(&[0xaa; 32])?,
+                Some(client.inbox_id()),
+                nested,
+                Some(crate::SendOptions {
+                    optimistic: true,
+                    idempotency_key: Some("reply-retry".into()),
+                    ..Default::default()
+                }),
+            )
+            .await?;
+        assert_eq!(first.get_or_insert(id.clone()), &id, "same-key Reply id");
+    }
+    assert_eq!(
+        group.inner.find_messages(&MsgQueryArgs::default())?.len(),
+        before + 1
+    );
+    assert!(
+        client
+            .inner
+            .context
+            .db()
+            .find_group_intents(
+                group.inner.group_id,
+                Some(vec![IntentState::ToPublish, IntentState::Published]),
+                Some(vec![IntentKind::SendMessage])
+            )?
+            .len()
+            <= 1,
+        "no second unresolved Reply intent"
+    );
     client.end().await?;
 }
 

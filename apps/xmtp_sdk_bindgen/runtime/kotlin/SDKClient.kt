@@ -51,9 +51,8 @@ private class CodecRegistry(
  */
 class SDKClient private constructor(
     internal val raw: Client,
-    codecs: List<ContentCodec<*>>,
+    private val codecs: CodecRegistry,
 ) {
-    private val codecs = CodecRegistry(codecs)
     internal val listenerGates = ListenerGates()
 
     fun storage(): Storage = raw.storage()
@@ -94,10 +93,15 @@ class SDKClient private constructor(
             options: ClientOptions,
             defaultDirectory: String? = null,
             codecs: List<ContentCodec<*>> = emptyList(),
-        ): SDKClient =
-            SDKClient(Client.create(SDKForeign.signer(signer), resolved(options, defaultDirectory)), codecs).also {
+        ): SDKClient {
+            val registry = CodecRegistry(codecs)
+            return SDKClient(
+                Client.create(SDKForeign.signer(signer), resolved(options, defaultDirectory)),
+                registry,
+            ).also {
                 ClientRegistry.register(it)
             }
+        }
 
         suspend fun build(
             identity: PublicIdentity,
@@ -105,11 +109,13 @@ class SDKClient private constructor(
             inboxId: InboxId? = null,
             defaultDirectory: String? = null,
             codecs: List<ContentCodec<*>> = emptyList(),
-        ): SDKClient =
-            SDKClient(
+        ): SDKClient {
+            val registry = CodecRegistry(codecs)
+            return SDKClient(
                 Client.build(identity, resolved(options, defaultDirectory), inboxId),
-                codecs,
+                registry,
             ).also { ClientRegistry.register(it) }
+        }
     }
 
     suspend fun end() {

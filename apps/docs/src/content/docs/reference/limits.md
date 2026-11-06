@@ -4,13 +4,20 @@ title: Rate limits and capacity
 
 The backend limits below show each configuration key and its default. Client
 limits are listed separately. Each count and rate limit under `[limits]` can be
-set from 1 to 4294967295, except `limits.max_push_topics`, which stops at 2147483647. The
+set from 1 to 4294967295, except `limits.max_push_topics`, which stops at 2147483647,
+and `limits.max_scw_signatures`, which stops at 200, two for each action of the
+largest identity update. The
 [configuration field table](/specs/conf-backend-configuration/#12-keys-and-checks)
 gives the range and checks of every key.
 
 ## Rate limits
 
-The backend does not apply a per-caller rate limit. Each bidirectional stream has separate token buckets for update frames and client ping frames: 10 frames per second with a burst of 100. Pong frames do not consume either bucket. Exhaustion closes the stream with `RESOURCE_EXHAUSTED`. Reconnect with backoff from durable per-topic cursors.
+The backend charges each caller's requests against per-category rate limits,
+which are on by default; see [Rate limits](/deploy/overview/#rate-limits). A
+request they refuse gets `RESOURCE_EXHAUSTED` with a retry delay; send it again
+no earlier than that delay.
+
+Each bidirectional stream also has its own token buckets for update frames and client ping frames: 10 frames per second with a burst of 100. Pong frames do not consume either bucket. Exhaustion closes the stream with `RESOURCE_EXHAUSTED`. Reconnect with backoff from durable per-topic cursors.
 
 ## Backend request limits
 
@@ -33,6 +40,7 @@ the configured maximum.
 | Newest-envelope topics, full envelopes                 | `limits.max_newest_full_topics`     |     100 |
 | Identifiers in one inbox-ID lookup                     | `limits.max_lookup_identifiers`     |     250 |
 | Signatures in one smart-contract-wallet verify request | `limits.max_scw_signatures`         |     100 |
+| Bytes in one smart-contract-wallet signature           | fixed                               |  47,232 |
 | Identity-update entries per inbox                      | `limits.max_identity_entries`       |     256 |
 
 Request and response bytes cannot exceed the fixed 25 MiB transport ceiling.
@@ -85,12 +93,16 @@ entries per inbox, 192 entries stay for membership changes.
 
 The first two values are defaults published in the backend's `[mls]`
 configuration. An operator can change them, and clients apply the configured
-values locally. The metadata byte limits are fixed in the client library.
+values locally. `mls.max_installations_per_inbox` can be set from 1 to 100, the
+number of actions one identity update can carry, so one update can revoke every
+installation up to that ceiling. Two clients that register at once can still
+leave an inbox above it. The other limits are fixed in the client library.
 
 | Limit                          | Key                               | Value |
 | ------------------------------ | --------------------------------- | ----: |
 | Members in one group           | `mls.max_group_members`           |   250 |
 | Active installations per inbox | `mls.max_installations_per_inbox` |    10 |
+| Actions in one identity update | fixed                             |   100 |
 | Group `appData` bytes          | fixed                             | 8,192 |
 | Group name bytes               | fixed                             |   100 |
 | Group description bytes        | fixed                             | 1,000 |
@@ -100,4 +112,4 @@ A group message is bounded by the backend's envelope limit, which defaults to
 1 MiB. The payload must be smaller because the encoded envelope also contains
 MLS ciphertext and framing data.
 
-The group cap counts inboxes, not installations. The installation cap applies separately to each inbox. See [Manage inboxes](/sdk/inboxes/).
+The group cap counts inboxes, not installations. The installation cap applies separately to each inbox. A call that revokes more than 100 installations or identities fails with an invalid-input error before it asks for a signature. Pass at most 100 installations to `revokeInstallations` at a time. `revokeAllOtherInstallations` revokes every other installation in one update, so it fails on an inbox with more than 100 other installations; revoke those with `revokeInstallations` in groups of at most 100. See [Manage inboxes](/sdk/inboxes/).

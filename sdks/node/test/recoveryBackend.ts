@@ -73,6 +73,8 @@ max_query_limit = 50
 [telemetry]
 metrics_listen = "127.0.0.1:${metricsPort}"
 sample_ratio = 0.0
+[rate_limits]
+enabled = false
 ${process.env.ANVIL_URL ? '[chains]\n"eip155:31337" = "env:ANVIL_URL"\n' : ""}
 `,
   );

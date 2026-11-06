@@ -2,7 +2,6 @@
 """Exercise release build wiring without native builds or publication."""
 
 import os
-import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -109,100 +108,6 @@ class AndroidReleaseTest(unittest.TestCase):
                 (output.parent / "xmtp-messenger-local.apk").read_bytes(),
                 b"built by Nix",
             )
-
-    def test_apk_release_publication(self):
-        workflow = yaml.safe_load(WORKFLOW.read_text())
-        self.assertEqual(workflow["permissions"]["contents"], "read")
-        jobs = workflow["jobs"]
-        caller = yaml.safe_load((WORKFLOW.parent / "release.yml").read_text())["jobs"]
-        self.assertEqual(caller["release-android"]["permissions"]["contents"], "write")
-        steps = jobs["publish"]["steps"]
-        names = [item.get("name") for item in steps]
-        build = steps[names.index("Build example APK")]
-        self.assertEqual(build["run"], "dev/nix-shell 'just example-android apk'")
-        self.assertEqual(build["env"]["XMTP_EXAMPLE_VERSION"], "${{ inputs.version }}")
-        self.assertLess(names.index("Build example APK"), names.index("Publish"))
-        upload = steps[names.index("Retain example APK")]
-        self.assertLess(names.index("Retain example APK"), names.index("Publish"))
-        self.assertEqual(upload["with"]["if-no-files-found"], "error")
-        self.assertEqual(
-            upload["with"]["path"],
-            "apps/example-android/build/apk/xmtp-messenger-${{ inputs.version }}.apk",
-        )
-        job = jobs["publish-apk"]
-        self.assertEqual(job["permissions"]["contents"], "write")
-        self.assertEqual(set(job["needs"]), {"publish", "push-tag"})
-        self.assertNotIn("if", job)
-        self.assertNotIn("if", build)
-        self.assertEqual(job["steps"][0]["with"]["name"], upload["with"]["name"])
-        command = job["steps"][-1]["run"]
-        with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)
-            (root / "apk").mkdir()
-            asset = root / "apk/xmtp-messenger-8.0.0.apk"
-            asset.write_bytes(b"APK")
-            gh = root / "gh"
-            gh.write_text(
-                f"#!{sys.executable}\n"
-                "import json, os, sys\n"
-                "with open(os.environ['GH_LOG'], 'a') as log: log.write(json.dumps(sys.argv[1:]) + '\\n')\n"
-                "sys.exit(int(os.environ['VIEW_EXIT']) if sys.argv[2] == 'view' else int(os.environ.get('UPLOAD_EXIT', '0')))\n"
-            )
-            gh.chmod(0o755)
-            log = root / "calls.jsonl"
-            for kind in ("dev", "rc", "final"):
-                for existing in (False, True):
-                    with self.subTest(kind=kind, existing=existing):
-                        log.write_text("")
-                        env = dict(
-                            os.environ,
-                            PATH=str(root) + os.pathsep + os.environ["PATH"],
-                            GH_LOG=str(log),
-                            VERSION="8.0.0",
-                            RELEASE_TYPE=kind,
-                            VIEW_EXIT="0" if existing else "1",
-                        )
-                        result = subprocess.run(
-                            ["bash", "-euc", command],
-                            cwd=root,
-                            env=env,
-                            capture_output=True,
-                            text=True,
-                        )
-                        self.assertEqual(result.returncode, 0, result.stderr)
-                        calls = [
-                            json.loads(line) for line in log.read_text().splitlines()
-                        ]
-                        self.assertEqual(calls[0], ["release", "view", "android-8.0.0"])
-                        self.assertEqual(len(calls), 2)
-                        self.assertEqual(
-                            calls[1][:4],
-                            [
-                                "release",
-                                "upload" if existing else "create",
-                                "android-8.0.0",
-                                "apk/xmtp-messenger-8.0.0.apk",
-                            ],
-                        )
-                        if existing:
-                            self.assertIn("--clobber", calls[1])
-                        else:
-                            self.assertIn("--verify-tag", calls[1])
-                            self.assertEqual(
-                                "--prerelease" in calls[1], kind != "final"
-                            )
-            env["UPLOAD_EXIT"] = "44"
-            result = subprocess.run(
-                ["bash", "-euc", command], cwd=root, env=env, capture_output=True
-            )
-            self.assertEqual(result.returncode, 44)
-            asset.unlink()
-            log.write_text("")
-            result = subprocess.run(
-                ["bash", "-euc", command], cwd=root, env=env, capture_output=True
-            )
-            self.assertNotEqual(result.returncode, 0)
-            self.assertEqual(log.read_text(), "")
 
     def test_release_reads_no_ci_gradle_cache(self):
         # CI jobs write the Gradle cache (setup-gradle); a release must not

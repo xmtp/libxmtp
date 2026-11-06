@@ -82,3 +82,32 @@ impl CheckedEventFilter {
         Ok(filter)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn filter(ids: Vec<Vec<u8>>) -> EventFilter {
+        EventFilter {
+            group_ids: Some(ids),
+            ..Default::default()
+        }
+    }
+
+    /// An event filter takes 32-byte (keyed) and 16-byte (legacy) group
+    /// IDs, and refuses every other length before any client access.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn event_filter_accepts_both_group_id_lengths() {
+        let checked = filter(vec![vec![1; 32], vec![2; 16]]).checked()?;
+        let ids = checked.group_ids.expect("group IDs were given");
+        assert_eq!(ids[0].as_slice(), &[1; 32]);
+        assert_eq!(ids[1].as_slice(), &[2; 16]);
+        for len in [0, 8, 15, 17, 31, 33] {
+            let error = filter(vec![vec![1; 32], vec![1; len]])
+                .checked()
+                .err()
+                .expect("a wrong-length group ID is refused");
+            assert!(matches!(error, XmtpError::InvalidArgument(_)), "{error:?}");
+        }
+    }
+}

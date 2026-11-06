@@ -26,7 +26,9 @@ url.workspace = true
 xmtp-workspace-hack.workspace = true
 xmtp_common.workspace = true
 xmtp_content_types.workspace = true
+xmtp_cryptography.workspace = true
 xmtp_proto.workspace = true
+zeroize.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 bytes.workspace = true
@@ -50,7 +52,6 @@ tokio-rustls = { version = "0.26", default-features = false, features = [
   "tls12",
 ] }
 tokio-util = { workspace = true, features = ["io"] }
-xmtp_cryptography.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]
 webpki-roots.workspace = true

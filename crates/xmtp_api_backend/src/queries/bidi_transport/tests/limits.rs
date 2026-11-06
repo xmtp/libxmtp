@@ -222,7 +222,7 @@ async fn a_lease_cannot_push_the_wire_past_the_topic_limit() {
     let limit = xmtp_configuration::BACKEND_DEFAULT_MAX_STREAM_TOPICS;
     let topics = (0..limit)
         .map(|id| {
-            let mut group = [0u8; 16];
+            let mut group = [0u8; 32];
             group[..8].copy_from_slice(&(id as u64).to_le_bytes());
             (group_topic(&group), 0)
         })
@@ -231,7 +231,7 @@ async fn a_lease_cannot_push_the_wire_past_the_topic_limit() {
     let mut server = take_server(&servers);
     let initial = server.next_mutate().await;
     assert_eq!(initial.adds.len(), limit);
-    let extra = group_topic(&[0xff; 16]);
+    let extra = group_topic(&[0xff; 32]);
     assert!(matches!(
         transport.lease(vec![(extra, 0)], 8).await,
         Err(TransportError::TooManyTopics)

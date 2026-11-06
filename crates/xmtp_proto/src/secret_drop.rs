@@ -13,6 +13,7 @@ use crate::xmtp::device_sync::content::HmacKeyUpdate;
 use crate::xmtp::mls::database::send_message_data::V1 as SendMessageV1;
 use crate::xmtp::mls::database::update_metadata_data::V1 as UpdateMetadataV1;
 use crate::xmtp::mls::message_contents::GroupMutableMetadataV1;
+use crate::xmtp::mls::message_contents::content_types::RemoteAttachmentInfo;
 use crate::xmtp::mls::message_contents::plaintext_envelope::V1 as PlaintextEnvelopeV1;
 use zeroize::Zeroize;
 
@@ -77,5 +78,20 @@ impl Drop for SendMessageV1 {
 impl Drop for PlaintextEnvelopeV1 {
     fn drop(&mut self) {
         self.content.zeroize();
+    }
+}
+
+impl Drop for RemoteAttachmentInfo {
+    fn drop(&mut self) {
+        self.secret.zeroize();
+        self.salt.zeroize();
+        self.nonce.zeroize();
+    }
+}
+
+impl std::fmt::Debug for RemoteAttachmentInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RemoteAttachmentInfo")
+            .finish_non_exhaustive()
     }
 }

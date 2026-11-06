@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $(uname -s) != Linux ]]; then
+  echo "Run this inside the Linux sandbox, from the checkout to test." >&2
+  exit 1
+fi
+
+root=$(git rev-parse --show-toplevel)
+cd "$root"
+
+# Direct sbx exec sessions need not set USER; Nix's profile checks it.
+export USER="${USER:-$(id -un)}"
+if [[ -e "$HOME/.nix-profile/etc/profile.d/nix.sh" ]]; then
+  # shellcheck disable=SC1091
+  source "$HOME/.nix-profile/etc/profile.d/nix.sh"
+fi
+
+nix --version
+df -h /nix .
+docker info --format 'Docker inside VM: {{.OSType}}/{{.Architecture}}'
+docker compose version
+
+# Compile Rust, then realize and load the Nix-built backend image into the
+# sandbox's own Docker engine. The normal recipes allocate worktree ports.
+dev/nix-shell --shell rust 'just check crate xmtp_common'
+dev/nix-shell --shell rust 'just backend up'
+dev/nix-shell --shell rust 'just backend status'
+dev/nix-shell --shell rust \
+  'just test workspace -p xmtp_mls groups::tests::test_send_receive::test_send_message'
+
+echo 'Passed: Rust check, backend image/stack, and SDK send/query/decrypt test.'
+echo "The backend is still running. Stop it with: dev/nix-shell 'just backend down'"

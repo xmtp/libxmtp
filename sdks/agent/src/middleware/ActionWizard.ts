@@ -43,10 +43,16 @@ export type ActionWizardCancelHandler<ContentTypes> = (
   ctx: MessageContext<unknown, ContentTypes>,
 ) => Promise<void> | void;
 
-/** Options for the cancel action added to select steps. */
+/** Options for cancelling a wizard session. */
 export type ActionWizardCancelOptions = {
   /** Custom label for the cancel button (default: "Cancel") */
   label?: string;
+  /**
+   * Text command that cancels the active session from any step (e.g. "/cancel").
+   * Text steps have no cancel button, so without a command they record any
+   * reply, including "/cancel", as the answer.
+   */
+  command?: `/${string}`;
 };
 
 /** Configuration for an interactive action wizard. */
@@ -57,7 +63,7 @@ export type ActionWizardOptions = {
    * (e.g. API keys, passwords) to keep it out of group conversations.
    */
   dm?: boolean;
-  /** Enable a cancel button on each select step. Set to `true` for the default label, or pass options to customize. */
+  /** Enable a cancel button on each select step. Set to `true` for the default label, or pass options to customize the label or add a cancel command. */
   cancel?: boolean | ActionWizardCancelOptions;
 };
 
@@ -70,11 +76,13 @@ export type ActionWizardOptions = {
  *
  * The wizard activates when a user sends `/{id}` (e.g. `/api-setup`).
  * Sending the command again while a session is active restarts the wizard from the first step.
+ * With a `cancel.command`, sending that command cancels the active session from any step.
  */
 export class ActionWizard<ContentTypes = unknown> {
   #id: string;
   #dm: boolean;
   #cancelLabel: string | undefined;
+  #cancelCommand: string | undefined;
   #steps: ActionWizardStep[] = [];
   #sessions = new Map<string, ActionWizardSession>();
   #completeHandler?: ActionWizardCompleteHandler<ContentTypes>;
@@ -85,10 +93,9 @@ export class ActionWizard<ContentTypes = unknown> {
     this.#id = id;
     this.#dm = options?.dm ?? false;
     if (options?.cancel) {
-      this.#cancelLabel =
-        typeof options.cancel === "object"
-          ? (options.cancel.label ?? "Cancel")
-          : "Cancel";
+      const cancel = typeof options.cancel === "object" ? options.cancel : {};
+      this.#cancelLabel = cancel.label ?? "Cancel";
+      this.#cancelCommand = cancel.command;
     }
   }
 
@@ -249,6 +256,15 @@ export class ActionWizard<ContentTypes = unknown> {
 
       if (!session) {
         await next();
+        return;
+      }
+
+      if (
+        this.#cancelCommand &&
+        ctx.isText() &&
+        ctx.content === this.#cancelCommand
+      ) {
+        await this.#handleCancel(key, ctx);
         return;
       }
 

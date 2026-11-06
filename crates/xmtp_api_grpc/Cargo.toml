@@ -16,6 +16,7 @@ http-body-util.workspace = true
 pin-project.workspace = true
 prost = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
+tonic-types.workspace = true
 tracing.workspace = true
 url.workspace = true
 xmtp-workspace-hack.workspace = true
@@ -58,11 +59,13 @@ tower.workspace = true
 
 [dev-dependencies]
 futures-test.workspace = true
+prost-types.workspace = true
 rstest.workspace = true
 xmtp_logging = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils-network"] }
 
 [target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dev-dependencies]
+xmtp_cryptography.workspace = true
 tokio = { workspace = true }
 pbjson-types.workspace = true
 tokio-stream.workspace = true
@@ -70,6 +73,7 @@ hyper-util.workspace = true
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
 getrandom = { workspace = true, features = ["wasm_js"] }
+wasm-bindgen.workspace = true
 wasm-bindgen-test.workspace = true
 
 [features]

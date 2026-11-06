@@ -1,27 +1,12 @@
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 
-use crate::builder::ForkRecoveryOpts;
-use crate::client::DeviceSync;
-use crate::context::XmtpSharedContext;
+use crate::context::XmtpMlsLocalContext;
 use crate::groups::MlsGroup;
 use crate::groups::summary::SyncSummary;
-use crate::identity::create_credential;
-use crate::worker::device_sync::worker::SyncMetric;
-use crate::worker::tasks::TaskWorkerChannels;
-use crate::worker::{MetricsCasting, WorkerKind};
-use crate::{
-    context::XmtpMlsLocalContext, identity::Identity, mutex_registry::MutexRegistry,
-    utils::VersionInfo,
-};
 use mockall::mock;
-use tokio_util::sync::CancellationToken;
 use xmtp_api::ApiClientWrapper;
 use xmtp_api_backend::MockBackendClient;
-use xmtp_db::XmtpDb;
 use xmtp_db::sql_key_store::mock::MockSqlKeyStore;
-use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
-use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
 mod generate;
 pub use generate::*;
@@ -46,183 +31,8 @@ pub type NewMockContext = XmtpMlsLocalContext<
 >;
 pub type MockMlsGroup = MlsGroup<MockContext>;
 
-impl Identity {
-    pub fn mock_identity() -> Identity {
-        let (inbox, cred) = generate_inbox_id_credential();
-        Identity {
-            inbox_id: inbox.clone(),
-            installation_keys: cred,
-            credential: create_credential(inbox).unwrap(),
-            signature_request: None,
-            is_ready: AtomicBool::new(true),
-        }
-    }
-}
-
 mock! {
     pub MockMlsGroup {
         fn sync_with_conn(&self) -> Result<SyncSummary, SyncSummary>;
-    }
-}
-
-impl Clone for NewMockContext {
-    fn clone(&self) -> Self {
-        Self {
-            attachments: self.attachments.clone(),
-            identity: self.identity.clone(),
-            api_client: self.api_client.clone(),
-            store: self.store.clone(),
-            mls_storage: self.mls_storage.clone(),
-            mutexes: self.mutexes.clone(),
-            #[cfg(test)]
-            mls_commit_lock: self.mls_commit_lock.clone(),
-            version_info: self.version_info.clone(),
-            server_configuration: self.server_configuration.clone(),
-            events: self.events.clone(),
-            registration_event_pending: self.registration_event_pending.clone(),
-            public_event_writer: self.public_event_writer.clone(),
-            scw_verifier: self.scw_verifier.clone(),
-            device_sync: self.device_sync.clone(),
-            fork_recovery_opts: self.fork_recovery_opts.clone(),
-            change_callbacks: self.change_callbacks.clone(),
-            worker_config: self.worker_config.clone(),
-            task_channels: self.task_channels.clone(),
-            worker_metrics: self.worker_metrics.clone(),
-            cancellation_token: self.cancellation_token.clone(),
-            shutdown_complete: self.shutdown_complete.clone(),
-            foreground_calls: self.foreground_calls.clone(),
-            #[cfg(any(test, target_arch = "wasm32"))]
-            message_clock: self.message_clock.clone(),
-            delivery_owner: self.delivery_owner.clone(),
-            incoming_runtime: self.incoming_runtime.clone(),
-            identity_resolutions: self.identity_resolutions.clone(),
-        }
-    }
-}
-
-impl XmtpSharedContext for NewMockContext {
-    type Db = xmtp_db::MockXmtpDb;
-
-    type ApiClient = Arc<MockBackendClient>;
-
-    type MlsStorage = xmtp_db::test_utils::MlsMemoryStorage;
-    type ContextReference = Self;
-
-    fn context_ref(&self) -> &Self::ContextReference {
-        self
-    }
-
-    fn db(&self) -> <Self::Db as xmtp_db::XmtpDb>::DbQuery {
-        self.store.db()
-    }
-
-    fn attachment_runtime(&self) -> &Arc<crate::attachments::AttachmentRuntime> {
-        &self.attachments
-    }
-
-    fn api(&self) -> &ApiClientWrapper<Self::ApiClient> {
-        &self.api_client
-    }
-
-    fn scw_verifier(&self) -> Arc<Box<dyn SmartContractSignatureVerifier>> {
-        self.scw_verifier.clone()
-    }
-
-    fn device_sync(&self) -> &DeviceSync {
-        &self.device_sync
-    }
-
-    fn fork_recovery_opts(&self) -> &ForkRecoveryOpts {
-        &self.fork_recovery_opts
-    }
-
-    fn worker_config(&self) -> &crate::worker::WorkerConfig {
-        &self.worker_config
-    }
-
-    fn mls_storage(&self) -> &Self::MlsStorage {
-        &self.mls_storage
-    }
-
-    fn identity(&self) -> &Identity {
-        &self.identity
-    }
-
-    fn version_info(&self) -> &VersionInfo {
-        &self.version_info
-    }
-
-    fn server_configuration(&self) -> &crate::server_configuration::ServerConfigurationHandle {
-        &self.server_configuration
-    }
-
-    fn events(&self) -> &xmtp_events::EventBus<crate::subscriptions::internal::InternalEvent> {
-        &self.events
-    }
-
-    fn registration_event_pending(&self) -> &AtomicBool {
-        &self.registration_event_pending
-    }
-
-    fn public_event_writer(&self) -> &Arc<dyn xmtp_events::EventWriter<()>> {
-        &self.public_event_writer
-    }
-
-    #[cfg(test)]
-    fn mls_commit_lock(&self) -> &Arc<crate::GroupCommitLock> {
-        &self.mls_commit_lock
-    }
-
-    fn mutexes(&self) -> &MutexRegistry {
-        &self.mutexes
-    }
-
-    fn task_channels(&self) -> &TaskWorkerChannels {
-        &self.task_channels
-    }
-
-    fn change_callbacks(&self) -> &crate::groups::change_callbacks::UnstableChangeCallbacks {
-        &self.change_callbacks
-    }
-
-    fn sync_metrics(&self) -> Option<Arc<crate::worker::metrics::WorkerMetrics<SyncMetric>>> {
-        self.worker_metrics
-            .lock()
-            .get(&WorkerKind::DeviceSync)?
-            .as_sync_metrics()
-    }
-
-    fn cancellation_token(&self) -> &CancellationToken {
-        &self.cancellation_token
-    }
-
-    fn delivery_owner(&self) -> &parking_lot::Mutex<Option<xmtp_db::delivery::DeliveryOwner>> {
-        &self.delivery_owner
-    }
-
-    fn incoming_runtime(&self) -> &crate::subscriptions::incoming::IncomingRuntime {
-        &self.incoming_runtime
-    }
-
-    fn identity_resolution_registry(&self) -> &crate::identity_updates::IdentityResolutionRegistry {
-        &self.identity_resolutions
-    }
-
-    fn shutdown_complete(&self) -> bool {
-        self.shutdown_complete
-            .load(std::sync::atomic::Ordering::Acquire)
-    }
-
-    fn mark_shutdown_complete(&self) {
-        self.shutdown_complete
-            .store(true, std::sync::atomic::Ordering::Release);
-    }
-
-    fn message_timestamp_ns(&self) -> i64 {
-        xmtp_common::time::now_ns()
-    }
-
-    fn foreground_calls(&self) -> &Arc<crate::context::ForegroundCalls> {
-        &self.foreground_calls
     }
 }

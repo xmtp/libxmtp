@@ -5,6 +5,7 @@ use serde::Serialize;
 use std::{
     fs,
     io::{BufWriter, Write},
+    path::Path,
     sync::Arc,
 };
 use xmtp_db::group::StoredGroup;
@@ -16,6 +17,21 @@ use crate::{
     },
     args::{self, FormatKind, StreamOpts},
 };
+
+/// Create or truncate `path` for decrypted output, readable by the owner only.
+fn private_file(path: &Path) -> std::io::Result<fs::File> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let file = options.open(path)?;
+    #[cfg(unix)]
+    if file.metadata()?.is_file() {
+        use std::os::unix::fs::PermissionsExt as _;
+        file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(file)
+}
 
 pub struct Stream {
     db: Arc<redb::ReadOnlyDatabase>,
@@ -55,7 +71,7 @@ impl Stream {
         let client = app::client_from_identity(&identity)?;
 
         let mut buffer: Box<dyn Write> = if let Some(p) = out {
-            Box::new(BufWriter::new(fs::File::create(p)?))
+            Box::new(BufWriter::new(private_file(p)?))
         } else {
             Box::new(BufWriter::new(std::io::stdout()))
         };

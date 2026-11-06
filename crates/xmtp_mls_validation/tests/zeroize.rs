@@ -6,7 +6,7 @@
 
 use openmls::messages::proposals::AppDataUpdateOperation;
 use xmtp_cryptography::secret::heap_canary::{Canary, scan};
-use xmtp_mls_common::app_data::{
+use xmtp_mls_group_state::app_data::{
     component_id::ComponentId,
     component_permissions::component_permissions,
     component_registry::{ComponentRegistry, new_component_metadata},

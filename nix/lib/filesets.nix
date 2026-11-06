@@ -31,12 +31,12 @@ let
     (src + /crates/xmtp_id/artifact)
     (src + /crates/xmtp_id/src/scw_verifier/signature_validation.hex)
     # Welcome compatibility tests read the stored keys and ciphertexts at compile time.
-    (src + /crates/xmtp_mls_common/src/mls_ext/payload_encryption/fixtures)
+    (src + /crates/xmtp_mls_group_keys/src/mls_ext/payload_encryption/fixtures)
     (src + /crates/xmtp_db/migrations)
     (src + /crates/xmtp_legacy_migration/migrations)
     (src + /crates/xmtp_legacy_migration/browser-storage.js)
-    # The attachment client reads the IANA special-purpose address snapshot at compile time.
-    (src + /crates/xmtp_attachments/src/address-registry.txt)
+    # The shared address classifier reads the IANA special-purpose address snapshot at compile time.
+    (src + /crates/xmtp_common/src/address-registry.txt)
     (lib.fileset.maybeMissing (src + /apps/backend/migrations))
     (lib.fileset.maybeMissing (src + /apps/backend/.sqlx))
     (fileFilter (file: lib.hasSuffix ".sql" file.name) (src + /apps/backend/src))
@@ -311,7 +311,7 @@ let
       (src + /apps/backend/migrations)
       (src + /apps/backend/.sqlx)
     ];
-    "crates/xmtp_attachments" = [ (src + /crates/xmtp_attachments/src/address-registry.txt) ];
+    "crates/xmtp_common" = [ (src + /crates/xmtp_common/src/address-registry.txt) ];
     "crates/xmtp_db" = [ (src + /crates/xmtp_db/migrations) ];
     "crates/xmtp_legacy_migration" = [
       (src + /crates/xmtp_legacy_migration/migrations)
@@ -331,10 +331,10 @@ let
   # Files that only a package's own tests read.
   testData = {
     "crates/xmtp_legacy_migration" = [ (src + /crates/xmtp_legacy_migration/fixtures) ];
-    "crates/xmtp_mls" = [
-      (src + /crates/xmtp_legacy_migration/fixtures)
+    "crates/xmtp_mls" = [ (src + /crates/xmtp_legacy_migration/fixtures) ];
+    "crates/xmtp_mls_engine" = [
       # The frozen prepared attempts, read at compile time.
-      (src + /crates/xmtp_mls/src/groups/mls_sync/publish/fixtures)
+      (src + /crates/xmtp_mls_engine/src/groups/mls_sync/publish/fixtures)
     ];
     "apps/backend" = [
       (src + /docs/backend-observability.md)
@@ -343,11 +343,18 @@ let
     "crates/xmtp_backend_config" = [
       (src + /docs/schemas/backend-v1.json)
       (src + /docs/specs/CONF-backend-configuration.md)
+      (src + /docs/specs/RATE-backend-rate-limits.md)
       (src + /dev/backend/local.toml)
       (src + /dev/backend/local-s3.toml)
     ];
-    "crates/xmtp_mls_common" = [
-      (src + /crates/xmtp_mls_common/src/mls_ext/payload_encryption/fixtures)
+    "crates/xmtp_mls_group_keys" = [
+      (src + /crates/xmtp_mls_group_keys/src/mls_ext/payload_encryption/fixtures)
+      # The group-key unit tests read the test vectors.
+      (src + /crates/xmtp_mls_group_keys/src/group_keys/fixtures)
+    ];
+    "crates/xmtp_mls_group_state" = [
+      # The zeroize canaries read the group-key test vectors.
+      (src + /crates/xmtp_mls_group_keys/src/group_keys/fixtures)
     ];
   };
   # The real sources of a closure, with its data and `extra` paths.

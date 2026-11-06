@@ -2,6 +2,7 @@
 use crate::{MigrationError, MigrationReport, RecordError};
 use diesel::{connection::DefaultLoadingMode, prelude::*, sql_types::*};
 use prost::Message;
+use std::collections::BTreeMap;
 use xmtp_proto::xmtp::{
     device_sync::{
         BackupMetadataSave,
@@ -18,6 +19,10 @@ const MAX_ROW_BYTES: i64 = 64 * 1024 * 1024;
 const ELIGIBLE_GROUPS: &str =
     "FROM groups WHERE conversation_type IN (1, 2) AND membership_state IN (1, 2, 3, 5)";
 // Deletion authority is stored; content type is decoded after row admission.
+/// The deleter of the earliest legacy tombstone that may delete `m`: same
+/// group, and its deleter is the author or a recorded super admin.
+// implements: MIG-010
+const DELETED_BY: &str = "(SELECT d.deleted_by_inbox_id FROM message_deletions d WHERE d.deleted_message_id=m.id AND d.group_id=m.group_id AND (d.deleted_by_inbox_id=m.sender_inbox_id OR d.is_super_admin_deletion=1) ORDER BY d.deleted_at_ns, d.id LIMIT 1)";
 const ELIGIBLE_MESSAGES: &str = "FROM group_messages m JOIN groups g ON m.group_id = g.id WHERE g.conversation_type IN (1, 2) AND g.membership_state IN (1, 2, 3, 5) AND m.kind = 1 AND m.expire_at_ns IS NULL";
 
 #[derive(QueryableByName)]
@@ -58,8 +63,9 @@ struct Group {
 
 #[derive(QueryableByName)]
 struct MessageRow {
-    #[diesel(sql_type = Bool)]
-    deletion_authorized: bool,
+    /// The earliest authorized legacy deleter of this message, if any.
+    #[diesel(sql_type = Nullable<Text>)]
+    deleted_by: Option<String>,
     #[diesel(sql_type = Binary)]
     id: Vec<u8>,
     #[diesel(sql_type = Binary)]
@@ -100,6 +106,15 @@ struct Consent {
     entity: String,
     #[diesel(sql_type = BigInt)]
     consented_at_ns: i64,
+    /// The DM id of the group a conversation row names, when it is a DM.
+    #[diesel(sql_type = Nullable<Text>)]
+    dm_id: Option<String>,
+}
+
+#[derive(QueryableByName)]
+struct OwnInbox {
+    #[diesel(sql_type = Text)]
+    inbox_id: String,
 }
 
 #[derive(QueryableByName)]
@@ -213,8 +228,8 @@ pub(crate) fn export(
     if malformed_deletions.count != 0 {
         return Err(invalid("invalid required deletion identity or Boolean"));
     }
-    // Keep NULL expiry as unknown. Current group settings do not establish a
-    // historical message expiry (MIG-006; ARCH-009 gap waiver).
+    // A NULL expiry stays eligible and is written with expiry_known unset, which
+    // imports as unknown expiry. Current group settings do not establish a historical deadline.
     let unknown_kind = diesel::sql_query("SELECT count(*) AS count FROM group_messages m LEFT JOIN groups g ON m.group_id = g.id WHERE m.expire_at_ns IS NULL AND (m.kind IS NULL OR m.kind NOT IN (1,2)) AND (g.id IS NULL OR (g.conversation_type IN (1,2) AND g.membership_state IN (1,2,3,5)))")
         .get_result::<Count>(conn)?;
     if unknown_kind.count != 0 {
@@ -242,7 +257,8 @@ pub(crate) fn export(
          COALESCE(length(CAST(m.sender_installation_id AS BLOB)), 0) + \
          COALESCE(length(CAST(m.sender_inbox_id AS BLOB)), 0) + \
          COALESCE(length(CAST(m.authority_id AS BLOB)), 0) + \
-         COALESCE(length(CAST(m.reference_id AS BLOB)), 0) > ?) AS count"
+         COALESCE(length(CAST(m.reference_id AS BLOB)), 0) + \
+         COALESCE(length(CAST({DELETED_BY} AS BLOB)), 0) > ?) AS count"
     ))
     .bind::<BigInt, _>(MAX_ROW_BYTES)
     .get_result::<Count>(conn)?;
@@ -250,14 +266,12 @@ pub(crate) fn export(
         return Err(invalid("stored message row exceeds the 64 MiB byte limit"));
     }
     let query = format!(
-        "SELECT EXISTS(SELECT 1 FROM message_deletions d WHERE d.deleted_message_id=m.id AND d.group_id=m.group_id AND (d.deleted_by_inbox_id=m.sender_inbox_id OR d.is_super_admin_deletion=1)) AS deletion_authorized, m.id, m.group_id, m.decrypted_message_bytes, m.sent_at_ns, m.sender_installation_id, m.sender_inbox_id, m.delivery_status, m.content_type, m.version_major, m.version_minor, m.authority_id, m.reference_id, m.originator_id, m.sequence_id {ELIGIBLE_MESSAGES} ORDER BY m.id"
+        "SELECT {DELETED_BY} AS deleted_by, m.id, m.group_id, m.decrypted_message_bytes, m.sent_at_ns, m.sender_installation_id, m.sender_inbox_id, m.delivery_status, m.content_type, m.version_major, m.version_minor, m.authority_id, m.reference_id, m.originator_id, m.sequence_id {ELIGIBLE_MESSAGES} ORDER BY m.id"
     );
     let messages = diesel::sql_query(query).load_iter::<MessageRow, DefaultLoadingMode>(conn)?;
     for message in messages {
-        if let Some(message) = message?.into_save()? {
-            emit(Element::GroupMessage(message))?;
-            report.message_count += 1;
-        }
+        emit(Element::GroupMessage(message?.into_save()?))?;
+        report.message_count += 1;
     }
     let oversized = diesel::sql_query(
         "SELECT EXISTS(SELECT 1 FROM consent_records WHERE \
@@ -268,14 +282,40 @@ pub(crate) fn export(
     if oversized.count != 0 {
         return Err(invalid("stored consent row exceeds the 64 MiB byte limit"));
     }
-    for consent in diesel::sql_query("SELECT entity_type, state, entity, consented_at_ns FROM consent_records ORDER BY entity_type, entity")
-        .load_iter::<Consent, DefaultLoadingMode>(conn)?
+    // implements: MIG-009
+    // A DM's consent names its peer. A database that never finished
+    // registration has no identity row, and then every row is written as stored.
+    let own = diesel::sql_query("SELECT inbox_id FROM identity LIMIT 1")
+        .get_result::<OwnInbox>(conn)
+        .optional()?;
+    if own.is_some() {
+        let oversized = diesel::sql_query(
+            "SELECT EXISTS(SELECT 1 FROM groups WHERE dm_id IS NOT NULL AND \
+             COALESCE(length(CAST(id AS BLOB)), 0) + length(CAST(dm_id AS BLOB)) > ?) AS count",
+        )
+        .bind::<BigInt, _>(MAX_ROW_BYTES)
+        .get_result::<Count>(conn)?;
+        if oversized.count != 0 {
+            return Err(invalid("stored DM id exceeds the 64 MiB byte limit"));
+        }
+    }
+    // Conversation rows sort first, so a peer's DM rows are known before its inbox row.
+    let mut by_peer: BTreeMap<String, Vec<ConsentSave>> = BTreeMap::new();
+    // Each conversation row reads its DM's id with it, so no DM is held apart.
+    for consent in diesel::sql_query(
+        "SELECT c.entity_type, c.state, c.entity, c.consented_at_ns, g.dm_id \
+         FROM consent_records c LEFT JOIN groups g \
+         ON c.entity_type = 1 AND g.id = unhex(c.entity) AND g.dm_id IS NOT NULL \
+         ORDER BY c.entity_type, c.entity",
+    )
+    .load_iter::<Consent, DefaultLoadingMode>(conn)?
     {
         let consent = consent?;
         if !matches!(consent.entity_type, 1 | 2) || consent.entity.is_empty() {
             return Err(invalid("invalid required consent identity or enum"));
         }
-        emit(Element::Consent(ConsentSave {
+        let entity = consent.entity.to_ascii_lowercase();
+        let save = ConsentSave {
             entity_type: consent.entity_type,
             state: match consent.state {
                 0 => ConsentStateSave::Unknown,
@@ -285,15 +325,33 @@ pub(crate) fn export(
             } as i32,
             entity: consent.entity,
             consented_at_ns: consent.consented_at_ns,
-        }))?;
-        report.consent_count += 1;
+        };
+        let peer = match (consent.entity_type, &own, &consent.dm_id) {
+            (1, Some(own), Some(dm_id)) => xmtp_archive::pre8::dm_peer(dm_id, &own.inbox_id)
+                .map(|peer| peer.to_ascii_lowercase()),
+            (1, ..) => None,
+            _ => by_peer.contains_key(&entity).then_some(entity),
+        };
+        match peer {
+            Some(peer) => by_peer.entry(peer).or_default().push(save),
+            None => {
+                emit(Element::Consent(save))?;
+                report.consent_count += 1;
+            }
+        }
+    }
+    for (peer, rows) in &by_peer {
+        if let Some(save) = xmtp_archive::pre8::pre8_peer_consent(peer, rows) {
+            emit(Element::Consent(save))?;
+            report.consent_count += 1;
+        }
     }
     Ok(report)
 }
 
 impl MessageRow {
     #[allow(deprecated)]
-    fn into_save(self) -> Result<Option<GroupMessageSave>, MigrationError> {
+    fn into_save(self) -> Result<GroupMessageSave, MigrationError> {
         if self.id.is_empty() || self.group_id.len() != 16 || !matches!(self.delivery_status, 1..=3)
         {
             return Err(invalid(
@@ -302,12 +360,13 @@ impl MessageRow {
         }
         let encoded_type = match EncodedContent::decode(self.decrypted_message_bytes.as_slice()) {
             Ok(content) => content.r#type,
-            Err(error) if self.deletion_authorized => {
+            Err(error) if self.deleted_by.is_some() => {
                 return Err(MigrationError::RecordRead(RecordError::Content(error)));
             }
             Err(_) => None,
         };
-        if self.deletion_authorized {
+        let mut deleted_by = None;
+        if let Some(deleter) = &self.deleted_by {
             let id = encoded_type
                 .as_ref()
                 .ok_or_else(|| invalid("missing deleted-message content type"))?;
@@ -324,8 +383,25 @@ impl MessageRow {
                     | "walletSendCalls"
                     | "multiRemoteStaticAttachment"
             ) {
-                return Ok(None);
+                // implements: MIG-010
+                deleted_by = Some(deleter.clone());
             }
+        }
+        // The archive also carries the type fields copied from the content, so they
+        // count toward the same budget as the SQL check.
+        let copied = encoded_type
+            .as_ref()
+            .map_or(0, |id| id.type_id.len() + id.authority_id.len());
+        let retained = self.id.len()
+            + self.group_id.len()
+            + self.decrypted_message_bytes.len()
+            + self.sender_installation_id.len()
+            + self.sender_inbox_id.len()
+            + self.authority_id.len()
+            + self.reference_id.as_ref().map_or(0, Vec::len)
+            + self.deleted_by.as_ref().map_or(0, String::len);
+        if retained + copied > MAX_ROW_BYTES as usize {
+            return Err(invalid("stored message row exceeds the 64 MiB byte limit"));
         }
         let mut save = GroupMessageSave {
             id: self.id,
@@ -344,6 +420,9 @@ impl MessageRow {
             sequence_id: Some(self.sequence_id),
             originator_id: Some(self.originator_id),
             content_type: legacy_content_type(self.content_type).to_owned(),
+            expires_at_ns: None,
+            expiry_known: None,
+            deleted_by_inbox_id: None,
         };
         if let Some(id) = encoded_type {
             save.authority_id = id.authority_id;
@@ -351,7 +430,13 @@ impl MessageRow {
             save.version_major = id.version_major as i32;
             save.version_minor = id.version_minor as i32;
         }
-        Ok(Some(save))
+        // A deleted message is written as a placeholder: empty content and its
+        // deleter.
+        if let Some(deleter) = deleted_by {
+            save.decrypted_message_bytes = Vec::new();
+            save.deleted_by_inbox_id = Some(deleter);
+        }
+        Ok(save)
     }
 }
 

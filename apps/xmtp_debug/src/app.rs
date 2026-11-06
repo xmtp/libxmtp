@@ -74,8 +74,12 @@ impl App {
     }
 
     pub fn init_db(&self) -> Result<()> {
-        fs::create_dir_all(&Self::data_directory()?)?;
-        fs::create_dir_all(&Self::db_directory()?)?;
+        // Holds installation keys and unencrypted stores: owner only.
+        let mut dirs = fs::DirBuilder::new();
+        dirs.recursive(true);
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut dirs, 0o700);
+        dirs.create(Self::db_directory()?)?;
         Self::detect_legacy_db(&Self::redb()?)?;
         debug!(
             directory = %Self::data_directory()?.display(),

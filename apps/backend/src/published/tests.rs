@@ -54,6 +54,8 @@ async fn initialize_without_storage(
     let closed = std::net::TcpListener::bind("127.0.0.1:0")?.local_addr()?;
     let mut config = config.into_config();
     config.database.url = format!("postgres://xmtp:xmtp@{closed}/xmtp");
+    // Every test backend runs with rate limits off, as `config_for` sets.
+    config.rate_limits.enabled = false;
     xmtp_common::time::timeout(
         std::time::Duration::from_secs(10),
         server::initialize(config.validate()?),

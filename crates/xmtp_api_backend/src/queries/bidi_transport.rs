@@ -33,7 +33,6 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-use prost::Message;
 use tokio::sync::{mpsc, oneshot};
 use xmtp_common::rate_limit::Bucket;
 use xmtp_common::time::Instant;
@@ -41,12 +40,9 @@ use xmtp_common::{BoxDynFuture, MaybeSend, MaybeSync, RetryableError};
 #[cfg(not(test))]
 use xmtp_configuration::AUTH_LOCKOUT_COOLDOWN;
 use xmtp_proto::api::ApiClientError;
-use xmtp_proto::{
-    backend_v1::ServerEnvelope,
-    types::{
-        Cursor, IncomingBatchLimits, IncomingEvent, IncomingSubscription, OrderedEnvelopeBatch,
-        Topic, TopicCursor,
-    },
+use xmtp_proto::types::{
+    Cursor, IncomingBatchLimits, IncomingEvent, IncomingSubscription, OrderedEnvelopeBatch,
+    ReceivedEnvelope, Topic, TopicCursor,
 };
 
 /// Keep the cool-down wait short in tests. Match the middleware's test value,
@@ -66,10 +62,12 @@ const OUTBOX_RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_mil
 /// progressing backlog can keep the global wire gate active beyond this period.
 const INCOMING_PAUSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
-fn update_budget() -> Bucket {
-    Bucket::new(
-        xmtp_configuration::BACKEND_DEFAULT_MAX_UPDATE_FRAMES_PER_SECOND,
-        xmtp_configuration::BACKEND_DEFAULT_MAX_UPDATE_BURST,
+// implements: CONF-093
+fn update_budget(limits: &MutateLimits) -> Bucket {
+    Bucket::with_margin(
+        limits.update_rate.max(1),
+        limits.update_burst.max(1),
+        xmtp_configuration::STREAM_UPDATE_PACING_MARGIN,
     )
 }
 
@@ -81,13 +79,15 @@ pub(crate) const MAX_MUTATE_BYTES: usize =
 /// Conservative protobuf overhead per topic, including cursor and length fields.
 const PER_ENTRY_OVERHEAD: usize = 64;
 
-/// The interest-update frame shapes one deployment accepts. Adds and
+/// The interest-update frame sizes and pacing one deployment accepts. Adds and
 /// removes have separate caps because the backend enforces them separately.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct MutateLimits {
     pub add_cap: usize,
     pub remove_cap: usize,
     pub byte_cap: usize,
+    pub update_rate: u32,
+    pub update_burst: u32,
 }
 
 impl Default for MutateLimits {
@@ -96,12 +96,14 @@ impl Default for MutateLimits {
             add_cap: MAX_MUTATE_TOPICS,
             remove_cap: xmtp_configuration::BACKEND_DEFAULT_MAX_UPDATE_REMOVES,
             byte_cap: MAX_MUTATE_BYTES,
+            update_rate: xmtp_configuration::BACKEND_DEFAULT_MAX_UPDATE_FRAMES_PER_SECOND,
+            update_burst: xmtp_configuration::BACKEND_DEFAULT_MAX_UPDATE_BURST,
         }
     }
 }
 
 impl MutateLimits {
-    /// Take the caps a deployment published, leaving the same room for the
+    /// Take the limits a deployment published, leaving the same room for the
     /// request wrapper the compiled default leaves.
     pub fn from_limits(limits: &xmtp_configuration::LimitsConfiguration) -> Self {
         Self {
@@ -111,6 +113,8 @@ impl MutateLimits {
                 .max_request_bytes
                 .saturating_sub(PER_ENTRY_OVERHEAD)
                 .max(1),
+            update_rate: limits.max_update_frames_per_second.max(1),
+            update_burst: limits.max_update_burst.max(1),
         }
     }
 }
@@ -127,9 +131,12 @@ pub fn chunk_mutate_adds<C>(adds: Vec<(Topic, C)>) -> Vec<Vec<(Topic, C)>> {
     })
 }
 
-const RECONNECT_INITIAL_DELAY: std::time::Duration = std::time::Duration::from_millis(100);
+/// The first reconnect backoff, and the one a healthy wire's end resets to.
+/// Each other end doubles the backoff, and a reconnect waits up to twice it.
+pub const RECONNECT_INITIAL_DELAY: std::time::Duration = std::time::Duration::from_millis(100);
 const RECONNECT_MAX_DELAY: std::time::Duration = std::time::Duration::from_secs(30);
-const MIN_STABLE_UPTIME: std::time::Duration = std::time::Duration::from_secs(10);
+/// A wire up this long ended healthy, unless a rate limit ended it.
+pub const MIN_STABLE_UPTIME: std::time::Duration = std::time::Duration::from_secs(10);
 /// Bound the background drain after request half-close.
 const GRACEFUL_CLOSE_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
 
@@ -139,6 +146,7 @@ pub struct OpenError {
     retryable: bool,
     locked_out: bool,
     attempted: bool,
+    rate_limit_delay: Option<std::time::Duration>,
     source: Box<dyn std::error::Error + Send + Sync + 'static>,
 }
 
@@ -151,6 +159,7 @@ impl OpenError {
             retryable: e.is_retryable(),
             locked_out: Self::locked_out_of(&e),
             attempted: !Self::cooldown_refusal(&e),
+            rate_limit_delay: xmtp_api_grpc::error::rate_limit_delay(&e),
             source: Box::new(e),
         }
     }
@@ -171,6 +180,7 @@ impl OpenError {
             retryable: true,
             locked_out: false,
             attempted: true,
+            rate_limit_delay: None,
             source: e.into(),
         }
     }
@@ -181,6 +191,7 @@ impl OpenError {
             retryable: false,
             locked_out: false,
             attempted: true,
+            rate_limit_delay: None,
             source: e.into(),
         }
     }
@@ -222,6 +233,11 @@ impl xmtp_common::RetryableError for OpenError {
     fn is_retryable(&self) -> bool {
         self.retryable
     }
+
+    /// The delay of a rate-limit refusal, captured before the error is erased.
+    fn rate_limit_delay(&self) -> Option<std::time::Duration> {
+        self.rate_limit_delay
+    }
 }
 
 /// Map backend envelopes to topics and positions for the lease ledger.
@@ -245,8 +261,8 @@ where
 
     fn group_cursor(msg: &Self::GroupMessage) -> Option<Self::Cursor>;
     fn welcome_cursor(msg: &Self::WelcomeMessage) -> Option<Self::Cursor>;
-    fn group_envelope(msg: &Self::GroupMessage) -> &ServerEnvelope;
-    fn welcome_envelope(msg: &Self::WelcomeMessage) -> &ServerEnvelope;
+    fn group_envelope(msg: &Self::GroupMessage) -> &ReceivedEnvelope;
+    fn welcome_envelope(msg: &Self::WelcomeMessage) -> &ReceivedEnvelope;
     fn advance(position: &mut Self::Cursor, delivered: Self::Cursor);
     /// Return true when the position is at or above the delivered cursor.
     fn covers(position: &Self::Cursor, delivered: &Self::Cursor) -> bool;
@@ -295,6 +311,14 @@ impl xmtp_common::RetryableError for TransportError {
             Self::Open(e) => e.is_retryable(),
             Self::Wire(e) => e.is_retryable(),
             Self::Closed | Self::Empty | Self::TooManyTopics | Self::Protocol(_) => false,
+        }
+    }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            Self::Open(e) => e.rate_limit_delay(),
+            Self::Wire(e) => e.rate_limit_delay(),
+            _ => None,
         }
     }
 }
@@ -426,7 +450,8 @@ where
         Self::spawn(opener, initially_suspended, MutateLimits::default())
     }
 
-    /// Open lazily, chunking interest updates to what the deployment published.
+    /// Open lazily, chunking and pacing updates to what the deployment published.
+    /// Zero pacing values use the minimum rate and burst of one.
     pub fn new_within<O, Fut>(opener: O, initially_suspended: bool, mutate: MutateLimits) -> Self
     where
         O: Fn(B::Mutate) -> Fut + MaybeSend + MaybeSync + 'static,
@@ -453,6 +478,7 @@ where
                 add_cap: chunk_cap,
                 remove_cap: chunk_cap,
                 byte_cap: chunk_bytes,
+                ..MutateLimits::default()
             },
         )
     }
@@ -720,14 +746,7 @@ where
                     let IncomingEvent::OrderedBatch(batch) = event else {
                         return None;
                     };
-                    let last = batch
-                        .envelopes
-                        .last()?
-                        .meta
-                        .as_ref()?
-                        .cursor
-                        .as_ref()?
-                        .sequence_id;
+                    let last = batch.envelopes.last()?.meta()?.cursor.as_ref()?.sequence_id;
                     Some((batch.topic.clone(), last))
                 })
                 .collect();
@@ -889,12 +908,12 @@ where
     fn demux_incoming<M>(
         &mut self,
         messages: &[M],
-        envelope_of: impl Fn(&M) -> &ServerEnvelope,
+        envelope_of: impl Fn(&M) -> &ReceivedEnvelope,
     ) -> Result<Vec<LeaseId>, &'static str> {
         let mut positions = HashMap::new();
         for message in messages {
             let envelope = envelope_of(message);
-            let meta = envelope.meta.as_ref().ok_or("metadata")?;
+            let meta = envelope.meta().ok_or("metadata")?;
             let topic =
                 Topic::parse(&meta.topic.as_ref().ok_or("topic")?.topic).map_err(|_| "topic")?;
             let (_, cursor, _) =
@@ -922,7 +941,7 @@ where
             let mut impossible = false;
             for message in messages {
                 let envelope = envelope_of(message);
-                let meta = envelope.meta.as_ref().ok_or("metadata")?;
+                let meta = envelope.meta().ok_or("metadata")?;
                 let topic = Topic::parse(&meta.topic.as_ref().ok_or("topic")?.topic)
                     .map_err(|_| "topic")?;
                 let Some(registration) = self.registrations.get(&topic) else {
@@ -939,7 +958,7 @@ where
                 }
                 // Validate every selected envelope before sending any part of the frame.
                 // A zero row budget cannot admit even one envelope either.
-                impossible |= limits.max_rows == 0 || envelope.encoded_len() > limits.max_bytes;
+                impossible |= limits.max_rows == 0 || envelope.raw().len() > limits.max_bytes;
                 selected.push((topic, envelope));
             }
             if impossible {
@@ -963,9 +982,9 @@ where
                 selected,
                 limits.max_rows,
                 limits.max_bytes,
-                |(_, envelope)| envelope.encoded_len(),
+                |(_, envelope)| envelope.raw().len(),
             ) {
-                let mut by_topic: HashMap<Topic, Vec<ServerEnvelope>> = HashMap::new();
+                let mut by_topic: HashMap<Topic, Vec<ReceivedEnvelope>> = HashMap::new();
                 for (topic, envelope) in chunk {
                     by_topic.entry(topic).or_default().push(envelope.clone());
                 }
@@ -975,7 +994,7 @@ where
                     let after = Cursor((*position).into());
                     let last = envelopes
                         .last()
-                        .and_then(|envelope| envelope.meta.as_ref()?.cursor.as_ref())
+                        .and_then(|envelope| envelope.meta()?.cursor.as_ref())
                         .ok_or("cursor")?
                         .sequence_id;
                     B::advance(position, last.into());
@@ -1409,13 +1428,14 @@ async fn run_ledger<B: TransportBinding>(
         conn: None,
         reconnect_delay: RECONNECT_INITIAL_DELAY,
         reconnect_at: tokio::time::Instant::now(),
+        rate_limited_until: None,
         wire_opened_at: None,
         wire_span: None,
         suspended: initially_suspended,
         wire_opens: 0,
         resume_notify: Vec::new(),
         outbox: Outbox::default(),
-        update_budget: update_budget(),
+        update_budget: update_budget(&mutate),
         deferred: std::collections::VecDeque::new(),
     }
     .run()
@@ -1439,6 +1459,8 @@ where
     conn: Option<Connection<B>>,
     reconnect_delay: std::time::Duration,
     reconnect_at: tokio::time::Instant,
+    /// No open before this instant: a rate-limit rejection's delay (RATE-041).
+    rate_limited_until: Option<tokio::time::Instant>,
     wire_opened_at: Option<tokio::time::Instant>,
     wire_span: Option<tracing::Span>,
     suspended: bool,
@@ -1566,7 +1588,7 @@ where
     }
 
     fn open_wire_span(&mut self) {
-        self.update_budget = update_budget();
+        self.update_budget = update_budget(&self.ledger.mutate);
         // The opener already sent the first Update on this connection.
         self.update_budget.take();
         self.wire_opened_at = Some(tokio::time::Instant::now());
@@ -1649,6 +1671,7 @@ where
                     self.ledger.deref(id);
                     self.ledger.reset_wire();
                     self.outbox.clear();
+                    self.rate_limited(error.rate_limit_delay());
                     self.reconnect_delay = if error.is_locked_out() {
                         AUTH_LOCKOUT_COOLDOWN
                     } else {
@@ -1745,10 +1768,7 @@ where
         self.suspended = true;
         self.outbox.clear();
         self.ledger.reset_wire();
-        self.close_wire_span("suspend");
-        if let Some(wire) = self.conn.take() {
-            close_gracefully(wire);
-        }
+        self.close_wire("suspend");
         for waiter in self.resume_notify.drain(..) {
             let _ = waiter.send(());
         }
@@ -1775,6 +1795,15 @@ where
             return Flow::Continue;
         }
         if was_suspended {
+            if let Some(until) = self
+                .rate_limited_until
+                .filter(|until| tokio::time::Instant::now() < *until)
+            {
+                // Keep the backoff for later failures, and open when the
+                // delay ends, not after the grown backoff.
+                self.reconnect_at = until;
+                return Flow::Continue;
+            }
             self.reconnect_delay = RECONNECT_INITIAL_DELAY;
             self.reconnect().await
         } else {
@@ -1856,10 +1885,41 @@ where
         Flow::Continue
     }
 
+    /// Schedule the next open, never before a rate-limit delay ends.
     fn arm_reconnect(&mut self) -> std::time::Duration {
+        let now = tokio::time::Instant::now();
         let delay = self.reconnect_delay + xmtp_common::time::rand_offset(self.reconnect_delay);
-        self.reconnect_at = tokio::time::Instant::now() + delay;
-        delay
+        self.reconnect_at = (now + delay).max(self.rate_limited_until.unwrap_or(now));
+        self.reconnect_at - now
+    }
+
+    /// Hold every open until a rate-limit rejection's delay has passed.
+    // implements: RATE-041
+    fn rate_limited(&mut self, delay: Option<std::time::Duration>) -> bool {
+        let Some(delay) = delay else {
+            return false;
+        };
+        let now = tokio::time::Instant::now();
+        // Saturate far beyond any process lifetime instead of overflowing.
+        let until = now
+            .checked_add(delay)
+            .unwrap_or_else(|| now + xmtp_common::time::FAR_FUTURE);
+        self.rate_limited_until = Some(self.rate_limited_until.map_or(until, |at| at.max(until)));
+        // Every scheduled or cold open waits for `reconnect_at`.
+        self.reconnect_at = self.reconnect_at.max(until);
+        true
+    }
+
+    /// Close the wire, keeping any rate-limit delay its end already recorded.
+    fn close_wire(&mut self, reason: &'static str) {
+        self.close_wire_span(reason);
+        if let Some(wire) = self.conn.take() {
+            self.rate_limited(
+                wire.failure()
+                    .and_then(|failure| xmtp_api_grpc::error::rate_limit_delay(&*failure)),
+            );
+            close_gracefully(wire);
+        }
     }
 
     fn wire_died(&mut self) -> Flow {
@@ -1898,10 +1958,15 @@ where
         self.drop_leases(dropped);
         self.ledger.reset_wire();
         self.close_wire_span("wire_end");
-        let stable = self
-            .wire_opened_at
-            .take()
-            .is_some_and(|opened| opened.elapsed() >= MIN_STABLE_UPTIME);
+        let rate_limited = self.rate_limited(
+            failure
+                .as_deref()
+                .and_then(|failure| xmtp_api_grpc::error::rate_limit_delay(failure)),
+        );
+        // A rate-limit end is a refusal, not proof the wire is healthy.
+        let opened_at = self.wire_opened_at.take();
+        let stable =
+            !rate_limited && opened_at.is_some_and(|opened| opened.elapsed() >= MIN_STABLE_UPTIME);
         self.reconnect_delay = if stable {
             RECONNECT_INITIAL_DELAY
         } else {
@@ -1962,6 +2027,7 @@ where
             OpenOutcome::Failed(error) => {
                 self.outbox.clear();
                 self.ledger.reset_wire();
+                self.rate_limited(error.rate_limit_delay());
                 // A lockout uses its full cooldown before the next attempt.
                 // Only the failure that started it spends a recovery cycle.
                 let locked_out = error.is_locked_out();
@@ -2077,10 +2143,7 @@ where
         if self.ledger.leases.is_empty() {
             self.outbox.clear();
             self.ledger.reset_wire();
-            self.close_wire_span("idle");
-            if let Some(wire) = self.conn.take() {
-                close_gracefully(wire);
-            }
+            self.close_wire("idle");
             return;
         }
         if self.conn.is_none() {

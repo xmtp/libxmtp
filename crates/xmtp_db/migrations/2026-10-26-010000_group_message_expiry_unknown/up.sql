@@ -1,0 +1,1 @@
+ALTER TABLE group_messages ADD COLUMN expiry_unknown BOOLEAN NOT NULL DEFAULT 0;

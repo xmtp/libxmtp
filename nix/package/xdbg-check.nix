@@ -14,9 +14,11 @@ let
   rust = craneLib.overrideToolchain xmtp.hostToolchain;
 
   # Other members stay stubs so cargo --locked can resolve the workspace.
+  # `.clippy.toml` carries the workspace's disallowed-method bans.
   src = xmtp.filesets.mkClosureSource rust {
     roots = [ (root + /apps/xmtp_debug) ];
     dev = true;
+    extra = [ (root + /.clippy.toml) ];
   };
 
   # Clippy reuses the check-mode metadata of third-party crates.

@@ -1,6 +1,11 @@
 import { randomBytes } from "node:crypto";
 
-import type { Client, Conversation, NotificationChannel } from "@xmtp/node-sdk";
+import {
+  parsePushHint,
+  type Client,
+  type Conversation,
+  type NotificationChannel,
+} from "@xmtp/node-sdk";
 
 export async function configureNotifications(
   client: Client,
@@ -38,26 +43,17 @@ export async function receivePushHint(
   hint: { topic: string; sequence_id: string },
 ) {
   // #region receive
-  const topic = Buffer.from(hint.topic, "base64");
-  if (topic.toString("base64") !== hint.topic) {
-    throw new Error("Invalid push topic encoding");
+  // Throws InvalidArgument for a malformed topic or sequence id.
+  const { topic, sequenceId } = parsePushHint(hint.topic, hint.sequence_id);
+  // Push subscriptions carry only group and welcome topics.
+  if (topic.kind !== "groupMessages" && topic.kind !== "welcomeMessages") {
+    throw new Error("Unexpected push topic kind");
   }
-  if (!/^[0-9]+$/.test(hint.sequence_id)) {
-    throw new Error("Invalid push sequence");
-  }
-  const sequenceId = BigInt(hint.sequence_id);
-  if (sequenceId === 0n || sequenceId > 18446744073709551615n) {
-    throw new Error("Invalid push sequence");
-  }
-  const isGroup = topic[0] === 0 && topic.length === 17;
-  const isWelcome = topic[0] === 1 && topic.length === 33;
-  if (!isGroup && !isWelcome) throw new Error("Invalid push topic");
 
   // Fetch and process welcomes before looking up the group.
   await client.conversations.sync();
-  if (isWelcome) return;
-  const groupId = topic.subarray(1).toString("hex");
-  const conversation = await client.conversations.getById(groupId);
+  if (topic.kind === "welcomeMessages") return;
+  const conversation = await client.conversations.getById(topic.conversationId);
   if (!conversation) throw new Error("Conversation is not available yet");
   await conversation.sync();
   const messages = await conversation.messages();

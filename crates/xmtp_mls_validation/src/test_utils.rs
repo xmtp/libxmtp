@@ -1,18 +1,17 @@
 //! Stateless payload fixtures for native and wasm callers.
 
 use openmls::{
-    extensions::{
-        AppDataDictionary, AppDataDictionaryExtension, Extension, ExtensionType, Extensions,
-    },
+    extensions::{AppDataDictionary, AppDataDictionaryExtension, Extension, Extensions},
     key_packages::Lifetime,
     prelude::{
         Capabilities, Ciphersuite, CredentialWithKey, GroupId as OpenMlsGroupId,
         KeyPackage as OpenMlsKeyPackage, LeafNodeParameters, MlsGroup, MlsGroupCreateConfig,
-        MlsMessageOut, OpenMlsCrypto, OpenMlsProvider, SignatureScheme, tls_codec::Serialize,
+        MlsMessageOut, tls_codec::Serialize,
     },
 };
 use openmls_rust_crypto::OpenMlsRustCrypto;
-use xmtp_cryptography::{Secret, XmtpInstallationCredential, utils::generate_local_wallet};
+use prost::Message as _;
+use xmtp_cryptography::{XmtpInstallationCredential, utils::generate_local_wallet};
 use xmtp_id::{
     InboxOwner,
     associations::{
@@ -31,9 +30,12 @@ use xmtp_id::{
     scw_verifier::{BlockStamp, ChainBlocks, VerifierError},
     utils::passkey::PasskeyUser,
 };
+use xmtp_mls_group_keys::group_keys::{
+    GroupKeys, GroupRoot, seal_commit_log_entry, sign_group_message,
+};
 use xmtp_proto::xmtp::{
     backend::v1::{
-        ClientEnvelope, CommitLogEntry, GroupMessage, KeyPackage, WelcomeMessage,
+        ClientEnvelope, GroupMessage, KeyPackage, WelcomeMessage,
         client_envelope::Payload,
         welcome_message::{V1, Version, WelcomePointer},
     },
@@ -43,7 +45,6 @@ use xmtp_proto::xmtp::{
 
 use std::sync::{Arc, Mutex};
 
-pub const GROUP_ID: [u8; 16] = [0x11; 16];
 pub const INSTALLATION_ID: [u8; 32] = [0x22; 32];
 
 /// A controlled chain producing one block per second, so block `n` has
@@ -87,6 +88,38 @@ impl ChainBlocks for TestChain {
     }
 }
 
+/// Counts the heads and timestamps it reads from a [`TestChain`]. Clones
+/// share the counts.
+#[derive(Clone)]
+pub struct CountingChain(TestChain, Arc<Mutex<(usize, usize)>>);
+
+impl CountingChain {
+    pub fn at(head: u64) -> Self {
+        Self::new(TestChain::at(head))
+    }
+
+    pub fn new(chain: TestChain) -> Self {
+        Self(chain, Arc::default())
+    }
+
+    pub fn reads(&self) -> (usize, usize) {
+        *self.1.lock().expect("counting chain lock")
+    }
+}
+
+#[xmtp_common::async_trait]
+impl ChainBlocks for CountingChain {
+    async fn head(&self, chain_id: &str) -> Result<BlockStamp, VerifierError> {
+        self.1.lock().expect("counting chain lock").0 += 1;
+        self.0.head(chain_id).await
+    }
+
+    async fn timestamp(&self, chain_id: &str, number: u64) -> Result<u64, VerifierError> {
+        self.1.lock().expect("counting chain lock").1 += 1;
+        self.0.timestamp(chain_id, number).await
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GroupMessageKind {
     Application,
@@ -126,6 +159,8 @@ pub fn group_message_envelope(
                 .expect("proposal fixture builds")
                 .0
         }
+        // The fixture group holds no group root, and only the commit leaves.
+        #[allow(clippy::disallowed_methods)]
         GroupMessageKind::Commit => {
             group
                 .self_update(&provider, &signer, LeafNodeParameters::default())
@@ -143,7 +178,50 @@ pub fn group_message_envelope(
             data: bytes,
             sender_hmac: vec![0x33, 0x44],
             should_push: true,
+            signature: vec![],
         })),
+    }
+}
+
+/// The keys of the keyed group whose root is 32 copies of `seed`, so a
+/// fixture names the same group on every run.
+pub fn group_keys(seed: u8) -> GroupKeys {
+    GroupKeys::derive(&GroupRoot::from_bytes(&[seed; 32]).expect("a fixture root is 32 bytes"))
+}
+
+/// A group message of the keyed group of `keys`, signed under its group
+/// signing key as a client publishes it. Change a signed field afterwards to
+/// build a message whose signature no longer verifies.
+pub fn keyed_group_message_envelope(
+    keys: &GroupKeys,
+    kind: GroupMessageKind,
+    trailing_bytes: impl AsRef<[u8]>,
+) -> ClientEnvelope {
+    let mut envelope = group_message_envelope(keys.group_id(), kind, trailing_bytes);
+    let Some(Payload::GroupMessage(message)) = envelope.payload.as_mut() else {
+        unreachable!("the fixture is a group message")
+    };
+    sign_group_message(keys, message).expect("fixture signing passes the self-check");
+    envelope
+}
+
+/// A sealed commit-log entry of the keyed group of `keys` at
+/// `commit_sequence_id`, as a client publishes it.
+pub fn sealed_commit_log_envelope(keys: &GroupKeys, commit_sequence_id: u64) -> ClientEnvelope {
+    let entry = PlaintextCommitLogEntry {
+        group_id: keys.group_id().to_vec(),
+        commit_sequence_id,
+        last_epoch_authenticator: vec![0x60, 0x61],
+        commit_result: 1,
+        applied_epoch_number: 8,
+        applied_epoch_authenticator: vec![0x62, 0x63],
+        ..Default::default()
+    };
+    ClientEnvelope {
+        payload: Some(Payload::SealedCommitLogEntry(
+            seal_commit_log_entry(keys, &entry.encode_to_vec())
+                .expect("fixture sealing passes the self-check"),
+        )),
     }
 }
 
@@ -167,6 +245,7 @@ pub fn non_protocol_group_message_envelope() -> ClientEnvelope {
             data: bytes,
             sender_hmac: vec![],
             should_push: false,
+            signature: vec![],
         })),
     }
 }
@@ -287,42 +366,59 @@ pub const LAST_RESORT_COMPONENT: u16 = 0x0004;
 /// Build a key package whose `app_data_dictionary` extension holds
 /// `components`, with capabilities that advertise the dictionary.
 pub fn app_data_key_package_envelope(components: &[(u16, Vec<u8>)]) -> KeyPackageFixture {
-    let inbox_id = "app-data-key-package".to_string();
-    let provider = OpenMlsRustCrypto::default();
-    let installation_keys = XmtpInstallationCredential::new();
     let mut dictionary = AppDataDictionary::new();
     for (component, data) in components {
         let _ = dictionary.insert(*component, data.clone());
     }
+    single_extension_key_package_envelope(
+        "app-data-key-package",
+        Extension::AppDataDictionary(AppDataDictionaryExtension::new(dictionary)),
+    )
+}
+
+/// Build a key package with one XMTP addressing extension, `extension_id`
+/// (`0xff03` or `0xff04`) holding `data`, that its capabilities advertise.
+pub fn addressing_key_package_envelope(extension_id: u16, data: Vec<u8>) -> KeyPackageFixture {
+    single_extension_key_package_envelope(
+        "addressing-key-package",
+        Extension::Unknown(extension_id, openmls::extensions::UnknownExtension(data)),
+    )
+}
+
+/// A key package for `inbox_id` whose only key package extension is
+/// `extension`, with capabilities that advertise its type.
+fn single_extension_key_package_envelope(
+    inbox_id: &str,
+    extension: Extension,
+) -> KeyPackageFixture {
+    let provider = OpenMlsRustCrypto::default();
+    let installation_keys = XmtpInstallationCredential::new();
     let ciphersuite = xmtp_cryptography::configuration::CIPHERSUITE;
     let bundle = OpenMlsKeyPackage::builder()
         .leaf_node_capabilities(Capabilities::new(
             None,
             Some(&[ciphersuite]),
-            Some(&[ExtensionType::AppDataDictionary]),
+            Some(&[extension.extension_type()]),
             None,
             None,
         ))
         .key_package_extensions(
-            Extensions::from_vec(vec![Extension::AppDataDictionary(
-                AppDataDictionaryExtension::new(dictionary),
-            )])
-            .expect("one AppData dictionary is a valid extension list"),
+            Extensions::single(extension).expect("one extension is a valid extension list"),
         )
         .build(
             ciphersuite,
             &provider,
             &installation_keys,
             CredentialWithKey {
-                credential: create_credential(&inbox_id),
+                credential: create_credential(inbox_id),
                 signature_key: installation_keys.public_slice().into(),
             },
         )
-        .expect("AppData key-package fixture builds");
+        .expect("single-extension key-package fixture builds");
     let tls_bytes = bundle
         .key_package()
         .tls_serialize_detached()
-        .expect("AppData key-package fixture serializes");
+        .expect("single-extension key-package fixture serializes");
     KeyPackageFixture {
         envelope: ClientEnvelope {
             payload: Some(Payload::KeyPackage(KeyPackage {
@@ -331,7 +427,7 @@ pub fn app_data_key_package_envelope(components: &[(u16, Vec<u8>)]) -> KeyPackag
         },
         tls_bytes,
         installation_id: installation_keys.public_slice().to_vec(),
-        inbox_id,
+        inbox_id: inbox_id.to_string(),
     }
 }
 
@@ -453,13 +549,21 @@ pub fn scw_create_inbox_update() -> IdentityUpdate {
 
 /// Create the fixture wallet's inbox with an ERC-6492 signature at `block_number`.
 pub fn scw_create_inbox_update_at(block_number: u64) -> IdentityUpdate {
+    scw_create_nonce_inbox_update_at(0, block_number)
+}
+
+/// Create the fixture wallet's inbox of `nonce`, signed at `block_number`.
+pub fn scw_create_nonce_inbox_update_at(nonce: u64, block_number: u64) -> IdentityUpdate {
+    let identifier = Identifier::eth(SCW_ACCOUNT).expect("fixture account is valid");
     UnverifiedIdentityUpdate::new(
-        scw_inbox_id(),
+        identifier
+            .inbox_id(nonce)
+            .expect("fixture account derives an inbox"),
         1,
         vec![UnverifiedAction::CreateInbox(UnverifiedCreateInbox::new(
             UnsignedCreateInbox {
-                account_identifier: Identifier::eth(SCW_ACCOUNT).expect("fixture account is valid"),
-                nonce: 0,
+                account_identifier: identifier,
+                nonce,
             },
             scw_signature(0x55, block_number),
         ))],
@@ -467,8 +571,9 @@ pub fn scw_create_inbox_update_at(block_number: u64) -> IdentityUpdate {
     .into()
 }
 
-/// Move the fixture inbox's recovery identifier, signed by the wallet at
-/// `block_number`. It applies after [`scw_create_inbox_update_at`].
+/// Set the fixture inbox's recovery identifier to the wallet itself, its only
+/// member, signed by the wallet at `block_number`. It applies after
+/// [`scw_create_inbox_update_at`].
 pub fn scw_change_recovery_update_at(block_number: u64) -> IdentityUpdate {
     UnverifiedIdentityUpdate::new(
         scw_inbox_id(),
@@ -476,10 +581,8 @@ pub fn scw_change_recovery_update_at(block_number: u64) -> IdentityUpdate {
         vec![UnverifiedAction::ChangeRecoveryAddress(
             UnverifiedChangeRecoveryAddress::new(
                 UnsignedChangeRecoveryAddress {
-                    new_recovery_identifier: Identifier::eth(
-                        "0x3333333333333333333333333333333333333333",
-                    )
-                    .expect("fixture recovery is valid"),
+                    new_recovery_identifier: Identifier::eth(SCW_ACCOUNT)
+                        .expect("fixture account is valid"),
                 },
                 scw_signature(0x56, block_number),
             ),
@@ -489,8 +592,9 @@ pub fn scw_change_recovery_update_at(block_number: u64) -> IdentityUpdate {
 }
 
 /// Claim `handle` for the fixture inbox, signed by the wallet at
-/// `block_number`. The signature's bytes are `signature`, so two claims with
-/// two bytes have two replay keys. It applies after
+/// `block_number`. The signature's bytes are `signature`, and the update's
+/// time is `signature` seconds. A signature text holds whole seconds, so two
+/// claims with two bytes have two texts and two replay keys. It applies after
 /// [`scw_create_inbox_update_at`].
 pub fn scw_claim_handle_update_at(
     handle: &str,
@@ -499,7 +603,7 @@ pub fn scw_claim_handle_update_at(
 ) -> IdentityUpdate {
     UnverifiedIdentityUpdate::new(
         scw_inbox_id(),
-        3,
+        u64::from(signature) * xmtp_common::NS_IN_SEC.unsigned_abs(),
         vec![UnverifiedAction::ClaimHandle(UnverifiedClaimHandle::new(
             UnsignedClaimHandle {
                 handle: handle.to_string(),
@@ -568,8 +672,11 @@ pub async fn mixed_case_recovery_change() -> (IdentityUpdate, IdentityUpdate) {
     (create, change)
 }
 
-pub fn commit_log_envelope(group_id: impl AsRef<[u8]>) -> ClientEnvelope {
-    let provider = OpenMlsRustCrypto::default();
+/// The bytes of a `ClientEnvelope` whose payload is field 5, the retired
+/// `CommitLogEntry`, as a client from before the cutover encoded it: a
+/// serialized `PlaintextCommitLogEntry` for `group_id`, with no signature.
+/// Field 5 is reserved, so these bytes decode to an envelope with no payload.
+pub fn retired_commit_log_envelope_bytes(group_id: impl AsRef<[u8]>) -> Vec<u8> {
     let entry = PlaintextCommitLogEntry {
         group_id: group_id.as_ref().to_vec(),
         commit_sequence_id: 7,
@@ -577,21 +684,12 @@ pub fn commit_log_envelope(group_id: impl AsRef<[u8]>) -> ClientEnvelope {
         commit_result: 1,
         applied_epoch_number: 8,
         applied_epoch_authenticator: vec![0x62, 0x63],
-    };
-    let (private_key, _) = provider
-        .crypto()
-        .signature_key_gen(SignatureScheme::ED25519)
-        .expect("commit-log fixture key generation succeeds");
-    let signed = xmtp_mls_common::commit_log::sign_commit_log(
-        &entry,
-        &Secret::new(private_key),
-        provider.crypto(),
-    )
-    .expect("commit-log fixture signing succeeds");
-    ClientEnvelope {
-        payload: Some(Payload::CommitLogEntry(CommitLogEntry {
-            serialized_commit_log_entry: signed.serialized_commit_log_entry,
-            signature: Some(signed.signature),
-        })),
+        ..Default::default()
     }
+    .encode_to_vec();
+    let mut retired = Vec::new();
+    prost::encoding::bytes::encode(1, &entry, &mut retired);
+    let mut envelope = Vec::new();
+    prost::encoding::bytes::encode(5, &retired, &mut envelope);
+    envelope
 }

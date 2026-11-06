@@ -1,8 +1,11 @@
-use super::{PendingEnvelope, Store, StoredMeta, identity::apply_projection};
+use super::{
+    PendingEnvelope, Store, StoredMeta,
+    identity::{apply_projection, record_installations},
+};
 use crate::error::{AdmissionError, Error};
 use crate::handles::HandleRejection;
 use sqlx::{PgConnection, PgPool, Postgres, Transaction};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[cfg(test)]
 mod tests;
@@ -29,9 +32,10 @@ impl Store {
     /// Atomically finish a publish after parsing and validation.
     ///
     /// The transaction locks identity state and topics, repeats duplicate
-    /// lookup, checks each identity history head and each claimed handle,
-    /// inserts new rows, advances watermarks, and applies projections before
-    /// commit. A duplicate found by
+    /// lookup, checks each identity history head, each claimed handle and
+    /// each added installation, inserts new rows, advances watermarks, and
+    /// applies projections and installation owners before commit. A duplicate
+    /// found by
     /// the locked check succeeds even when an earlier validation for that copy
     /// failed. A non-duplicate validation error or stale head aborts the whole
     /// transaction. The transaction timeout bounds database work; dropping the
@@ -41,13 +45,9 @@ impl Store {
     pub(crate) async fn commit_publish(
         &self,
         pending: &mut [PendingEnvelope],
-        parse_error: Option<(usize, AdmissionError)>,
         max_duration_ms: u64,
     ) -> Result<Vec<StoredMeta>, Error> {
         if pending.iter().all(|item| item.duplicate.is_some()) {
-            if let Some((index, error)) = parse_error {
-                return Err(Error::Admission { index, error });
-            }
             return pending
                 .iter()
                 .map(|item| {
@@ -63,6 +63,7 @@ impl Store {
         duplicates(&mut tx, pending).await?;
         check_heads(&mut tx, pending).await?;
         check_handles(&mut tx, pending).await?;
+        check_installations(&mut tx, pending).await?;
         let validation_error = pending
             .iter()
             .filter(|item| item.duplicate.is_none())
@@ -72,11 +73,7 @@ impl Store {
                     .err()
                     .map(|error| (item.index, error.clone()))
             });
-        if let Some((index, error)) = validation_error
-            .into_iter()
-            .chain(parse_error)
-            .min_by_key(|(index, _)| *index)
-        {
+        if let Some((index, error)) = validation_error {
             return Err(Error::Admission { index, error });
         }
         let new: Vec<_> = pending
@@ -99,6 +96,7 @@ impl Store {
                 .await?;
             }
         }
+        record_installations(&mut tx, &new).await?;
         tx.commit().await.map_err(Error::from)?;
         let mut inserted = inserted.into_iter();
         pending
@@ -229,23 +227,23 @@ async fn lock(
 ///
 /// This check runs under the identity lock and compares the stored watermark
 /// with the exact head captured during validation. A mismatch returns a stale
-/// history error instead of silently validating against a newer state.
+/// history error instead of silently validating against a newer state. An
+/// update that failed before its history was read has no head and is not
+/// compared, so its own rejection is reported and never becomes a stale
+/// history.
+// implements: API-303
 async fn check_heads(
     tx: &mut Transaction<'_, Postgres>,
     pending: &[PendingEnvelope],
 ) -> Result<(), Error> {
-    let identities: Vec<_> = pending
+    let (topics, heads): (Vec<_>, Vec<_>) = pending
         .iter()
-        .filter(|item| item.duplicate.is_none() && item.identity.is_some())
-        .collect();
-    if identities.is_empty() {
+        .filter(|item| item.duplicate.is_none())
+        .filter_map(|item| Some((item.topic.clone(), item.identity.as_ref()?.head?)))
+        .unzip();
+    if topics.is_empty() {
         return Ok(());
     }
-    let topics: Vec<_> = identities.iter().map(|item| item.topic.clone()).collect();
-    let heads: Vec<_> = identities
-        .iter()
-        .filter_map(|item| item.identity.as_ref().map(|identity| identity.head))
-        .collect();
     let stale = sqlx::query!(
         r#"SELECT EXISTS (
             SELECT 1 FROM unnest($1::bytea[], $2::bigint[]) AS wanted(topic, head)
@@ -331,6 +329,78 @@ async fn check_handles(
     }
     for position in taken {
         pending[position].validation = Err(AdmissionError::Handle(HandleRejection::Taken));
+    }
+    Ok(())
+}
+
+/// Fail each new update that adds an installation another inbox has added,
+/// or that an update for another inbox at a lower index of this request adds.
+///
+/// An addition counts even after its inbox revoked the installation, and an
+/// inbox may add an installation it added before. This runs under the
+/// identity lock, after the handle check, so an addition that commits in a
+/// concurrent request is visible here and two inboxes never both store one
+/// installation. Only updates that passed every earlier check are marked, so
+/// an earlier failure keeps its own reason. The primary key on installation
+/// owners stays a backstop that fails the insert.
+// implements: API-305
+async fn check_installations(
+    tx: &mut Transaction<'_, Postgres>,
+    pending: &mut [PendingEnvelope],
+) -> Result<(), Error> {
+    let mut additions: Vec<_> = pending
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| item.duplicate.is_none() && item.validation.is_ok())
+        .filter_map(|(position, item)| Some((item.index, position, item.identity.as_ref()?)))
+        .flat_map(|(index, position, identity)| {
+            identity.installations.iter().map(move |key| {
+                (
+                    index,
+                    position,
+                    key.as_slice(),
+                    identity.inbox_id.as_slice(),
+                )
+            })
+        })
+        .collect();
+    if additions.is_empty() {
+        return Ok(());
+    }
+    additions.sort_by_key(|(index, ..)| *index);
+    let mut taken = HashSet::new();
+    let mut owners = HashMap::new();
+    for (_, position, key, inbox) in &additions {
+        if *owners.entry(*key).or_insert(*inbox) != *inbox {
+            taken.insert(*position);
+        }
+    }
+    let (keys, inboxes): (Vec<Vec<u8>>, Vec<Vec<u8>>) = additions
+        .iter()
+        .map(|(_, _, key, inbox)| (key.to_vec(), inbox.to_vec()))
+        .unzip();
+    let held = sqlx::query!(
+        r#"SELECT wanted.ordinality AS "ordinality!"
+        FROM unnest($1::bytea[], $2::bytea[]) WITH ORDINALITY AS wanted(installation_key, inbox_id, ordinality)
+        WHERE EXISTS (
+            SELECT 1 FROM installation_association a
+            WHERE a.installation_key = wanted.installation_key AND a.inbox_id <> wanted.inbox_id
+        )"#,
+        &keys,
+        &inboxes
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    for row in held {
+        let ordinal = usize::try_from(row.ordinality - 1)
+            .map_err(|_| Error::Invariant("invalid installation ordinal"))?;
+        let (_, position, ..) = additions
+            .get(ordinal)
+            .ok_or(Error::Invariant("unknown installation ordinal"))?;
+        taken.insert(*position);
+    }
+    for position in taken {
+        pending[position].validation = Err(AdmissionError::InstallationTaken);
     }
     Ok(())
 }

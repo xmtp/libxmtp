@@ -1,9 +1,15 @@
 //! Durable receipt and ordered processing positions for network envelopes.
+//!
+//! Incoming coordinators use `QueryIncomingEnvelope` to admit, retry, and complete
+//! work in a `StreamTopic`. `StoredIncomingEnvelope` preserves input and deadlines;
+//! unreadable Welcome retention is independent of the pointer-fetch retry deadline.
+//! Bounded ready reads exclude scheduled Welcome cursors before applying budgets.
 
 use diesel::{
     prelude::*,
-    sql_types::{BigInt, Binary, Integer},
+    sql_types::{BigInt, Binary, Bool, Integer, Nullable, Text},
 };
+use std::{collections::HashMap, fmt::Write};
 use xmtp_proto::types::{Cursor, GroupId};
 
 use super::{
@@ -17,7 +23,7 @@ use super::{
 use crate::{ConnectionExt, StorageError};
 
 /// Separate network queues with independent pending-work budgets.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NetworkEntityKind {
     /// Independent Welcome work for an installation.
     Welcome,
@@ -38,7 +44,7 @@ impl NetworkEntityKind {
 }
 
 /// The database key for one network log and its received/processed positions.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StreamTopic {
     /// Group ID, installation ID, or inbox ID bytes, without the wire topic prefix.
     pub entity_id: Vec<u8>,
@@ -82,6 +88,8 @@ pub struct StoredIncomingEnvelope {
     pub error_code: Option<String>,
     /// First retry deadline; later attempts must not extend it.
     pub retry_expires_at_ns: Option<i64>,
+    /// First unreadable-Welcome deadline, independent of pointer-fetch retention.
+    pub unreadable_expires_at_ns: Option<i64>,
 }
 
 /// Pending-work metadata for a fixed processing target. This does not contain ciphertext.
@@ -148,6 +156,160 @@ pub struct TerminalRejection {
     pub code: String,
 }
 
+/// The durable progress and pending work of some topics, from one read
+/// transaction. For each of those topics it answers what `topic_progress` and
+/// `pending_states_through` would, and it refuses any other topic.
+#[derive(Debug, Default)]
+pub struct ProgressSnapshot {
+    topics: HashMap<StreamTopic, SnapshotTopic>,
+}
+
+#[derive(Debug, Default)]
+struct SnapshotTopic {
+    /// The P and F columns of the topic's progress row, if it has one.
+    progress: Option<(i64, Option<i64>)>,
+    /// The topic's pending rows in sequence order.
+    pending: Vec<PendingEnvelopeState>,
+}
+
+impl ProgressSnapshot {
+    /// The topic's progress, and its pending rows through `target` or, with no
+    /// target, through receipt.
+    pub fn topic(
+        &self,
+        topic: &StreamTopic,
+        target: Option<Cursor>,
+    ) -> Result<(TopicProgress, &[PendingEnvelopeState]), StorageError> {
+        let read = self
+            .topics
+            .get(topic)
+            .ok_or(StreamStorageError::InvalidBatch)?;
+        let progress = progress_from_row(read.progress)?;
+        let through = target.unwrap_or(progress.received);
+        if i64::try_from(through.0).is_err() {
+            return Err(StreamStorageError::InvalidBatch.into());
+        }
+        let end = read
+            .pending
+            .partition_point(|row| row.sequence_id <= through);
+        Ok((progress, &read.pending[..end]))
+    }
+}
+
+/// The first pending envelope of a group or identity topic.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingHead {
+    pub topic: StreamTopic,
+    pub sequence_id: Cursor,
+    pub blocked: bool,
+}
+
+#[derive(QueryableByName)]
+struct PendingHeadRow {
+    #[diesel(sql_type = Binary)]
+    entity_id: Vec<u8>,
+    #[diesel(sql_type = Integer)]
+    entity_kind: EntityKind,
+    #[diesel(sql_type = BigInt)]
+    sequence_id: i64,
+    #[diesel(sql_type = Bool)]
+    blocked: bool,
+}
+
+#[derive(QueryableByName)]
+struct ProgressRow {
+    #[diesel(sql_type = Binary)]
+    entity_id: Vec<u8>,
+    #[diesel(sql_type = Integer)]
+    entity_kind: EntityKind,
+    #[diesel(sql_type = BigInt)]
+    sequence_id: i64,
+    #[diesel(sql_type = Nullable<BigInt>)]
+    received_sequence_id: Option<i64>,
+}
+
+#[derive(QueryableByName)]
+struct PendingRow {
+    #[diesel(sql_type = Binary)]
+    entity_id: Vec<u8>,
+    #[diesel(sql_type = Integer)]
+    entity_kind: EntityKind,
+    #[diesel(sql_type = BigInt)]
+    sequence_id: i64,
+    #[diesel(sql_type = Bool)]
+    blocked: bool,
+    #[diesel(sql_type = Nullable<Text>)]
+    error_code: Option<String>,
+    #[diesel(sql_type = BigInt)]
+    retry_at_ns: i64,
+}
+
+/// The topics a scoped read covers, bound as one JSON array of
+/// `[entity kind, hex entity id]` pairs. One parameter keeps the statement
+/// count fixed, and the join seeks each topic by its key, so the read costs
+/// what those topics hold rather than what the database holds.
+macro_rules! wanted_topics {
+    () => {
+        "WITH wanted(entity_id, entity_kind) AS \
+         (SELECT unhex(value ->> 1), value ->> 0 FROM json_each(?1)) "
+    };
+}
+
+/// Each wanted topic's head, when it is blocked or past its retry time.
+const HEADS_SQL: &str = concat!(
+    wanted_topics!(),
+    "SELECT i.entity_id, i.entity_kind, i.sequence_id, i.blocked FROM wanted w ",
+    "JOIN incoming_envelopes i ON i.entity_id = w.entity_id AND i.entity_kind = w.entity_kind ",
+    "AND i.sequence_id = (SELECT MIN(sequence_id) FROM incoming_envelopes ",
+    "WHERE entity_id = w.entity_id AND entity_kind = w.entity_kind) ",
+    "WHERE i.blocked OR i.retry_at_ns <= ?2"
+);
+
+/// Each wanted topic's progress row.
+const PROGRESS_SQL: &str = concat!(
+    wanted_topics!(),
+    "SELECT p.entity_id, p.entity_kind, p.sequence_id, p.received_sequence_id FROM wanted w ",
+    "JOIN refresh_state p ON p.entity_id = w.entity_id AND p.entity_kind = w.entity_kind"
+);
+
+/// Each wanted topic's pending rows, without ciphertext, in sequence order.
+const PENDING_SQL: &str = concat!(
+    wanted_topics!(),
+    "SELECT i.entity_id, i.entity_kind, i.sequence_id, i.blocked, i.error_code, i.retry_at_ns ",
+    "FROM wanted w JOIN incoming_envelopes i ",
+    "ON i.entity_id = w.entity_id AND i.entity_kind = w.entity_kind ",
+    "ORDER BY i.entity_id, i.entity_kind, i.sequence_id"
+);
+
+fn wanted_param<'a>(topics: impl IntoIterator<Item = &'a StreamTopic>) -> String {
+    let mut json = String::from("[");
+    for (index, topic) in topics.into_iter().enumerate() {
+        if index > 0 {
+            json.push(',');
+        }
+        let kind = topic.kind.entity_kind() as i32;
+        let _ = write!(json, "[{kind},\"{}\"]", hex::encode(&topic.entity_id));
+    }
+    json.push(']');
+    json
+}
+
+fn row_topic(entity_id: Vec<u8>, kind: EntityKind) -> Result<StreamTopic, StorageError> {
+    let kind = match kind {
+        EntityKind::Welcome => NetworkEntityKind::Welcome,
+        EntityKind::ApplicationMessage => NetworkEntityKind::Group,
+        EntityKind::Identity => NetworkEntityKind::Identity,
+        _ => return Err(StorageError::DbDeserialize),
+    };
+    Ok(StreamTopic { entity_id, kind })
+}
+
+fn row_cursor(sequence_id: i64) -> Result<Cursor, StorageError> {
+    Ok(Cursor(
+        u64::try_from(sequence_id).map_err(|_| StorageError::DbDeserialize)?,
+    ))
+}
+
 /// Queue size metadata used to pause full topics without reading ciphertext.
 #[derive(Debug, Clone, QueryableByName)]
 pub struct PendingTopicUsage {
@@ -157,6 +319,40 @@ pub struct PendingTopicUsage {
     pub rows: i64,
     #[diesel(sql_type = BigInt)]
     pub bytes: i64,
+    /// Rows that cannot drain: all rows behind a blocked group or identity head,
+    /// or a Welcome that is blocked or under a retention deadline.
+    #[diesel(sql_type = BigInt)]
+    pub held_rows: i64,
+    #[diesel(sql_type = BigInt)]
+    pub held_bytes: i64,
+}
+
+impl PendingTopicUsage {
+    /// New work for this topic is held when its group or identity head is held.
+    /// Welcomes are independent, so new Welcomes always count as ready work.
+    pub fn charges_held(&self, kind: NetworkEntityKind) -> bool {
+        kind != NetworkEntityKind::Welcome && self.held_rows > 0
+    }
+
+    /// Rows and bytes in the held pool, or else in the ready pool.
+    pub fn pool(&self, held: bool) -> (u64, u64) {
+        let (rows, bytes) = if held {
+            (self.held_rows, self.held_bytes)
+        } else {
+            (self.rows - self.held_rows, self.bytes - self.held_bytes)
+        };
+        (rows.max(0) as u64, bytes.max(0) as u64)
+    }
+}
+
+/// Sum one pool of a kind. Held work has its own allowance, the same size as
+/// the kind budget, so it cannot consume the capacity of ready work.
+// implements: PROC-020
+pub fn kind_pool_usage(usages: &[PendingTopicUsage], held: bool) -> (u64, u64) {
+    usages.iter().fold((0, 0), |(rows, bytes), usage| {
+        let (own_rows, own_bytes) = usage.pool(held);
+        (rows + own_rows, bytes + own_bytes)
+    })
 }
 
 /// Retry state attached to the same still-pending envelope.
@@ -170,6 +366,14 @@ pub struct IncomingRetry {
     pub error_code: Option<String>,
     /// The first deadline wins. A retry must not extend pointer retention.
     pub retry_expires_at_ns: Option<i64>,
+}
+
+/// A Welcome kept for a later attempt: blocked, or under a retention deadline.
+/// Must match the `incoming_held_envelopes` index predicate.
+macro_rules! held_welcome {
+    () => {
+        "(blocked OR retry_expires_at_ns IS NOT NULL OR unreadable_expires_at_ns IS NOT NULL)"
+    };
 }
 
 /// Atomic receipt, ordered completion, and bounded retry state for network logs.
@@ -342,16 +546,15 @@ pub trait QueryIncomingEnvelope: ConnectionExt + Sized {
             let own = usages
                 .iter()
                 .find(|usage| usage.entity_id == topic.entity_id);
-            let topic_rows = own.map_or(0, |usage| usage.rows as u64);
-            let topic_bytes = own.map_or(0, |usage| usage.bytes as u64);
+            let held = own.is_some_and(|usage| usage.charges_held(topic.kind));
+            let (topic_rows, topic_bytes) = own.map_or((0, 0), |usage| usage.pool(held));
             check_budget(
                 topic_rows + new.len() as u64,
                 topic_bytes + new_bytes,
                 limits.topic,
                 BudgetScope::Topic,
             )?;
-            let kind_rows: u64 = usages.iter().map(|usage| usage.rows as u64).sum();
-            let kind_bytes: u64 = usages.iter().map(|usage| usage.bytes as u64).sum();
+            let (kind_rows, kind_bytes) = kind_pool_usage(&usages, held);
             check_budget(
                 kind_rows + new.len() as u64,
                 kind_bytes + new_bytes,
@@ -365,6 +568,7 @@ pub trait QueryIncomingEnvelope: ConnectionExt + Sized {
                         incoming::entity_kind.eq(topic.kind.entity_kind()),
                         incoming::sequence_id.eq(envelope.sequence_id.0 as i64),
                         incoming::envelope.eq(&envelope.envelope),
+                        incoming::envelope_bytes.eq(envelope.envelope.len() as i64),
                     ))
                     .execute(conn)?;
             }
@@ -387,6 +591,80 @@ pub trait QueryIncomingEnvelope: ConnectionExt + Sized {
         self.raw_query(|conn| Ok(load_progress(conn, topic)))?
     }
 
+    /// Read the head of each of `topics` that is blocked or past its retry
+    /// time, without loading ciphertext. Other heads have no work to attempt yet.
+    fn due_or_blocked_heads(
+        &self,
+        topics: &[StreamTopic],
+        now_ns: i64,
+    ) -> Result<Vec<PendingHead>, StorageError> {
+        if topics.is_empty() {
+            return Ok(Vec::new());
+        }
+        let wanted = wanted_param(topics);
+        let rows = self.raw_query(|conn| {
+            diesel::sql_query(HEADS_SQL)
+                .bind::<Text, _>(wanted.as_str())
+                .bind::<BigInt, _>(now_ns)
+                .load::<PendingHeadRow>(conn)
+        })?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(PendingHead {
+                    topic: row_topic(row.entity_id, row.entity_kind)?,
+                    sequence_id: row_cursor(row.sequence_id)?,
+                    blocked: row.blocked,
+                })
+            })
+            .collect()
+    }
+
+    /// Read the progress and pending rows of `topics` in one read transaction,
+    /// without loading ciphertext. Topic and kind admission limits bound the
+    /// pending rows.
+    fn progress_snapshot(&self, topics: &[StreamTopic]) -> Result<ProgressSnapshot, StorageError> {
+        let mut snapshot = ProgressSnapshot {
+            topics: topics
+                .iter()
+                .map(|topic| (topic.clone(), SnapshotTopic::default()))
+                .collect(),
+        };
+        if snapshot.topics.is_empty() {
+            return Ok(snapshot);
+        }
+        // Each topic once, so no row is read twice.
+        let wanted = wanted_param(snapshot.topics.keys());
+        let (progress_rows, pending_rows) = self.raw_query(|conn| {
+            conn.transaction(|conn| {
+                let progress_rows = diesel::sql_query(PROGRESS_SQL)
+                    .bind::<Text, _>(wanted.as_str())
+                    .load::<ProgressRow>(conn)?;
+                let pending_rows = diesel::sql_query(PENDING_SQL)
+                    .bind::<Text, _>(wanted.as_str())
+                    .load::<PendingRow>(conn)?;
+                Ok((progress_rows, pending_rows))
+            })
+        })?;
+        for row in progress_rows {
+            let topic = row_topic(row.entity_id, row.entity_kind)?;
+            if let Some(read) = snapshot.topics.get_mut(&topic) {
+                read.progress = Some((row.sequence_id, row.received_sequence_id));
+            }
+        }
+        for row in pending_rows {
+            let topic = row_topic(row.entity_id, row.entity_kind)?;
+            if let Some(read) = snapshot.topics.get_mut(&topic) {
+                read.pending.push(PendingEnvelopeState {
+                    sequence_id: row_cursor(row.sequence_id)?,
+                    blocked: row.blocked,
+                    error_code: row.error_code,
+                    retry_at_ns: row.retry_at_ns,
+                });
+            }
+        }
+        Ok(snapshot)
+    }
+
     /// Read the next actual ID. Missing integer IDs are not queue entries.
     fn first_pending_envelope(
         &self,
@@ -406,7 +684,8 @@ pub trait QueryIncomingEnvelope: ConnectionExt + Sized {
         self.raw_query(|conn| {
             incoming::table
                 .find((&topic.entity_id, topic.kind.entity_kind(), sequence))
-                .first::<StoredIncomingEnvelope>(conn)
+                .select(StoredIncomingEnvelope::as_select())
+                .first(conn)
                 .optional()
         })
         .map_err(Into::into)
@@ -488,6 +767,32 @@ pub trait QueryIncomingEnvelope: ConnectionExt + Sized {
         })
     }
 
+    /// Set unreadable retention once and return its original deadline. Completed
+    /// Welcomes return `None`; retries and other holds cannot extend this clock.
+    fn set_unreadable_welcome_deadline(
+        &self,
+        installation_id: &[u8],
+        sequence: Cursor,
+        deadline: i64,
+    ) -> Result<Option<i64>, StorageError> {
+        let sequence = i64::try_from(sequence.0).map_err(|_| StreamStorageError::InvalidBatch)?;
+        stream_transaction(self, |conn| {
+            let target = incoming::table.find((installation_id, EntityKind::Welcome, sequence));
+            let Some(existing) = target
+                .select(incoming::unreadable_expires_at_ns)
+                .first::<Option<i64>>(conn)
+                .optional()?
+            else {
+                return Ok(None);
+            };
+            let deadline = existing.unwrap_or(deadline);
+            diesel::update(target)
+                .set(incoming::unreadable_expires_at_ns.eq(deadline))
+                .execute(conn)?;
+            Ok(Some(deadline))
+        })
+    }
+
     /// Retry metadata is written only while this work is still current.
     fn set_incoming_retry(
         &self,
@@ -529,17 +834,23 @@ pub trait QueryIncomingEnvelope: ConnectionExt + Sized {
         now_ns: i64,
         limit: u32,
     ) -> Result<Vec<StoredIncomingEnvelope>, StorageError> {
-        self.ready_welcomes_bounded(now_ns, limit, u64::MAX)
+        self.ready_welcomes_bounded(now_ns, limit, u64::MAX, &[])
     }
 
     /// Read a due prefix without loading envelope bytes above the batch budget.
-    /// Permanently blocked rows require a new coordinator generation, not a timer retry.
+    /// Exclude scheduled cursors before counting rows or bytes. Blocked rows
+    /// require a coordinator scan, not a timer retry.
     fn ready_welcomes_bounded(
         &self,
         now_ns: i64,
         limit: u32,
         max_bytes: u64,
+        excluded: &[Cursor],
     ) -> Result<Vec<StoredIncomingEnvelope>, StorageError> {
+        let excluded = excluded
+            .iter()
+            .map(|cursor| i64::try_from(cursor.0).map_err(|_| StreamStorageError::InvalidBatch))
+            .collect::<Result<Vec<_>, _>>()?;
         self.raw_query(|conn| {
             Ok(conn.transaction::<_, StorageError, _>(|conn| {
                 let due = || {
@@ -547,6 +858,7 @@ pub trait QueryIncomingEnvelope: ConnectionExt + Sized {
                         .filter(incoming::entity_kind.eq(EntityKind::Welcome))
                         .filter(incoming::blocked.eq(false))
                         .filter(incoming::retry_at_ns.le(now_ns))
+                        .filter(incoming::sequence_id.ne_all(&excluded))
                         .order((incoming::sequence_id.asc(), incoming::entity_id.asc()))
                 };
                 let sizes = due()
@@ -619,7 +931,10 @@ pub trait QueryIncomingEnvelope: ConnectionExt + Sized {
                     rows += 1;
                     bytes_used += bytes;
                 }
-                Ok(pending().limit(rows).load(conn)?)
+                Ok(pending()
+                    .limit(rows)
+                    .select(StoredIncomingEnvelope::as_select())
+                    .load(conn)?)
             }))
         })?
     }
@@ -727,6 +1042,52 @@ pub trait QueryIncomingEnvelope: ConnectionExt + Sized {
         })
     }
 
+    /// The lowest held Welcome of this topic while the kind's held Welcomes
+    /// exceed `allowance`. Both reads use only the held-envelope index.
+    // implements: PROC-020
+    fn oldest_held_welcome_over(
+        &self,
+        topic: &StreamTopic,
+        allowance: PendingBudget,
+    ) -> Result<Option<StoredIncomingEnvelope>, StorageError> {
+        if topic.kind != NetworkEntityKind::Welcome {
+            return Err(StreamStorageError::InvalidBatch.into());
+        }
+        self.raw_query(|conn| {
+            conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                // The kind's held pool, as `kind_pool_usage(.., true)` sums it.
+                let (rows, bytes) = incoming::table
+                    .filter(incoming::entity_kind.eq(EntityKind::Welcome))
+                    .filter(diesel::dsl::sql::<Bool>(held_welcome!()))
+                    .select((
+                        diesel::dsl::count_star(),
+                        diesel::dsl::sql::<BigInt>("COALESCE(SUM(envelope_bytes), 0)"),
+                    ))
+                    .first::<(i64, i64)>(conn)?;
+                if rows as u64 <= allowance.rows && bytes as u64 <= allowance.bytes {
+                    return Ok(None);
+                }
+                let Some(oldest) = incoming::table
+                    .filter(incoming::entity_id.eq(&topic.entity_id))
+                    .filter(incoming::entity_kind.eq(EntityKind::Welcome))
+                    .filter(diesel::dsl::sql::<Bool>(held_welcome!()))
+                    .order(incoming::sequence_id.asc())
+                    .select(incoming::sequence_id)
+                    .first::<i64>(conn)
+                    .optional()?
+                else {
+                    return Ok(None);
+                };
+                incoming::table
+                    .find((&topic.entity_id, EntityKind::Welcome, oldest))
+                    .select(StoredIncomingEnvelope::as_select())
+                    .first(conn)
+                    .optional()
+            })
+        })
+        .map_err(Into::into)
+    }
+
     /// Largest queues come first; empty topics are absent and must not be paused.
     fn pending_topic_usage(
         &self,
@@ -784,6 +1145,11 @@ fn load_progress(
         .select((progress::sequence_id, progress::received_sequence_id))
         .first::<(i64, Option<i64>)>(conn)
         .optional()?;
+    progress_from_row(row)
+}
+
+/// P and F from a progress row's columns; an unseen topic starts at zero.
+fn progress_from_row(row: Option<(i64, Option<i64>)>) -> Result<TopicProgress, StorageError> {
     match row {
         None | Some((0, None)) => Ok(TopicProgress::default()),
         Some((processed, Some(received))) => Ok(TopicProgress {
@@ -802,16 +1168,39 @@ fn first_pending(
         .filter(incoming::entity_id.eq(&topic.entity_id))
         .filter(incoming::entity_kind.eq(topic.kind.entity_kind()))
         .order(incoming::sequence_id.asc())
+        .select(StoredIncomingEnvelope::as_select())
         .first(conn)
         .optional()
 }
 
+/// Split each topic's usage into held and ready work. A held group or identity
+/// head holds every row behind it; each held Welcome is held on its own.
+/// Held rows and the blocked head come from the covering held-envelope index:
+/// table columns after `envelope`, and primary-key seeks into a table whose rows
+/// overflow, read the envelope's overflow pages.
 fn pending_usage(
     conn: &mut diesel::SqliteConnection,
     kind: NetworkEntityKind,
 ) -> QueryResult<Vec<PendingTopicUsage>> {
-    diesel::sql_query("SELECT entity_id, COUNT(*) AS rows, SUM(length(envelope)) AS bytes FROM incoming_envelopes WHERE entity_kind = ? GROUP BY entity_id ORDER BY rows DESC, entity_id ASC")
-        .bind::<Integer, _>(kind.entity_kind() as i32).load(conn)
+    diesel::sql_query(concat!(
+        "SELECT u.entity_id, u.rows, u.bytes, ",
+        "CASE WHEN ?2 THEN COALESCE(w.rows, 0) WHEN w.first_blocked = u.head THEN u.rows ",
+        "ELSE 0 END AS held_rows, ",
+        "CASE WHEN ?2 THEN COALESCE(w.bytes, 0) WHEN w.first_blocked = u.head THEN u.bytes ",
+        "ELSE 0 END AS held_bytes ",
+        "FROM (SELECT entity_id, MIN(sequence_id) AS head, COUNT(*) AS rows, ",
+        "SUM(length(envelope)) AS bytes FROM incoming_envelopes WHERE entity_kind = ?1 ",
+        "GROUP BY entity_id) u ",
+        "LEFT JOIN (SELECT entity_id, MIN(CASE WHEN blocked THEN sequence_id END) AS first_blocked, ",
+        "COUNT(*) AS rows, SUM(envelope_bytes) AS bytes FROM incoming_envelopes ",
+        "WHERE entity_kind = ?1 AND ",
+        held_welcome!(),
+        " GROUP BY entity_id) w ON w.entity_id = u.entity_id ",
+        "ORDER BY u.rows DESC, u.entity_id ASC"
+    ))
+    .bind::<Integer, _>(kind.entity_kind() as i32)
+    .bind::<Bool, _>(kind == NetworkEntityKind::Welcome)
+    .load(conn)
 }
 
 #[cfg(test)]

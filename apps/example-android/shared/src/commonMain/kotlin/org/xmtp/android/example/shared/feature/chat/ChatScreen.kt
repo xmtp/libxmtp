@@ -40,6 +40,7 @@ fun ChatScreen(
     shellAction: (ShellAction) -> Unit = {},
     composerExtra: @Composable () -> Unit = {},
     messageExtra: @Composable (MessageRow) -> Unit = {},
+    attachmentActions: @Composable (MessageRow, Boolean, () -> Unit) -> Unit = { _, _, _ -> },
 ) {
     val list = key(state.conversationId) { rememberLazyListState() }
     val latestState by rememberUpdatedState(state)
@@ -300,6 +301,7 @@ fun ChatScreen(
                     popupTransition.targetState,
                     !state.unknown,
                     popupAction,
+                    attachmentActions,
                 )
             }
         }

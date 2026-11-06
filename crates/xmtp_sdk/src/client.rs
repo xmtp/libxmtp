@@ -8,8 +8,8 @@ use xmtp_id::associations::{
 };
 use xmtp_mls::{
     builder::{DeviceSyncMode, ForkRecoveryOpts},
-    context::XmtpSharedContext,
     identity::IdentityStrategy,
+    prelude::*,
 };
 
 use crate::{

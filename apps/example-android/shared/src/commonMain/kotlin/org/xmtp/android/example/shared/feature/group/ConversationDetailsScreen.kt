@@ -161,26 +161,26 @@ fun ConversationDetailsScreen(
                 )
                 if (state.sharedMedia.isEmpty()) {
                     Text("No shared files in the loaded messages.", style = MaterialTheme.typography.bodyLarge)
-                } else {
-                    state.sharedMedia.forEach { message ->
-                        HorizontalDivider()
-                        Text(
-                            message.text.ifBlank { "File" },
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium,
-                        )
-                        Text(
-                            "${message.sender} · ${message.day} ${message.time}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        messageExtra(message)
-                        TextButton(
-                            { state.conversationId?.let { shellAction(ShellAction.Navigate(AppRoute.Chat(it))) } },
-                            Modifier.heightIn(min = 48.dp),
-                        ) { Text("View in chat") }
-                    }
                 }
+            }
+        }
+        items(state.sharedMedia, key = { "shared-media-${it.id}" }, contentType = { "shared-media" }) { message ->
+            DetailsSection(modifier = Modifier.testTag("shared-media-${message.id}")) {
+                Text(
+                    message.text.ifBlank { "File" },
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                )
+                Text(
+                    "${message.sender} · ${message.day} ${message.time}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                messageExtra(message)
+                TextButton(
+                    { state.conversationId?.let { shellAction(ShellAction.Navigate(AppRoute.Chat(it))) } },
+                    Modifier.heightIn(min = 48.dp),
+                ) { Text("View in chat") }
             }
         }
         if (settings.group) {

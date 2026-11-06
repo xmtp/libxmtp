@@ -4,18 +4,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class VerifiedAttachmentCacheTest {
-    @Test fun pressureKeepsOnlyTheBoundAndPreservesARecentlyUsedRecord() {
+    @Test fun scrollingThroughAttachmentsKeepsEarlierFilesAvailable() {
         val cache = VerifiedAttachmentCache<String>()
         val generation = cache.generation()
-        repeat(VerifiedAttachmentCache.MAX_RECORDS) { id ->
+        repeat(100) { id ->
             assertTrue(cache.admit(generation, "$id", "path-$id") { true })
         }
-        assertEquals("path-0", cache["0"])
-        assertTrue(cache.admit(generation, "new", "new-path") { true })
-        assertEquals("path-0", cache["0"])
-        assertNull(cache["1"])
-        repeat(10_000) { id -> cache.admit(generation, "more-$id", "path-$id") { true } }
-        assertEquals(VerifiedAttachmentCache.MAX_RECORDS, cache.retained.value.size)
+        repeat(100) { id ->
+            assertEquals("path-$id", cache["$id"])
+            assertTrue("A downloaded file must remain openable", "$id" in cache.retained.value)
+        }
     }
 
     @Test fun clearRejectsAnOldCompletionAndKeepsAnActionSnapshot() {

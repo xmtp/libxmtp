@@ -158,7 +158,7 @@ export async function openClient(path: string): Promise<void> {
       {
         backend: B.BackendSource.Options.new({
           options: {
-            url: `${location.origin}/backend`,
+            url: location.origin,
             appVersion: undefined,
             credential: undefined,
             credentials: undefined,

@@ -47,12 +47,16 @@ CELL_SPLIT_RE = re.compile(r"(?<!\\)\|")
 # leader stops a string literal such as `const N: &str = "verifies: JOIN-001";`
 # from satisfying the evidence gate.
 COMMENT_LEAD_RE = re.compile(r"^\s*(?://+|#+|--|/\*+|\*)\s*")
-# Openers of multi-line string literals. Rust raw strings close on `"` plus
-# the same number of hashes; triple quotes close on themselves. Only a Rust
-# file has `r"` raw strings; in Kotlin `r"` can end a string such as
-# `"$error"`.
-RAW_OPEN_RE = re.compile(r"r(?P<hashes>#*)\"|\"\"\"|'''")
+# Openers of multi-line string literals outside Rust; they close on themselves.
+# In Kotlin `r"` can end a string such as `"$error"`, so it opens nothing.
 TRIPLE_OPEN_RE = re.compile(r"\"\"\"|'''")
+# Rust tokens that change lexical state outside strings and comments: a line
+# comment, a block comment, a quote char literal, a raw string (with or
+# without a `b` or `c` prefix; it closes on `"` plus its hashes), and an
+# ordinary string.
+RUST_CODE_RE = re.compile(r"//|/\*|'\\?\"'|r(?P<hashes>#*)\"|\"")
+RUST_STRING_RE = re.compile(r"\\.?|\"")
+RUST_BLOCK_RE = re.compile(r"/\*|\*/")
 LINK_RE = re.compile(
     r"(implements|verifies):\s*"
     r"([A-Z]{3,5}-[0-9]{3}(?![0-9A-Za-z_-])"
@@ -803,23 +807,76 @@ class Checker:
             # A token inside a multi-line string is not a comment. Track the
             # open-string state so `r#"..."#` and its friends cannot supply
             # evidence (SPEC-051).
+            if path.suffix == ".rs":
+                hidden = self.rust_string_lines(text)
+                for i, line in enumerate(text.splitlines(), start=1):
+                    if i not in hidden:
+                        self.scan_line(rel, i, line)
+                continue
             in_raw: str | None = None
-            open_re = RAW_OPEN_RE if path.suffix == ".rs" else TRIPLE_OPEN_RE
             for i, line in enumerate(text.splitlines(), start=1):
                 if in_raw is not None:
                     if in_raw in line:
                         in_raw = None
                     continue
-                opener = open_re.search(line)
-                if opener:
-                    token = opener.group(0)
-                    closer = (
-                        '"' + opener.group("hashes") if token.startswith("r") else token
-                    )
-                    if closer not in line[opener.end() :]:
-                        in_raw = closer
-                        continue
+                opener = TRIPLE_OPEN_RE.search(line)
+                if opener and opener.group(0) not in line[opener.end() :]:
+                    in_raw = opener.group(0)
+                    continue
                 self.scan_line(rel, i, line)
+
+    @staticmethod
+    def rust_string_lines(text: str) -> set[int]:
+        """Return the lines that open, continue, or close a multi-line string.
+
+        Lexes strings, raw strings, char literals that hold a quote, and
+        comments, so a quote in a comment or the `r"` that ends `"four"` opens
+        nothing.
+        """
+        hidden: set[int] = set()
+        in_string = False
+        raw_closer: str | None = None
+        comment_depth = 0
+        # Only LF ends a line comment, but splitlines() also splits on form
+        # feeds and Unicode separators, so a comment can span several lines.
+        in_line_comment = False
+        for i, line in enumerate(text.splitlines(keepends=True), start=1):
+            starts_inside = in_string or raw_closer is not None
+            pos = 0
+            while not in_line_comment:
+                if in_string:
+                    m = RUST_STRING_RE.search(line, pos)
+                    if m is None:
+                        break
+                    in_string = m.group(0) != '"'
+                elif raw_closer is not None:
+                    end = line.find(raw_closer, pos)
+                    if end < 0:
+                        break
+                    pos, raw_closer = end + len(raw_closer), None
+                    continue
+                elif comment_depth:
+                    m = RUST_BLOCK_RE.search(line, pos)
+                    if m is None:
+                        break
+                    comment_depth += 1 if m.group(0) == "/*" else -1
+                else:
+                    m = RUST_CODE_RE.search(line, pos)
+                    if m is None:
+                        break
+                    if m.group(0) == "//":
+                        in_line_comment = True
+                    elif m.group(0) == "/*":
+                        comment_depth = 1
+                    elif m.group(0) == '"':
+                        in_string = True
+                    elif m.group("hashes") is not None:
+                        raw_closer = '"' + m.group("hashes")
+                pos = m.end()
+            in_line_comment = in_line_comment and not line.endswith("\n")
+            if starts_inside or in_string or raw_closer is not None:
+                hidden.add(i)
+        return hidden
 
     def walk(self):
         for dirpath, dirnames, filenames in os.walk(self.root):

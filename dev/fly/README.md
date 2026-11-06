@@ -148,7 +148,10 @@ for metrics and traces after traffic.
 
 Redeploy a previous immutable image to recover from a binary regression only
 when its database schema is compatible. Do not assume binary rollback reverses
-migrations. Use Managed Postgres backups to recover database state. Restore
+migrations. An image built before rate limits refuses the `[rate_limits]` table
+in `backend/config.toml`, so it never becomes healthy with the current file:
+deploy it from a checkout of that image's commit, whose `config.toml` matches
+it. Use Managed Postgres backups to recover database state. Restore
 into a separate cluster and validate it before changing `XMTP_DATABASE_URL`.
 
 The current backend development rules allow edits to an existing migration.

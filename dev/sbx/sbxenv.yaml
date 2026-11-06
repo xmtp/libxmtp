@@ -1,0 +1,36 @@
+schemaVersion: "1"
+name: libxmtp-claude
+agent: sbx-kit-claude
+
+kits:
+  - docker.io/docker/sbx-kit-claude:2.1.267
+  - docker.io/sbx/codex-mixin:0.155.1
+
+# Native kit credentials need host-side binding approval.
+bindings:
+  anthropic:
+    apiKey:
+      domains: [api.anthropic.com, console.anthropic.com, claude.ai, mcp-proxy.anthropic.com]
+    oauth:
+      domains: [platform.claude.com, api.anthropic.com, console.anthropic.com, claude.ai, mcp-proxy.anthropic.com]
+  openai:
+    apiKey:
+      domains: [api.openai.com, openai.com]
+    oauth:
+      domains: [auth.openai.com, chatgpt.com]
+
+# The public clone and backend stay inside the VM. No host mounts or ports.
+sandboxOptions:
+  cpus: 8
+  memory: 24g
+  skills: "off"
+
+env:
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+
+lifecycle:
+  postCreate:
+    - name: Install Nix and clone libxmtp
+      command: ./setup
+      workdir: ${{ env.fileDir }}
+      timeout: 10m

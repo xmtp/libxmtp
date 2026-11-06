@@ -36,3 +36,8 @@ max_query_limit = 50
 
 # SDK registration tests use public HTTPS recipients.
 [push.http]
+
+# Test stack only. Every test client shares one address, so the default
+# per-caller limits would fail unrelated suites.
+[rate_limits]
+enabled = false

@@ -86,6 +86,13 @@ impl RetryableError for SignatureError {
             _ => false,
         }
     }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            SignatureError::VerifierError(e) => e.rate_limit_delay(),
+            _ => None,
+        }
+    }
 }
 
 /// Xmtp Installation Credential for Specialized for XMTP Identity
@@ -182,14 +189,16 @@ pub enum AccountIdError {
     MissingEip155Prefix,
     /// Invalid account address.
     ///
-    /// Account address is not `0x` followed by 40 hexadecimal characters.
-    /// Not retryable.
-    #[error("Account address is not 0x followed by 40 hexadecimal characters")]
+    /// Account address is not `0x` followed by 40 hexadecimal characters that
+    /// are not all zero. Not retryable.
+    #[error(
+        "Account address is not 0x followed by 40 hexadecimal characters that are not all zero"
+    )]
     InvalidAddress,
 }
 
 // CAIP-10[https://github.com/ChainAgnostic/CAIPs/blob/main/CAIPs/caip-10.md]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AccountId {
     pub(crate) chain_id: String,
     pub(crate) account_address: String,
@@ -230,14 +239,20 @@ impl AccountId {
 
     /// The chain id of an `eip155` account id in the only verifiable form:
     /// the chain id as [`Self::get_chain_id_u64`] requires, and an address of
-    /// `0x` followed by 40 hexadecimal characters. Checked before any chain
-    /// access, so a malformed account id is never routed.
-    // implements: IDENT-060
+    /// `0x` followed by 40 hexadecimal characters that are not all zero.
+    /// Checked before any chain access, so a malformed account id is never
+    /// routed. ERC-6492 universal signature validation reports any signature
+    /// valid for the zero address, so that address can never be verified.
+    // implements: IDENT-093
     pub fn eip155_chain_id(&self) -> Result<u64, AccountIdError> {
         let chain_id = self.get_chain_id_u64()?;
         self.account_address
             .strip_prefix("0x")
-            .is_some_and(|hex| hex.len() == 40 && hex.bytes().all(|b| b.is_ascii_hexdigit()))
+            .is_some_and(|hex| {
+                hex.len() == 40
+                    && hex.bytes().all(|b| b.is_ascii_hexdigit())
+                    && hex.bytes().any(|b| b != b'0')
+            })
             .then_some(chain_id)
             .ok_or(AccountIdError::InvalidAddress)
     }

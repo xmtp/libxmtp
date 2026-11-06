@@ -23,9 +23,10 @@ Out of scope: platform and deployment choices such as the database engine, the p
 | Related | Relation |
 | --- | --- |
 | `API` | Owns the expiry formula and every other metadata field (API-212), the per-topic prefix every read returns (API-201), and read-your-writes on `Query` (API-202). This spec owns what happens after an expiry passes and which reads may lag. |
-| `CONF` | Owns the retention values (CONF-069, section 3), the request and response budgets (CONF-008), and the deployment identifier (CONF-002) this spec carries into telemetry. It also owns the configuration keys, with their types and checks other than OPS-020, OPS-021, and OPS-022 (section 1.2). |
+| `CONF` | Owns the retention values (CONF-069, section 3), the request and response budgets (CONF-096), and the deployment identifier (CONF-002) this spec carries into telemetry. It also owns the configuration keys, with their types and checks other than OPS-020, OPS-021, and OPS-022 (section 1.2). |
 | `AUTH` | Owns admission, which runs before the drain admission of section 3, and the auth rejection reasons that label `xmtp_auth_rejections_total`; triggers the drain when its key set goes stale (AUTH-019). |
 | [PUSH section 5](PUSH-push-subscriptions.md#5-dispatch) | Owns push dispatch and recipient expiry (PUSH-226). This spec lists the push metric families only. |
+| [RATE](RATE-backend-rate-limits.md) | Owns the categories and auth types that label the rate-limit families. |
 
 ## Terms
 
@@ -60,7 +61,7 @@ Deletion of an envelope after its expiry is not performed today (Known limitatio
 
 The backend serves the gRPC Health Checking Protocol ([health-checking.md](https://github.com/grpc/grpc/blob/master/doc/health-checking.md)) on the gRPC port, without a credential (AUTH-002). Every named service and the empty service name report one status, so a balancer probing one name and an orchestrator probing another cannot disagree about an instance. `SERVING` means the instance can take any request: its configuration passed its checks, its migrations are applied, its key set is loaded, and stream recovery has completed once. Unary requests do not depend on stream recovery, so a later recovery keeps health at `SERVING` and refuses only streams.
 
-One configuration check belongs here rather than with the published limits: an envelope the backend would accept must fit every path that delivers it. The backend adds at most 256 bytes of metadata and framing to an envelope in a stream frame, and a frame is 2 MiB. CONF-008 bounds the request and response budgets to the transport; this check bounds the envelope to those budgets and to the frame.
+One configuration check belongs here rather than with the published limits: an envelope the backend would accept must fit every path that delivers it. The backend adds at most 256 bytes of metadata and framing to an envelope in a stream frame, and a frame is 2 MiB. CONF-096 bounds the request and response budgets to the transport; this check bounds the envelope to those budgets and to the frame.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
@@ -129,7 +130,7 @@ In the catalogue, "RPC" means the three labels of the route table. `grpc_code` i
 | `xmtp_db_released_open_transactions_total` | counter | none | Transactions found open and rolled back when a connection returned to the pool. |
 | `xmtp_db_errors_total` | counter | `kind` (`timeout`, `invariant`, `connection`, `other`) | Database errors that were mapped to a gRPC status. |
 | `xmtp_publish_envelopes_total` | counter | `outcome` (`stored`, `duplicate`, `rejected`) | Every position of a decoded publish, counted once by its response origin; `rejected` for every position when the request fails after decoding. |
-| `xmtp_publish_rejections_total` | counter | `reason` (`REASON_MALFORMED_PAYLOAD`, `REASON_INVALID_KEY_PACKAGE`, `REASON_INVALID_IDENTITY_UPDATE`, `REASON_INVALID_SIGNATURE`, `REASON_TOO_LARGE`, `REASON_HANDLE_TAKEN`, `REASON_HANDLE_NOT_ALLOWED`, `REASON_HANDLE_TOO_SOON`) | One per publish rejected by validation, with the `PublishError.reason` it returned. |
+| `xmtp_publish_rejections_total` | counter | `reason` (`REASON_MALFORMED_PAYLOAD`, `REASON_INVALID_KEY_PACKAGE`, `REASON_INVALID_IDENTITY_UPDATE`, `REASON_INVALID_SIGNATURE`, `REASON_TOO_LARGE`, `REASON_HANDLE_TAKEN`, `REASON_HANDLE_NOT_ALLOWED`, `REASON_HANDLE_TOO_SOON`, `REASON_INSTALLATION_TAKEN`) | One per publish rejected by validation, with the `PublishError.reason` it returned. |
 | `xmtp_scw_verifications_total` | counter | `result` (`valid`, `invalid`, `error`) | One per smart contract wallet verification, including ones answered from the cache. |
 | `xmtp_stream_sessions` | gauge | `kind` (`bidi`, `static`) | Registered stream sessions. |
 | `xmtp_stream_topics_registered` | gauge | none | Registered topic interests across all sessions. |
@@ -150,6 +151,8 @@ In the catalogue, "RPC" means the three labels of the route table. `grpc_code` i
 | `xmtp_auth_rejections_total` | counter | `reason` (the reasons of the AUTH section 4 table) | One per request rejected under AUTH-014. |
 | `xmtp_auth_jwks_refresh_total` | counter | `result` (`ok`, `error`) | One per JWKS refresh attempt, by the fetch's own result. |
 | `xmtp_auth_keys` | gauge | none | Keys in the key set. |
+| `xmtp_rate_limit_rejections_total` | counter | `category` (the categories of the RATE category table), `auth_type` (`api_key`, `jwt`, `ip`) | One per denied spend (RATE-010). |
+| `xmtp_rate_limit_evictions_total` | counter | none | Rate-limit entries forgotten while not at full allowance, because a new caller key had no room where it can be recorded (RATE-051). |
 | `xmtp_push_recipients_total` | counter | `action` (`registered`, `unregistered`, `expired`, `dead`) | Push recipient changes. |
 | `xmtp_push_deliveries_total` | counter | `channel` (`apns`, `fcm`, `http`), `outcome` (`delivered`, `failed`, `rejected`, `mismatch`, `dead`, `suppressed`) | Completed push delivery attempts. |
 | `xmtp_push_dispatcher` | gauge | none | 1 while this instance holds the push dispatcher lock. |
@@ -171,7 +174,7 @@ The span catalogue names the operation spans an operator measures: the request s
 | OPS-011 | Request id on every response | For every gRPC request, the backend MUST generate a request id, return it in the `x-request-id` response header, ignore any correlation header the caller sent when choosing it, and expose that header to browser callers through CORS. | A support case needs one value that appears in the client's error and in the operator's log, and a caller-chosen id lets one caller forge another's. |
 | OPS-012 | Trace context is accepted | When a request carries `traceparent` and `tracestate` headers ([Trace Context §3](https://www.w3.org/TR/trace-context/#trace-context-http-headers-format)), the backend MUST make that context the parent of the request span, and MUST accept a CORS preflight that names those headers. | |
 | OPS-013 | Deployment identity in telemetry | The backend MUST carry the deployment identifier as the resource attribute `xmtp.backend.identifier` on every exported span, and as the field `identifier` on every request completion log and every auth rejection log, and MUST carry `service.name` (`telemetry.service_name`, default `xmtp-backend`) and `service.version` (the build version) on every exported span. | One collector stream carries several deployments; without the identifier a line cannot be attributed. |
-| OPS-014 | No request data in telemetry | The backend MUST NOT place in a metric name, a metric label, a span field, or a log field a topic, an inbox id, an installation key, a group id, a cursor, a payload, a handle that a claim or a lookup names, a request header value, or any value computed from one of those that identifies it, except the trace context under OPS-012, the request id, and an API key name under AUTH-028. A byte count, a duration, a count of items, and a value from a label vocabulary the catalogue fixes MAY be recorded, and a reader of telemetry MUST NOT rely on any other field. | A label is kept far longer than the message it names and is read by people the message was never sent to. |
+| OPS-014 | No request data in telemetry | The backend MUST NOT place in a metric name, a metric label, a span field, or a log field a topic, an inbox id, an installation key, a group id, a cursor, a payload, a handle that a claim or a lookup names, a request header value, a client or peer network address, or any value computed from one of those that identifies it, except the trace context under OPS-012, the request id, and an API key name under AUTH-028. A byte count, a duration, a count of items, and a value from a label vocabulary the catalogue fixes MAY be recorded, and a reader of telemetry MUST NOT rely on any other field. | A label is kept far longer than the message it names and is read by people the message was never sent to. |
 | OPS-015 | Export never stops serving | When the OTLP collector is unreachable or an export batch fails, the backend MUST continue to serve and record metrics, and MUST count the failed batch in `xmtp_telemetry_export_failures_total`. | |
 | OPS-016 | Metrics exposition | While `telemetry.metrics_listen` is not empty, the backend MUST serve the Prometheus text exposition format on that address, with every family in the metric catalogue described by the name and type shown. While it is empty, the backend MUST serve no metrics listener and MUST keep recording. | |
 | OPS-017 | Catalogue semantics | The backend MUST record each family in the metric catalogue as its Meaning column states, with only the label names and label values the Labels column gives, and MUST NOT emit a label value outside that vocabulary. | An unbounded label value creates a series per user and takes the metrics store down. |
@@ -183,11 +186,15 @@ The span catalogue names the operation spans an operator measures: the request s
 
 No envelope is deleted after its expiry today. `expiry_ns` is set under API-212 and OPS-001 and OPS-002 hold, but a row past its expiry stays readable for as long as the database keeps it, and an operator bounds storage outside the backend.
 
+A deletion of expired envelopes would let anyone who saved a signed group message from a topic of kind `0x00` publish it again as a new envelope, because the signature never expires and the duplicate check needs the stored row. A design that deletes such envelopes keeps the topic and `message_hash` of each one it deletes, and refuses a publish that matches them.
+
 `SERVING` reports that the instance can take requests, not that any client can reach it or that a message it accepted was delivered. A balancer's health check and an end-to-end probe measure different things.
 
 Shutdown reports `NOT_SERVING`, closes admission, and ends streams as one step, not in a promised order. A balancer that polls health can route one more request to a draining instance and see `UNAVAILABLE`. At the drain deadline a connection still carrying a request is aborted, and that request ends with no gRPC status at all.
 
 The backend exposes no sampled gauges: no pool size, queue depth, replica replay delay, or process resource usage. Those belong to infrastructure monitoring. In particular, a lagged copy that has stopped receiving changes is not visible in any backend metric.
+
+The backend trusts its configured chain providers for smart contract wallet verdicts and for the size of their responses. It does not check a provider's answer against another source or bound the size of a response body, so an operator configures only providers it trusts.
 
 `xmtp_operation_duration_seconds` derives its `status` from whether the span recorded an error. A cancellation that recorded none is `ok`, so the label is not an exact success rate.
 

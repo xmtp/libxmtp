@@ -156,7 +156,7 @@ private fun AttachmentButton(
     TextButton(onClick, Modifier.heightIn(min = 48.dp), enabled = enabled) { Text(label) }
 }
 
-private fun attachmentType(mimeType: String?): String =
+internal fun attachmentType(mimeType: String?): String =
     when {
         mimeType?.startsWith("image/") == true -> "Image"
         mimeType?.startsWith("video/") == true -> "Video"

@@ -1,7 +1,10 @@
 use openmls::prelude::UnknownExtension;
 use openmls::prelude::{Ciphersuite, Extension, KeyPackage};
 use prost::{EncodeError, Message};
-use xmtp_configuration::WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID;
+use xmtp_configuration::{
+    WELCOME_WRAPPER_CURVE25519_KEY_BYTES, WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
+    WELCOME_WRAPPER_XWING_KEY_BYTES,
+};
 use xmtp_cryptography::configuration::{CIPHERSUITE, POST_QUANTUM_CIPHERSUITE};
 use xmtp_proto::ConversionError;
 use xmtp_proto::xmtp::mls::message_contents::{
@@ -80,22 +83,22 @@ impl From<WrapperAlgorithm> for i32 {
     }
 }
 
+/// Only the two wrapper algorithms a key package can advertise. Unspecified,
+/// symmetric and undefined values are errors, never a silent Curve25519.
 impl TryFrom<i32> for WrapperAlgorithm {
     type Error = xmtp_proto::ConversionError;
     fn try_from(value: i32) -> Result<Self, Self::Error> {
-        let algorithm = match value {
-            1 => WrapperAlgorithm::Curve25519, // WrapperAlgorithmProto::Curve25519
-            2 => WrapperAlgorithm::XWingMLKEM768Draft6, // WrapperAlgorithmProto::XwingMlkem512
-            3 => {
-                return Err(xmtp_proto::ConversionError::InvalidValue {
-                    item: "WrapperAlgorithm",
-                    expected: "1 or 2",
-                    got: value.to_string(),
-                });
+        match WrapperAlgorithmProto::try_from(value) {
+            Ok(WrapperAlgorithmProto::Curve25519) => Ok(WrapperAlgorithm::Curve25519),
+            Ok(WrapperAlgorithmProto::XwingMlkem768Draft6) => {
+                Ok(WrapperAlgorithm::XWingMLKEM768Draft6)
             }
-            _ => WrapperAlgorithm::Curve25519, // Everything else including unknown
-        };
-        Ok(algorithm)
+            _ => Err(xmtp_proto::ConversionError::InvalidValue {
+                item: "WrapperAlgorithm",
+                expected: "1 or 2",
+                got: value.to_string(),
+            }),
+        }
     }
 }
 
@@ -131,7 +134,7 @@ impl TryFrom<WrapperAlgorithm> for WelcomePointerWrapperAlgorithmProto {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WrapperEncryptionExtension {
     pub algorithm: WrapperAlgorithm,
     pub pub_key_bytes: Vec<u8>,
@@ -160,6 +163,35 @@ impl WrapperEncryptionExtension {
                 },
                 Self::try_from,
             )
+    }
+
+    /// Whether a sender can wrap a Welcome for this key: the key has its
+    /// algorithm's length, and one HPKE sender setup under the algorithm
+    /// succeeds. The length check runs first, so a key of another length never
+    /// reaches the KEM. A key that fails the setup fails it for every ephemeral
+    /// key, so a key that passes can always be wrapped for.
+    // implements: JOIN-090
+    pub fn check_usable(&self) -> Result<(), ConversionError> {
+        let expected = match self.algorithm {
+            WrapperAlgorithm::Curve25519 => WELCOME_WRAPPER_CURVE25519_KEY_BYTES,
+            WrapperAlgorithm::XWingMLKEM768Draft6 => WELCOME_WRAPPER_XWING_KEY_BYTES,
+        };
+        if self.pub_key_bytes.len() != expected {
+            return Err(ConversionError::InvalidLength {
+                item: "WelcomeWrapperEncryption.pub_key",
+                expected,
+                got: self.pub_key_bytes.len(),
+            });
+        }
+        let public_key = hpke_rs::HpkePublicKey::new(self.pub_key_bytes.clone());
+        self.algorithm
+            .to_hpke_config()
+            .setup_sender(&public_key, &[], None, None, None)
+            .map(|_| ())
+            .map_err(|error| ConversionError::InvalidPublicKey {
+                description: "WelcomeWrapperEncryption.pub_key",
+                value: Some(format!("{error:?}")),
+            })
     }
 }
 

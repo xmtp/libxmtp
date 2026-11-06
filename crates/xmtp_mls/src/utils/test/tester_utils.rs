@@ -1,4 +1,5 @@
 #![allow(unused)]
+use crate::prelude::*;
 pub use xmtp_id::utils::passkey::{PKClient, PKCredential, PasskeyUser, PkUserValidationMethod};
 
 use super::DefaultTestClientCreator;
@@ -411,6 +412,31 @@ where
     }
 }
 
+#[cfg(any(test, feature = "test-utils"))]
+impl<Owner> crate::groups::test_support::EnginePeer for Tester<Owner, FullXmtpClient>
+where
+    Owner: InboxOwner,
+{
+    type Context = super::TestXmtpMlsContext;
+    type Error = ClientError;
+
+    fn context(&self) -> &Self::Context {
+        &self.client.context
+    }
+
+    fn create_group(
+        &self,
+        policies: Option<crate::groups::group_permissions::PolicySet>,
+        opts: Option<xmtp_mls_group_state::group::GroupMetadataOptions>,
+    ) -> Result<super::TestMlsGroup, ClientError> {
+        self.client.create_group(policies, opts)
+    }
+
+    async fn sync_welcomes(&self) -> Result<Vec<super::TestMlsGroup>, crate::groups::GroupError> {
+        self.client.sync_welcomes().await
+    }
+}
+
 impl<Owner, Client> Deref for Tester<Owner, Client>
 where
     Owner: InboxOwner,
@@ -560,9 +586,15 @@ where
     }
 
     #[cfg(all(test, not(target_arch = "wasm32")))]
-    pub fn backend(mut self, backend: &super::backend::EphemeralBackend) -> Self {
+    pub fn backend(self, backend: &super::backend::EphemeralBackend) -> Self {
+        self.backend_url(backend.url())
+    }
+
+    /// Connect to the backend at `url`, such as an ephemeral backend a test
+    /// started.
+    pub fn backend_url(mut self, url: impl Into<String>) -> Self {
         self.api_endpoint = ApiEndpoint::Url {
-            url: backend.url().to_owned(),
+            url: url.into(),
             auth: self.auth_callback.clone(),
         };
         self
@@ -694,6 +726,13 @@ where
     pub fn triggers(mut self) -> Self {
         self.triggers = true;
         self
+    }
+
+    pub fn fork_recovery_opts(self, opts: ForkRecoveryOpts) -> Self {
+        Self {
+            fork_recovery_opts: Some(opts),
+            ..self
+        }
     }
 
     pub fn enable_fork_recovery_requests(self) -> Self {

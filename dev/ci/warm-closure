@@ -76,39 +76,75 @@ done < "$RUNNER_TEMP/dependency-layers.txt"
 echo "Checking ${#paths[@]} set members, fixed-output inputs, and dependency layers"
 # The dry run exits 0 also when a path cannot substitute, and has no
 # machine-readable form (--json lists the requested paths only).
-nix build --dry-run --store "$store" --option always-allow-substitutes true \
-  "${paths[@]}" 2>&1 | tee "$RUNNER_TEMP/dry-run.txt"
 # Fail closed: accept only one "will be fetched" header (it holds the count
 # and the sizes) and exactly as many indented store paths as it announces. A
 # "will be built" or "don't know how to build" section, or any other line,
 # fails. The store is empty, so a run that fetches nothing checked nothing.
 # Nix 2.31 prints sizes in MiB; Nix 2.34 picks the unit (KiB to GiB and up)
 # with one decimal. dev/tests/test_post_merge_closure.py holds both forms.
-header='^(this path|these ([0-9]+) paths) will be fetched \([0-9.]+ [KMGTPEZY]iB download, [0-9.]+ [KMGTPEZY]iB unpacked\):$'
-path='^  /nix/store/[0-9a-df-np-sv-z]{32}-[^[:space:]]+$'
-fetching=false
-headers=0
-announced=0
-fetched=0
-unexpected=()
-while IFS= read -r line; do
-  if [[ -z "$line" ]]; then
-    continue
-  elif [[ "$line" =~ $header ]]; then
-    headers=$((headers + 1))
-    # "this path" announces one.
-    announced=${BASH_REMATCH[2]:-1}
-    fetching=true
-  elif $fetching && [[ "$line" =~ $path ]]; then
-    fetched=$((fetched + 1))
-  else
-    fetching=false
-    unexpected+=("$line")
+validate_dry_run() {
+  local header='^(this path|these ([0-9]+) paths) will be fetched \([0-9.]+ [KMGTPEZY]iB download, [0-9.]+ [KMGTPEZY]iB unpacked\):$'
+  local path='^  /nix/store/[0-9a-df-np-sv-z]{32}-[^[:space:]]+$'
+  local fetching=false headers=0 announced=0 fetched=0 line
+  local unexpected=()
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ -z "$line" ]]; then
+      continue
+    elif [[ "$line" =~ $header ]]; then
+      headers=$((headers + 1))
+      # "this path" announces one.
+      announced=${BASH_REMATCH[2]:-1}
+      fetching=true
+    elif $fetching && [[ "$line" =~ $path ]]; then
+      fetched=$((fetched + 1))
+    else
+      fetching=false
+      unexpected+=("$line")
+    fi
+  done < "$1" || return 1
+  if ((${#unexpected[@]} > 0 || headers != 1 || fetched == 0 || fetched != announced)); then
+    echo "$headers fetch headers announce $announced paths and list $fetched; ${#unexpected[@]} lines show a path that cannot substitute or output this check does not know"
+    printf '%s\n' "${unexpected[@]}"
+    return 1
   fi
-done < "$RUNNER_TEMP/dry-run.txt"
-if ((${#unexpected[@]} > 0 || headers != 1 || fetched == 0 || fetched != announced)); then
-  echo "::error title=Warm closure::$headers fetch headers announce $announced paths and list $fetched; ${#unexpected[@]} lines show a path that cannot substitute or output this check does not know"
-  printf '%s\n' "${unexpected[@]}"
-  exit 1
-fi
-echo "Every set member and dependency layer substitutes ($fetched paths)."
+  echo "Every set member and dependency layer substitutes ($fetched paths)."
+}
+
+transient="^warning: error: unable to download 'https://cache\.nixos\.org/[0-9a-df-np-sv-z]{32}\.narinfo': Error in the HTTP2 framing layer \(16\) ; retrying in [0-9]+ ms$"
+for attempt in 1 2 3; do
+  echo "Warm closure dry-run attempt $attempt/3 (300s limit)"
+  capture="$RUNNER_TEMP/dry-run-$attempt.txt"
+  if timeout --kill-after=5s 300s nix build --dry-run --store "$store" \
+    --option always-allow-substitutes true "${paths[@]}" 2>&1 | tee "$capture"; then
+    :
+  else
+    statuses=("${PIPESTATUS[@]}")
+    echo "::error title=Warm closure::attempt $attempt failed: nix/timeout=${statuses[0]}, capture=${statuses[1]}; not retrying"
+    exit 1
+  fi
+  if validate_dry_run "$capture"; then
+    exit 0
+  fi
+
+  retry_plan="$RUNNER_TEMP/retry-plan.txt"
+  : > "$retry_plan"
+  warnings=0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" =~ $transient ]]; then
+      warnings=$((warnings + 1))
+    else
+      printf '%s\n' "$line" >> "$retry_plan"
+    fi
+  done < "$capture"
+  if ((warnings == 0)) || ! validate_dry_run "$retry_plan" > /dev/null; then
+    echo "::error title=Warm closure::attempt $attempt failed strict validation and is not eligible for retry"
+    exit 1
+  fi
+  if ((attempt == 3)); then
+    echo "::error title=Warm closure::exhausted 3 attempts; no unfiltered dry run passed strict validation"
+    exit 1
+  fi
+  delay=$((attempt * 5))
+  echo "::warning title=Warm closure::attempt $attempt failed strict validation with $warnings recognized HTTP/2 narinfo warnings; retrying a fresh dry run in ${delay}s"
+  sleep "$delay"
+done

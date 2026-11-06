@@ -72,9 +72,10 @@ message RevokeAssociation {
   Signature recovery_identifier_signature = 2;
 }
 
-// Changes the recovery identifier for an XID. The recovery identifier is not required
-// to be a member of the XID. In addition to being able to add members, the
-// recovery identifier can also revoke members.
+// Changes the recovery identifier for an XID. The new recovery identifier must be
+// a current member of the XID; it keeps the role if it is later revoked as a
+// member. In addition to being able to add members, the recovery identifier can
+// also revoke members.
 message ChangeRecoveryAddress {
   string new_recovery_identifier = 1;
   Signature existing_recovery_identifier_signature = 2;
@@ -133,6 +134,9 @@ message AssociationState {
   repeated string handles = 7;
   // The number of ClaimHandle actions applied to produce this state.
   uint32 handle_claims = 8;
+  // The chain id recorded for the recovery role. It survives the recovery
+  // identifier's revocation as a member.
+  optional uint64 recovery_chain_id = 9;
 }
 
 /// state diff between two final AssociationStates

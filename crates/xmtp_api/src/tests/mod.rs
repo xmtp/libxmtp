@@ -21,10 +21,15 @@ use xmtp_proto::{
     xmtp::identity::associations::IdentifierKind,
 };
 
+mod commit_log_reads;
 mod handles;
 mod incoming;
 mod integration;
 mod limits;
+mod ordered_fold;
+mod ordered_publish;
+mod rate_limits;
+mod scw_batches;
 
 #[rstest]
 #[case(tonic::Code::InvalidArgument)]
@@ -256,13 +261,14 @@ fn publish_refusal(reason: wire::publish_error::Reason) -> ApiClientError {
 #[case(tonic::Code::InvalidArgument)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn publish_size_errors_split_between_atomic_units(#[case] code: tonic::Code) {
+    let (one, two) = (group_keys(1), group_keys(2));
     let first = vec![
-        group_message_envelope([1; 16], GroupMessageKind::Proposal, []),
-        group_message_envelope([1; 16], GroupMessageKind::Commit, []),
+        keyed_group_message_envelope(&one, GroupMessageKind::Proposal, []),
+        keyed_group_message_envelope(&one, GroupMessageKind::Commit, []),
     ];
     let second = vec![
-        group_message_envelope([2; 16], GroupMessageKind::Proposal, []),
-        group_message_envelope([2; 16], GroupMessageKind::Commit, []),
+        keyed_group_message_envelope(&two, GroupMessageKind::Proposal, []),
+        keyed_group_message_envelope(&two, GroupMessageKind::Commit, []),
     ];
     let expected = [first.clone(), second.clone()];
     let mut mock = MockBackendClient::new();
@@ -435,20 +441,26 @@ fn publish_chunks_measure_bytes_and_distinct_topics() {
         PublishUnit::new(vec![large; count]),
         Err(ApiError::UnitTooLarge)
     ));
-    let units = (0..=BACKEND_DEFAULT_MAX_PUBLISH_TOPICS)
+    // The default topic cap equals `MAX_PUBLISH_ENVELOPES`, so only a lower
+    // cap tells the topic term apart from the envelope bound.
+    let limits = LimitsConfiguration {
+        max_publish_topics: 3,
+        ..LimitsConfiguration::default()
+    };
+    let units = (0..4)
         .map(|index| PublishUnit::single(welcome(index)))
         .collect::<crate::Result<Vec<_>>>()?;
-    let chunks = chunk_publish(&units)?;
+    let chunks = crate::chunk::chunk_publish_within(&units, &limits)?;
     assert_eq!(
         chunks.iter().map(|chunk| chunk.len()).collect::<Vec<_>>(),
-        vec![BACKEND_DEFAULT_MAX_PUBLISH_TOPICS, 1]
+        vec![3, 1]
     );
 }
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn query_pages_three_times_with_independent_topic_cursors() {
-    let a = Topic::new_group_message([1; 16]);
-    let b = Topic::new_group_message([2; 16]);
+    let a = Topic::new_group_message([1; 32]);
+    let b = Topic::new_group_message([2; 32]);
     let requested = HashMap::from([(a.clone(), Cursor(0)), (b.clone(), Cursor(0))]);
     let mut expected = requested.clone();
     let mut page = 0;
@@ -503,8 +515,8 @@ async fn query_pages_three_times_with_independent_topic_cursors() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn oversized_query_reduces_limit_before_splitting_topics() {
-    let a = Topic::new_group_message([1; 16]);
-    let b = Topic::new_group_message([2; 16]);
+    let a = Topic::new_group_message([1; 32]);
+    let b = Topic::new_group_message([2; 32]);
     let mut calls = Vec::new();
     let mut mock = MockBackendClient::new();
     mock.expect_query().times(6).returning(move |request| {
@@ -538,7 +550,7 @@ async fn query_rejects_has_more_without_progress() {
     assert!(matches!(
         wrapper(mock)
             .query_all(
-                HashMap::from([(Topic::new_group_message([1; 16]), Cursor(0))]),
+                HashMap::from([(Topic::new_group_message([1; 32]), Cursor(0))]),
                 1
             )
             .await,
@@ -690,7 +702,7 @@ async fn newest_does_not_retry_not_found() {
         Err(status(tonic::Code::NotFound))
     });
     let error = wrapper(mock)
-        .newest_topic_cursors(vec![Topic::new_group_message(GROUP_ID)])
+        .newest_topic_cursors(vec![Topic::new_group_message(group_keys(1).group_id())])
         .await
         .unwrap_err();
     assert_eq!(grpc_status(&error).unwrap().code(), tonic::Code::NotFound);
@@ -703,7 +715,8 @@ fn group_decoder_keeps_payload_and_envelope_hashes_separate() {
         GroupMessageKind::Proposal,
         GroupMessageKind::Commit,
     ] {
-        let envelope = group_message_envelope(GROUP_ID, kind, [0xaa, 0xbb]);
+        let keys = group_keys(1);
+        let envelope = keyed_group_message_envelope(&keys, kind, [0xaa, 0xbb]);
         let Some(wire::client_envelope::Payload::GroupMessage(group)) = &envelope.payload else {
             unreachable!()
         };
@@ -714,7 +727,7 @@ fn group_decoder_keeps_payload_and_envelope_hashes_separate() {
         })?;
         assert_eq!(decoded.sequence_id(), 9);
         assert_eq!(decoded.timestamp(), metadata.server_ns as i64);
-        assert_eq!(decoded.group_id.as_ref(), &GROUP_ID);
+        assert_eq!(decoded.group_id.as_slice(), &keys.group_id());
         assert_eq!(decoded.payload_hash, xmtp_common::sha256_array(&group.data));
         assert_eq!(
             decoded.envelope_hash,
@@ -786,8 +799,8 @@ async fn newest_size_errors_split_until_one_topic() {
     let result = wrapper(mock)
         .newest(
             vec![
-                Topic::new_group_message([1; 16]),
-                Topic::new_group_message([2; 16]),
+                Topic::new_group_message([1; 32]),
+                Topic::new_group_message([2; 32]),
             ],
             true,
         )
@@ -893,7 +906,7 @@ async fn minimum_query_retries_resource_exhausted_with_backoff() {
     let started = xmtp_common::time::Instant::now();
     let error = client
         .query_all(
-            HashMap::from([(Topic::new_group_message([1; 16]), Cursor(0))]),
+            HashMap::from([(Topic::new_group_message([1; 32]), Cursor(0))]),
             1,
         )
         .await
@@ -918,7 +931,7 @@ async fn minimum_query_size_errors_remain_terminal(#[case] code: tonic::Code) {
         .returning(move |_| Err(size_status(code)));
     let error = wrapper(mock)
         .query_all(
-            HashMap::from([(Topic::new_group_message([1; 16]), Cursor(0))]),
+            HashMap::from([(Topic::new_group_message([1; 32]), Cursor(0))]),
             1,
         )
         .await
@@ -998,4 +1011,38 @@ fn auth_codes_and_retryability_survive_api_erasure() {
     let transport = crate::dyn_err(status(tonic::Code::Unavailable));
     assert!(transport.is_retryable());
     assert_eq!(grpc_status(&transport)?.code(), tonic::Code::Unavailable);
+}
+
+/// A welcome pointer resolves from the lowest-sequence row on its destination,
+/// so the read asks for exactly that row and never fetches a later one.
+// verifies: JOIN-032
+#[xmtp_common::test(unwrap_try = true)]
+async fn query_first_welcome_requests_one_envelope() {
+    let destination = InstallationId::from([7; 32]);
+    let topic = Topic::new_welcome_message(destination);
+    let mut mock = MockBackendClient::new();
+    mock.expect_query_raw_envelopes()
+        .times(1)
+        .returning(move |request| {
+            assert_eq!(request.limit, 1);
+            let [query] = request.queries.as_slice() else {
+                panic!("expected one topic");
+            };
+            assert_eq!(query.topic.as_ref().unwrap().topic, topic.cloned_vec());
+            assert_eq!(query.cursor.as_ref().unwrap().sequence_id, 0);
+            let mut row = query_row(&topic, 5);
+            row.meta.as_mut().unwrap().message_hash = Some(wire::MessageHash {
+                hash: Some(wire::message_hash::Hash::Sha256(vec![7; 32])),
+            });
+            Ok(wire::QueryResponse {
+                envelopes: vec![row],
+                continuation: Some(wire::Continuation { has_more: true }),
+            }
+            .into())
+        });
+    let first = wrapper(mock)
+        .query_first_welcome(destination, 4096)
+        .await?
+        .unwrap();
+    assert_eq!(first.meta.unwrap().cursor.unwrap().sequence_id, 5);
 }

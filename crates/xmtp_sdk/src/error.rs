@@ -1,3 +1,5 @@
+mod configuration;
+mod group;
 mod handles;
 mod wrappers;
 pub(crate) use wrappers::CoreError;
@@ -309,7 +311,8 @@ impl XmtpError {
         let code = match error {
             StorageError::PreTransitionDatabase
             | StorageError::OldStreamDatabase
-            | StorageError::OldEncodingDatabase => error.error_code(),
+            | StorageError::OldEncodingDatabase
+            | StorageError::LegacyGroupDatabase => error.error_code(),
             _ => "Storage",
         };
         Self::Storage(Self::details(
@@ -347,7 +350,6 @@ impl XmtpError {
             message,
         ))
     }
-
     pub(crate) fn unknown(error: impl std::fmt::Display) -> Self {
         Self::Unknown(ErrorDetails {
             code: "Unknown".into(),
@@ -357,7 +359,6 @@ impl XmtpError {
             stream_failure: None,
         })
     }
-
     /// Map a core failure to the public code of its recovery action.
     // implements: CONF-064
     pub(crate) fn from_core<E: CoreError>(error: E) -> Self {
@@ -365,7 +366,6 @@ impl XmtpError {
             .unwrap_or_else(|| Self::unclassified(&error))
             .with_stream_failure(&error)
     }
-
     /// `Unknown` keeps the retry policy of a typed core error; with none, it
     /// is not retryable.
     fn unclassified(error: &(dyn std::error::Error + 'static)) -> Self {
@@ -376,12 +376,12 @@ impl XmtpError {
             error.to_string(),
         ))
     }
-
     fn typed_retryable(error: &(dyn std::error::Error + 'static)) -> Option<bool> {
         use xmtp_common::RetryableError;
         use xmtp_mls::{
             client::ClientError, groups::GroupError, identity::IdentityError,
-            mls_store::MlsStoreError, subscriptions::catch_up::CatchUpError,
+            identity_updates::IdentityUpdateError, mls_store::MlsStoreError,
+            subscriptions::catch_up::CatchUpError,
         };
         if let Some(error) = error.downcast_ref::<xmtp_archive::ArchiveError>() {
             return Some(error.is_retryable());
@@ -398,6 +398,9 @@ impl XmtpError {
         if let Some(error) = error.downcast_ref::<IdentityError>() {
             return Some(error.is_retryable());
         }
+        if let Some(error) = error.downcast_ref::<IdentityUpdateError>() {
+            return Some(error.is_retryable());
+        }
         if let Some(error) = error.downcast_ref::<MlsStoreError>() {
             return Some(error.is_retryable());
         }
@@ -408,7 +411,6 @@ impl XmtpError {
             .downcast_ref::<xmtp_db::StorageError>()
             .map(RetryableError::is_retryable)
     }
-
     fn classify(error: &(dyn std::error::Error + 'static)) -> Option<Self> {
         // A failed check before the request wins: the request was not sent,
         // and the check's own cause names the action. The search also opens
@@ -425,9 +427,13 @@ impl XmtpError {
         }
         None
     }
-
     fn classify_one(error: &(dyn std::error::Error + 'static)) -> Option<Self> {
+        use xmtp_db::consent_record::ConsentActError as Act;
         use xmtp_mls::groups::GroupError;
+        if let Some(act @ (Act::ConversationNotHeld(_) | Act::InvalidEntity)) = error.downcast_ref()
+        {
+            return Some(Self::invalid_argument(act.to_string()));
+        }
         if let Some(xmtp_mls::identity::IdentityError::IdentifierNotInInbox { .. }) =
             error.downcast_ref::<xmtp_mls::identity::IdentityError>()
         {
@@ -451,6 +457,13 @@ impl XmtpError {
         }
         if let Some(group) = error.downcast_ref::<GroupError>() {
             return match group {
+                GroupError::MessageSenderConflict => Some(Self::InvalidInput(Self::details(
+                    "MessageSenderConflict",
+                    ErrorCategory::Input,
+                    false,
+                    "message id belongs to another sender inbox",
+                ))),
+                GroupError::DeleteMessage(error) => Self::from_delete(error),
                 GroupError::MetadataField(field) => Some(Self::from_field(field)),
                 GroupError::ComponentSource(source) => Some(Self::from_component_source(source)),
                 GroupError::TooManyCharacters { .. } => {
@@ -482,12 +495,25 @@ impl XmtpError {
                 }
                 GroupError::WrappedApi(api) => Some(Self::api_cause(api)),
                 GroupError::Storage(storage) => Some(Self::storage_cause(storage)),
-                GroupError::Client(client) => Self::client_cause(client),
                 _ => None,
             };
         }
         if let Some(client) = error.downcast_ref::<xmtp_mls::client::ClientError>() {
             return Self::client_cause(client);
+        }
+        if let Some(found) = Self::server_config_level(error) {
+            return Some(found);
+        }
+        if let Some(xmtp_mls::identity_updates::IdentityUpdateError::Handle(handle)) =
+            error.downcast_ref()
+        {
+            return Some(Self::from_handle(handle));
+        }
+        if let Some(xmtp_mls::identity_updates::IdentityUpdateError::InvalidSignatureRequest(
+            source @ xmtp_id::associations::builder::SignatureRequestError::TooManyActions(_),
+        )) = error.downcast_ref()
+        {
+            return Some(Self::invalid(source.to_string()));
         }
         if let Some(api) = error.downcast_ref::<xmtp_api::ApiError>() {
             return Some(Self::api_cause(api));
@@ -616,40 +642,19 @@ impl XmtpError {
         error.source().and_then(Self::classify)
     }
 
-    pub(crate) fn client_cause(error: &xmtp_mls::client::ClientError) -> Option<Self> {
-        use xmtp_common::RetryableError;
+    fn client_cause(error: &xmtp_mls::client::ClientError) -> Option<Self> {
         use xmtp_mls::client::ClientError;
         Some(match error {
             ClientError::AlreadyClosed => Self::closed(),
             ClientError::ConfigurationUnavailable(source) => {
-                Self::ConfigurationUnavailable(Self::details(
-                    "ConfigurationUnavailable",
-                    ErrorCategory::Configuration,
-                    source.is_retryable(),
-                    source.to_string(),
-                ))
+                Self::configuration_unavailable(source)
             }
-            ClientError::ConfigurationInvalid(source) => Self::ConfigurationInvalid(Self::details(
-                "ConfigurationInvalid",
-                ErrorCategory::Configuration,
-                false,
-                source.to_string(),
-            )),
+            ClientError::ConfigurationInvalid(source) => Self::configuration_invalid(source),
             ClientError::BackendMismatch { stored, received } => {
-                Self::BackendMismatch(Self::details(
-                    "BackendMismatch",
-                    ErrorCategory::Configuration,
-                    false,
-                    format!("database is bound to {stored}; {received} answered"),
-                ))
+                Self::backend_mismatch(stored, received)
             }
             ClientError::ClientVersionTooOld { client, minimum } => {
-                Self::ClientVersionTooOld(Self::details(
-                    "ClientVersionTooOld",
-                    ErrorCategory::Configuration,
-                    false,
-                    format!("client {client} is below required version {minimum}"),
-                ))
+                Self::client_version_too_old(client, minimum)
             }
             ClientError::AuthRequired { required_scopes } => Self::AuthRequired(Self::details(
                 "AuthRequired",
@@ -668,6 +673,10 @@ impl XmtpError {
             ClientError::Api(api) => Self::api_cause(api),
             ClientError::Storage(storage) => Self::storage_cause(storage),
             ClientError::Handle(handle) => Self::from_handle(handle),
+            ClientError::SignatureRequest(
+                source @ xmtp_id::associations::builder::SignatureRequestError::TooManyActions(_),
+            ) => Self::invalid(source.to_string()),
+            ClientError::InvalidListOptions(reason) => Self::invalid_argument(*reason),
             _ => return None,
         })
     }
@@ -850,39 +859,6 @@ impl XmtpError {
             SqlKeyStoreError::Connection(connection) => Self::connection_retryable(connection),
             other => other.is_retryable(),
         }
-    }
-
-    /// A field error keeps its kind. A denied write is the conversation's
-    /// `PermissionDenied`.
-    fn from_field(error: &xmtp_mls::mls_common::app_data::fields::FieldError) -> Self {
-        use xmtp_mls::mls_common::app_data::fields::FieldError;
-        let message = error.to_string();
-        let input = |code| Self::details(code, ErrorCategory::Input, false, message.clone());
-        let conversation =
-            |code| Self::details(code, ErrorCategory::Conversation, false, message.clone());
-        match error {
-            FieldError::UnknownField(_) => Self::UnknownField(input("UnknownField")),
-            FieldError::NotUserField(_) => Self::NotUserField(input("NotUserField")),
-            FieldError::DuplicateField(_) => Self::DuplicateField(input("DuplicateField")),
-            FieldError::TypeMismatch(_) => Self::TypeMismatch(input("TypeMismatch")),
-            FieldError::UnsupportedType { .. } => {
-                Self::UnsupportedType(conversation("UnsupportedType"))
-            }
-            FieldError::TypeChanged { .. } => Self::TypeChanged(conversation("TypeChanged")),
-            FieldError::Denied(_) => Self::conversation_permission_denied(message.clone()),
-            FieldError::Component(source) => Self::from_component_source(source),
-        }
-    }
-
-    fn from_component_source(
-        error: &xmtp_mls::mls_common::app_data::component_source::ComponentSourceError,
-    ) -> Self {
-        Self::Unknown(Self::details(
-            "Unknown",
-            ErrorCategory::Conversation,
-            false,
-            error.to_string(),
-        ))
     }
 
     #[cfg(not(target_arch = "wasm32"))]

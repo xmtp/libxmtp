@@ -20,6 +20,7 @@ use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_common::ErrorCode;
+use xmtp_configuration::{MAX_IDENTITY_UPDATE_ACTIONS, MAX_SCW_SIGNATURE_BYTES};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_proto::ConversionError;
 use xmtp_proto::xmtp::identity::{
@@ -118,10 +119,117 @@ pub enum DeserializationError {
     AddressValidation(#[from] IdentifierValidationError),
 }
 
+/// Every ERC-6492 signature an identity update carries, in action order.
+pub fn erc6492_signatures(
+    update: &IdentityUpdateProto,
+) -> impl Iterator<Item = &SmartContractWalletSignatureProto> {
+    update
+        .actions
+        .iter()
+        .flat_map(|action| match &action.kind {
+            Some(IdentityActionKindProto::CreateInbox(value)) => {
+                [value.initial_identifier_signature.as_ref(), None]
+            }
+            Some(IdentityActionKindProto::Add(value)) => [
+                value.existing_member_signature.as_ref(),
+                value.new_member_signature.as_ref(),
+            ],
+            Some(IdentityActionKindProto::Revoke(value)) => {
+                [value.recovery_identifier_signature.as_ref(), None]
+            }
+            Some(IdentityActionKindProto::ChangeRecoveryAddress(value)) => {
+                [value.existing_recovery_identifier_signature.as_ref(), None]
+            }
+            Some(IdentityActionKindProto::ClaimHandle(value)) => [value.signature.as_ref(), None],
+            None => [None, None],
+        })
+        .flatten()
+        .filter_map(|value| match &value.signature {
+            Some(SignatureKindProto::Erc6492(signature)) => Some(signature),
+            _ => None,
+        })
+}
+
+/// Why [`check_update_shape`] rejects an identity update.
+#[derive(Debug, Error)]
+pub enum UpdateShapeError {
+    /// No actions, more than [`MAX_IDENTITY_UPDATE_ACTIONS`], or a claim
+    /// beside another action: the update itself is malformed.
+    #[error(transparent)]
+    Malformed(ConversionError),
+    /// An ERC-6492 signature longer than [`MAX_SCW_SIGNATURE_BYTES`]: a
+    /// signature that can never verify, like every other ERC-6492 signature
+    /// that fails a check before chain access.
+    #[error("erc_6492 signature of {0} bytes exceeds {MAX_SCW_SIGNATURE_BYTES}")]
+    SignatureTooLong(usize),
+}
+
+/// A decode reports every shape failure as a conversion failure.
+impl From<UpdateShapeError> for ConversionError {
+    fn from(error: UpdateShapeError) -> Self {
+        match error {
+            UpdateShapeError::Malformed(error) => error,
+            UpdateShapeError::SignatureTooLong(got) => ConversionError::InvalidLength {
+                item: "erc_6492 signature",
+                expected: MAX_SCW_SIGNATURE_BYTES,
+                got,
+            },
+        }
+    }
+}
+
+/// Reject an identity update that no validator accepts whatever its
+/// signatures: one with no actions, with more than
+/// [`MAX_IDENTITY_UPDATE_ACTIONS`], with a claim beside another action, or
+/// with an ERC-6492 signature longer than [`MAX_SCW_SIGNATURE_BYTES`].
+///
+/// It reads only counts and lengths, and counts the actions before it looks
+/// at any of them, so it is the first check of every decode, and the backend
+/// can run it before it reads the inbox's history or any chain.
+// implements: IDENT-001, IDENT-079, IDENT-093, IDENT-094
+pub fn check_update_shape(update: &IdentityUpdateProto) -> Result<(), UpdateShapeError> {
+    let actions = update.actions.len();
+    if actions == 0 {
+        return Err(UpdateShapeError::Malformed(ConversionError::Missing {
+            item: "action",
+            r#type: std::any::type_name::<IdentityActionProto>(),
+        }));
+    }
+    if actions > MAX_IDENTITY_UPDATE_ACTIONS {
+        return Err(UpdateShapeError::Malformed(
+            ConversionError::InvalidLength {
+                item: "identity update actions",
+                expected: MAX_IDENTITY_UPDATE_ACTIONS,
+                got: actions,
+            },
+        ));
+    }
+    let claims = update
+        .actions
+        .iter()
+        .filter(|action| matches!(action.kind, Some(IdentityActionKindProto::ClaimHandle(_))))
+        .count();
+    if claims > 0 && actions > 1 {
+        return Err(UpdateShapeError::Malformed(ConversionError::InvalidValue {
+            item: "identity update",
+            expected: "a claim as its only action",
+            got: format!("{claims} claims among {actions} actions"),
+        }));
+    }
+    match erc6492_signatures(update)
+        .map(|signature| signature.signature.len())
+        .find(|length| *length > MAX_SCW_SIGNATURE_BYTES)
+    {
+        Some(length) => Err(UpdateShapeError::SignatureTooLong(length)),
+        None => Ok(()),
+    }
+}
+
 impl TryFrom<IdentityUpdateProto> for UnverifiedIdentityUpdate {
     type Error = ConversionError;
 
     fn try_from(proto: IdentityUpdateProto) -> Result<Self, Self::Error> {
+        check_update_shape(&proto)?;
         let IdentityUpdateProto {
             client_timestamp_ns,
             inbox_id,
@@ -602,6 +710,7 @@ impl From<AssociationState> for AssociationStateProto {
             members,
             recovery_identifier: state.recovery_identifier.to_string(),
             recovery_identifier_kind: kind as i32,
+            recovery_chain_id: state.recovery_chain_id,
             seen_signatures: state.seen_signatures.into_iter().collect(),
             relying_party,
             handles: state.handles.into_iter().map(String::from).collect(),
@@ -658,6 +767,7 @@ impl TryFrom<AssociationStateProto> for AssociationState {
             inbox_id: proto.inbox_id,
             members,
             recovery_identifier,
+            recovery_chain_id: proto.recovery_chain_id,
             seen_signatures: HashSet::from_iter(proto.seen_signatures),
             handles,
             handle_claims: proto.handle_claims,
@@ -809,7 +919,9 @@ pub(crate) mod tests {
     }
 
     /// A claim keeps its handle as carried and its signature through the wire
-    /// form, and a state keeps its handles in order and its claim count.
+    /// form, and a state keeps its handles in order, its claim count, and the
+    /// recovery role's chain id after the recovery identifier is revoked as a
+    /// member.
     // verifies: IDENT-001
     #[xmtp_common::test(unwrap_try = true)]
     fn claim_and_state_round_trip() {
@@ -834,7 +946,8 @@ pub(crate) mod tests {
         )?)?;
         assert_eq!(decoded, claim);
 
-        let state = AssociationState::new(account_identifier, 0, None)?
+        let state = AssociationState::new(account_identifier.clone(), 0, Some(7))?
+            .remove(&account_identifier.into())
             .claim_handle(Handle::parse("a")?)
             .claim_handle(Handle::parse("b#0001")?)
             .claim_handle(Handle::parse("a")?);
@@ -846,6 +959,7 @@ pub(crate) mod tests {
         )?)?;
         assert_eq!(decoded.handles(), state.handles());
         assert_eq!(decoded.handle_claims(), 3);
+        assert_eq!(decoded.recovery_chain_id, Some(7));
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

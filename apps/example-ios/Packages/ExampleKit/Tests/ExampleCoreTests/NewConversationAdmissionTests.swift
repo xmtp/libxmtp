@@ -57,6 +57,26 @@ import Testing
 	#expect(queries.calls == ["people"])
 }
 
+@Test(arguments: [false, true]) @MainActor func directMessageSkipsReviewButGroupKeepsIt(group: Bool) async {
+	let queries = AdmissionConversationQueries()
+	let origin = DestinationOrigin(session: SessionKey(profileID: UUID(), generation: 1), token: 0)
+	var opened: String?
+	let store = NewConversationStore(queries: queries, origin: origin, admit: { _ in true }, finish: { opened = $0 })
+	store.send(.load); await store.waitForBootstrap()
+	store.send(.group(group)); store.send(.input("peer")); store.send(.next)
+	for _ in 0 ..< 10000 {
+		if !store.state.busy {
+			break
+		}
+		await Task.yield()
+	}
+	#expect(!store.state.busy)
+	#expect(store.state.reviewing == group)
+	#expect(opened == (group ? nil : "conversation"))
+	#expect(queries.calls.contains("create") == !group)
+	await store.close()
+}
+
 @MainActor private final class AdmissionConversationQueries: NewConversationQueries {
 	var calls: [String] = []
 	var onPeople: () -> Void = {}

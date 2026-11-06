@@ -42,6 +42,7 @@ fn group_read_write_and_builder_keep_published_failure_details() {
     let core = || GroupError::PublishedButUnconfirmed {
         intent_id: 42,
         cause: Some(Box::new(barrier(Some(0), BarrierFailure::Cancelled))),
+        rate_limit_delay: None,
     };
     for error in [
         XmtpError::from_group(core()),
@@ -92,6 +93,7 @@ fn group_read_write_and_builder_keep_published_failure_details() {
     let no_barrier = stream_failure(XmtpError::from_group(GroupError::PublishedButUnconfirmed {
         intent_id: 17,
         cause: None,
+        rate_limit_delay: None,
     }));
     assert_eq!(no_barrier.intent_id, Some(17));
     assert_eq!(no_barrier.published_intent_ids, vec![17]);
@@ -109,10 +111,12 @@ fn projection_keeps_all_summary_branches_and_published_intents() {
     summary.add_publish_err(GroupError::PublishedButUnconfirmed {
         intent_id: 17,
         cause: Some(Box::new(barrier(Some(1), BarrierFailure::Blocked))),
+        rate_limit_delay: None,
     });
     summary.add_post_commit_err(GroupError::PublishedButUnconfirmed {
         intent_id: 18,
         cause: Some(Box::new(barrier(Some(2), BarrierFailure::Cancelled))),
+        rate_limit_delay: None,
     });
     let error = xmtp_mls::client::ClientError::Group(Box::new(GroupError::Sync(Box::new(summary))));
     let failure = stream_failure(XmtpError::from_core(error));
@@ -324,7 +328,7 @@ fn failure_before_admission_has_no_scope_generation() {
     assert_eq!(topic.received, u64::MAX);
 }
 
-// verifies: PROC-018, PROC-036
+// verifies: PROC-018
 #[xmtp_common::test(unwrap_try = true)]
 fn stream_error_formatting_redacts_topic_bytes_but_keeps_structured_details() {
     let error = XmtpError::from_group(GroupError::StreamBarrier(barrier(

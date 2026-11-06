@@ -1,0 +1,338 @@
+use crate::groups::send_message_opts::SendMessageOpts;
+use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer};
+use std::sync::Arc;
+
+use crate::groups::GroupError;
+use crate::groups::MlsGroup;
+use crate::groups::group_permissions::PolicySet;
+use crate::groups::intents::PostCommitAction;
+use crate::groups::mls_sync::decode_staged_commit;
+use crate::groups::mls_sync::update_group_membership::apply_update_group_membership_intent;
+use xmtp_db::XmtpOpenMlsProviderRef;
+use xmtp_db::group::ConversationType;
+use xmtp_db::group_message::MsgQueryArgs;
+use xmtp_db::prelude::QueryRefreshState;
+use xmtp_db::refresh_state::EntityKind;
+use xmtp_mls_core::context::CoreContext;
+use xmtp_mls_core::identity::create_credential;
+use xmtp_mls_group_state::group::GroupMetadataOptions;
+
+/// Every key package is last resort: two Welcomes addressed to the one key
+/// package an installation published both open, so the first join does not
+/// delete its private keys. Without a mark OpenMLS recognizes, the first
+/// Welcome consumes the package and the second finds no key package.
+// verifies: JOIN-003
+#[xmtp_common::test(unwrap_try = true)]
+async fn one_key_package_opens_two_welcomes() {
+    use openmls_traits::OpenMlsProvider;
+
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
+    let installation = alix.installation_public_key().to_vec();
+    let newest_key_package = || async {
+        alix.get_key_packages_for_installation_ids(vec![installation.clone()])
+            .await
+            .unwrap()
+            .remove(&installation)
+            .unwrap()
+            .unwrap()
+            .inner
+            .hash_ref(alix.context.mls_provider().crypto())
+            .unwrap()
+    };
+    let published = newest_key_package().await;
+
+    let first = bo.create_group(None, None)?;
+    first.add_members(&[alix.inbox_id()]).await?;
+    let second = caro.create_group(None, None)?;
+    second.add_members(&[alix.inbox_id()]).await?;
+    // Both Welcomes name the same key package: alix has not rotated it.
+    assert_eq!(newest_key_package().await, published);
+
+    let joined = alix.sync_welcomes().await?;
+    let mut joined: Vec<_> = joined.iter().map(|group| group.group_id).collect();
+    joined.sort();
+    let mut expected = vec![first.group_id, second.group_id];
+    expected.sort();
+    assert_eq!(joined, expected);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn ordinary_welcome_rejects_peer_admin_combinator() {
+    use openmls::{component::ComponentData, messages::proposals::AppDataUpdateOperation};
+    use openmls_traits::OpenMlsProvider;
+    use prost::Message;
+    use tls_codec::{Deserialize, Serialize, VLBytes};
+    use xmtp_mls_group_state::app_data::component_id::ComponentId;
+    use xmtp_mls_tls_collections::tls_map::{TlsMap, TlsMapDelta};
+    use xmtp_proto::xmtp::mls::message_contents::{
+        ComponentMetadata, MetadataPolicy,
+        metadata_policy::{AndCondition, Kind, MetadataBasePolicy},
+    };
+
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let group = alix.create_group(None, None)?;
+    let intent = group
+        .get_membership_update_intent(&[bo.inbox_id()], &[])
+        .await?;
+    let old_membership = group.with_group_snapshot(|group| {
+        Ok(xmtp_mls_validation::commit::extract_group_membership(
+            group.extensions(),
+        )?)
+    })?;
+    let new_membership = intent.apply_to_group_membership(&old_membership);
+    let changes = crate::groups::mls_sync::calculate_membership_changes_with_keypackages(
+        &group.context,
+        &group.group_id,
+        &new_membership,
+        &old_membership,
+        None,
+    )
+    .await?;
+    let action = xmtp_mls_core::state_tx::state_write(group.context.mls_storage(), |tx| {
+        tx.with_group(group.group_id, |mls_group, storage| {
+            let provider = XmtpOpenMlsProviderRef::new(storage);
+            let signer = &group.context.identity().installation_keys;
+            let bytes = mls_group
+                .extensions()
+                .app_data_dictionary()
+                .unwrap()
+                .dictionary()
+                .get(&ComponentId::COMPONENT_REGISTRY.as_u16())
+                .unwrap();
+            let mut registry = TlsMap::<ComponentId, VLBytes>::tls_deserialize_exact(bytes)?;
+            let mut metadata = ComponentMetadata::decode(
+                registry.get(&ComponentId::ADMIN_LIST).unwrap().as_slice(),
+            )?;
+            metadata.permissions.as_mut().unwrap().insert_policy = Some(MetadataPolicy {
+                kind: Some(Kind::AndCondition(AndCondition {
+                    policies: vec![MetadataPolicy {
+                        kind: Some(Kind::Base(MetadataBasePolicy::AllowIfSuperAdmin as i32)),
+                    }],
+                })),
+            });
+            let value = VLBytes::new(metadata.encode_to_vec());
+            let delta = TlsMapDelta::new().update(ComponentId::ADMIN_LIST, value.clone());
+            registry.update(ComponentId::ADMIN_LIST, value)?;
+            // A malicious peer can bypass our registry validation. Construct
+            // its authenticated dictionary with the OpenMLS APIs directly.
+            mls_group.propose_app_data_update(
+                &provider,
+                signer,
+                ComponentId::COMPONENT_REGISTRY.as_u16(),
+                AppDataUpdateOperation::Update(delta.tls_serialize_detached()?.into()),
+            )?;
+            let mut updater = mls_group.app_data_dictionary_updater();
+            updater.set(ComponentData::from_parts(
+                ComponentId::COMPONENT_REGISTRY.as_u16(),
+                registry.tls_serialize_detached()?.into(),
+            ));
+            let updates = updater.changes();
+            let mut stage = crate::groups::mls_ext::commit_without_group_info(
+                mls_group,
+                provider.storage(),
+                |builder| builder.consume_proposal_store(true),
+            )?;
+            stage.with_app_data_dictionary_updates(updates);
+            stage
+                .build(provider.rand(), provider.crypto(), signer, |_| true)?
+                .stage_commit(&provider)?;
+            mls_group.merge_pending_commit(&provider)?;
+
+            let publish = apply_update_group_membership_intent(
+                storage,
+                mls_group,
+                intent,
+                changes,
+                &[],
+                &xmtp_configuration::LimitsConfiguration::default(),
+                signer,
+            )?
+            .unwrap();
+            let PostCommitAction::SendWelcomes(action) =
+                PostCommitAction::from_bytes(&publish.post_commit_data().unwrap())?;
+            mls_group.merge_staged_commit(
+                &provider,
+                decode_staged_commit(&publish.staged_commit().unwrap())?,
+            )?;
+            Ok::<_, GroupError>(xmtp_db::TransactionOutcome::Continue(action))
+        })
+    })?
+    .into_continued();
+    group.send_welcomes(action, None).await?;
+    assert!(
+        bo.sync_welcomes().await?.is_empty(),
+        "ordinary Welcome must reject peer admin combinators"
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_welcome_cursor() {
+    // Welcomes now come with a cursor so that clients no longer pull down
+    // every message in a group that they cannot decrypt.
+    // This tests checks that cursor is being consumed from the welcome.
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+
+    let (group, _msg) = alix.test_talk_in_new_group_with(&bo).await?;
+
+    let alix2 = alix.new_installation().await;
+    group.update_installations().await?;
+
+    alix2.sync_welcomes().await?;
+    let alix2_refresh_state = alix2
+        .context
+        .db()
+        .latest_cursor_for_id(group.group_id, &[EntityKind::ApplicationMessage])?;
+
+    assert!(alix2_refresh_state.0 > 0);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_spoofed_inbox_id() {
+    // In this scenario, Alix is malicious but Bo is not
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
+
+    // Our goal is simply to create a group with a credential where the inbox ID (openMLS credential)
+    // does not match the installation ID (openMLS signing key)
+    // To do this via libxmtp without re-implementing everything, we need to reach into some internals
+    let malicious_credential = create_credential("spoofed_inbox_id").unwrap();
+    let mut malicious_identity = alix.context.identity.clone();
+    malicious_identity.credential = malicious_credential;
+    let malicious_context = Arc::new(xmtp_mls_core::context::LocalContext {
+        identity: malicious_identity,
+        api_client: alix.context.api_client.clone(),
+        store: alix.context.store.clone(),
+        mls_storage: alix.context.mls_storage.clone(),
+        mutexes: alix.context.mutexes.clone(),
+        hooks: xmtp_mls_core::context::HookState {
+            mls_commit_lock: alix.context.hooks.mls_commit_lock.clone(),
+            message_clock: Default::default(),
+        },
+        version_info: alix.context.version_info.clone(),
+        server_configuration: alix.context.server_configuration.clone(),
+        events: alix.context.events.clone(),
+        public_event_writer: alix.context.public_event_writer.clone(),
+        registration_event_pending: alix.context.registration_event_pending.clone(),
+        scw_verifier: alix.context.scw_verifier.clone(),
+        device_sync: alix.context.device_sync.clone(),
+        fork_recovery_opts: alix.context.fork_recovery_opts.clone(),
+        change_callbacks: alix.context.change_callbacks.clone(),
+        worker_config: alix.context.worker_config.clone(),
+        task_channels: alix.context.task_channels.clone(),
+        worker_metrics: alix.context.worker_metrics.clone(),
+        cancellation_token: alix.context.cancellation_token.clone(),
+        shutdown_complete: alix.context.shutdown_complete.clone(),
+        foreground_calls: alix.context.foreground_calls.clone(),
+        delivery_owner: alix.context.delivery_owner.clone(),
+        retired_delivery_owner: alix.context.retired_delivery_owner.clone(),
+        stream_policy: alix.context.stream_policy.clone(),
+        features: alix.context.features.clone(),
+    });
+    let group = MlsGroup::create_and_insert(
+        malicious_context,
+        ConversationType::Group,
+        PolicySet::default(),
+        GroupMetadataOptions::default(),
+        None,
+    )?;
+
+    // Now we send a welcome from this group. To disable validation on Alix's side (as Alix is malicious),
+    // we reach into some internals.
+    let intent = group
+        .get_membership_update_intent(&[bo.inbox_id()], &[])
+        .await?;
+    let signer = &group.context.identity().installation_keys;
+    let context = &group.context;
+    let old_membership = group.with_group_snapshot(|openmls_group| {
+        Ok(xmtp_mls_validation::commit::extract_group_membership(
+            openmls_group.extensions(),
+        )?)
+    })?;
+    let new_membership = intent.apply_to_group_membership(&old_membership);
+    let changes = crate::groups::mls_sync::calculate_membership_changes_with_keypackages(
+        context,
+        &group.group_id,
+        &new_membership,
+        &old_membership,
+        None,
+    )
+    .await?;
+    let send_welcome_action = xmtp_mls_core::state_tx::state_write(context.mls_storage(), |tx| {
+        tx.with_group(group.group_id, |openmls_group, storage| {
+            let publish_intent_data = apply_update_group_membership_intent(
+                storage,
+                openmls_group,
+                intent,
+                changes,
+                &[],
+                &xmtp_configuration::LimitsConfiguration::default(),
+                signer,
+            )?
+            .unwrap();
+            let post_commit_action = PostCommitAction::from_bytes(
+                publish_intent_data.post_commit_data().unwrap().as_slice(),
+            )?;
+            let PostCommitAction::SendWelcomes(action) = post_commit_action;
+            let staged_commit = publish_intent_data.staged_commit().unwrap();
+            openmls_group.merge_staged_commit(
+                &XmtpOpenMlsProviderRef::new(storage),
+                decode_staged_commit(staged_commit.as_slice())?,
+            )?;
+
+            Ok::<_, GroupError>(xmtp_db::TransactionOutcome::Continue(action))
+        })
+    })?
+    .into_continued();
+    group.send_welcomes(send_welcome_action, None).await?;
+
+    // We want Bo to reject this welcome, because the inbox ID is spoofed
+    tracing::info!("Bo is receiving now");
+    let groups = bo.sync_welcomes().await?;
+    if !groups.is_empty() {
+        // Test is already failed if we reach this point, the rest of the test explores
+        // how this can be abused
+        tracing::error!("We should reject a welcome with spoofed credentials, test failed");
+
+        let bo_group = &groups[0];
+        let added_by_inbox_id = bo_group.added_by_inbox_id()?;
+        // Bo thinks they were added by spoofed_inbox_id
+        tracing::error!(
+            "Bo thinks they were added by inbox id: {}",
+            added_by_inbox_id
+        );
+
+        // Alix sends a message using their spoofed inbox ID
+        group
+            .send_message(
+                "Message from spoofed inbox id".as_bytes(),
+                SendMessageOpts::default(),
+            )
+            .await?;
+        bo_group.sync().await?;
+        let bo_msgs = bo_group.find_messages(&MsgQueryArgs::default())?;
+        tracing::error!(
+            "Bo received a message from {}",
+            bo_msgs.first().unwrap().sender_inbox_id
+        );
+
+        // Bo and other members can continue to interact with this group as if nothing is wrong
+        bo_group
+            .send_message("hi".as_bytes(), SendMessageOpts::default())
+            .await?;
+        bo_group.add_members(&[caro.inbox_id()]).await?;
+        let caro_groups = caro.wait_for_welcomes().await?;
+        let caro_group = caro_groups.first().unwrap();
+        caro_group.sync().await?;
+        caro_group
+            .send_message("hi".as_bytes(), SendMessageOpts::default())
+            .await?;
+        bo_group.sync().await?;
+
+        panic!("Test failed");
+    }
+}

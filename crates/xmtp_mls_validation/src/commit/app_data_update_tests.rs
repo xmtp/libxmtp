@@ -16,26 +16,29 @@ use prost::Message as _;
 use tls_codec::{Serialize as _, VLBytes};
 
 use xmtp_cryptography::secret::Zeroizing;
-use xmtp_mls_common::app_data::component_id::ComponentId;
-use xmtp_mls_common::app_data::component_permissions::component_permissions;
-use xmtp_mls_common::app_data::component_registry::{ComponentRegistry, new_component_metadata};
-use xmtp_mls_common::app_data::components::metadata_attributes::{
+use xmtp_mls_group_state::app_data::component_id::ComponentId;
+use xmtp_mls_group_state::app_data::component_permissions::component_permissions;
+use xmtp_mls_group_state::app_data::component_registry::{
+    ComponentRegistry, new_component_metadata,
+};
+use xmtp_mls_group_state::app_data::components::metadata_attributes::{
     MAX_APP_DATA_LENGTH, MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH,
     MAX_GROUP_NAME_LENGTH,
 };
-use xmtp_mls_common::app_data::validation::ActorAuthority;
-use xmtp_mls_common::group_metadata::DmMembers;
-use xmtp_mls_common::inbox_id::InboxId;
-use xmtp_mls_common::tls_map::{TlsMap, TlsMapDelta, TlsMapMutation};
-use xmtp_mls_common::tls_set::{TlsKeyHash, TlsSet, TlsSetDelta};
+use xmtp_mls_group_state::app_data::validation::ActorAuthority;
+use xmtp_mls_group_state::group_metadata::DmMembers;
+use xmtp_mls_group_state::inbox_id::InboxId;
+use xmtp_mls_tls_collections::tls_map::{TlsMap, TlsMapDelta, TlsMapMutation};
+use xmtp_mls_tls_collections::tls_set::{TlsKeyHash, TlsSet, TlsSetDelta};
 use xmtp_proto::xmtp::mls::message_contents::{
     ComponentType, MetadataPolicy as MetadataPolicyProto,
     metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
 };
 
 use super::{
-    AppDataUpdateInCommit, CommitRuleError, app_data_update_proposer_leaf, removes_super_admin,
-    validate_app_data_update_sequence, validate_one_app_data_update_with_old_value,
+    AppDataUpdateInCommit, CommitRuleError, MAX_DICTIONARY_BYTES, app_data_update_proposer_leaf,
+    removes_super_admin, validate_app_data_update_sequence,
+    validate_one_app_data_update_with_old_value, validate_post_dictionary_size,
     validate_standalone_app_data_update,
 };
 
@@ -425,8 +428,8 @@ fn multi_mutation_delta_all_allowed_returns_ok() {
 // verifies: GMOD-019
 #[xmtp_common::test(unwrap_try = true)]
 fn membership_update_may_not_remove_super_admin() {
-    use xmtp_mls_common::app_data::components::inbox_id_set::SuperAdminListComponent;
-    use xmtp_mls_common::app_data::typed::Component;
+    use xmtp_mls_group_state::app_data::components::inbox_id_set::SuperAdminListComponent;
+    use xmtp_mls_group_state::app_data::typed::Component;
 
     let (super_admin, member) = (fake_inbox(0x42), fake_inbox(0x43));
     let mut super_admins = TlsSet::new();
@@ -458,8 +461,8 @@ fn membership_update_may_not_remove_super_admin() {
 // verifies: PERM-004
 #[xmtp_common::test(unwrap_try = true)]
 fn receiver_rejects_last_super_admin_removal() {
-    use xmtp_mls_common::app_data::components::inbox_id_set::SuperAdminListComponent;
-    use xmtp_mls_common::app_data::typed::Component;
+    use xmtp_mls_group_state::app_data::components::inbox_id_set::SuperAdminListComponent;
+    use xmtp_mls_group_state::app_data::typed::Component;
 
     let only_super_admin = fake_inbox(0x42);
     let mut prior = TlsSet::new();
@@ -485,8 +488,8 @@ fn receiver_rejects_last_super_admin_removal() {
 // verifies: PERM-004
 #[xmtp_common::test(unwrap_try = true)]
 fn receiver_rejects_second_of_two_sequential_super_admin_removals() {
-    use xmtp_mls_common::app_data::components::inbox_id_set::SuperAdminListComponent;
-    use xmtp_mls_common::app_data::typed::Component;
+    use xmtp_mls_group_state::app_data::components::inbox_id_set::SuperAdminListComponent;
+    use xmtp_mls_group_state::app_data::typed::Component;
 
     let first = fake_inbox(0x41);
     let second = fake_inbox(0x42);
@@ -1523,4 +1526,294 @@ fn standalone_proposal_delete_of_oversized_key_is_rejected() {
         validate(8193),
         Err(CommitRuleError::InsufficientPermissions)
     ));
+}
+
+/// A write of `GROUP_ROOT_KEY` must be exactly 32 bytes, the length META
+/// section 2 gives it: an empty, 31-byte, or 33-byte first write is
+/// rejected even where the registry allows the write.
+// verifies: META-010
+#[xmtp_common::test(unwrap_try = true)]
+fn group_root_key_writes_must_be_32_bytes() {
+    let id = ComponentId::GROUP_ROOT_KEY;
+    // A scalar first write is an update, so the registry allows updates.
+    let registry = registry_with(id, deny(), allow(), deny(), ComponentType::Bytes);
+    let write = |len: usize| {
+        validate_one_app_data_update_with_old_value(
+            id,
+            &AppDataUpdateOperation::Update(vec![7; len].into()),
+            member(),
+            "inbox_alice",
+            &registry,
+            None,
+            None,
+            None,
+        )
+    };
+    write(32)?;
+    for len in [0, 31, 33] {
+        assert!(write(len).is_err(), "a {len}-byte root was accepted");
+    }
+}
+
+/// A commit may grow the summed values of every component other than
+/// `GROUP_MEMBERSHIP` to 4 MiB and no further. A dictionary already past
+/// the limit stays usable for commits that do not grow it, and membership
+/// bytes are not counted.
+// verifies: META-077
+#[xmtp_common::test(unwrap_try = true)]
+fn dictionary_growth_past_the_limit_is_rejected() {
+    const APP: ComponentId = ComponentId::new(0xC077);
+    const MEMBERS: ComponentId = ComponentId::GROUP_MEMBERSHIP;
+    const MAX: usize = MAX_DICTIONARY_BYTES;
+    // The committed `APP` and membership lengths, the component the commit
+    // writes and its new length, and whether the commit is accepted.
+    let rows = [
+        (MAX / 2, 0, APP, MAX, true),
+        (MAX / 2, 0, APP, MAX + 1, false),
+        (MAX + 2, 0, APP, MAX + 1, true),
+        (MAX + 2, 0, APP, MAX + 2, true),
+        (MAX + 1, 0, APP, MAX + 2, false),
+        (MAX, MAX / 2, MEMBERS, MAX, true),
+    ];
+    for (row, (app, members, id, len, accepted)) in rows.into_iter().enumerate() {
+        let mut committed = openmls::extensions::AppDataDictionary::new();
+        committed.insert(APP.as_u16(), vec![0; app]);
+        committed.insert(MEMBERS.as_u16(), vec![0; members]);
+        let state = Some(Zeroizing::new(vec![0; len]));
+        let result = validate_post_dictionary_size(Some(&committed), [(id, &state)], MAX);
+        assert_eq!(result.is_ok(), accepted, "row {row}: {result:?}");
+    }
+}
+
+/// A commit builder passes a bound below the receivers' 4 MiB. Growth past
+/// that bound is rejected, and a dictionary already above it can still
+/// shrink or stay the same.
+// verifies: META-078
+#[xmtp_common::test(unwrap_try = true)]
+fn a_builder_bound_rejects_only_growth_past_it() {
+    const APP: ComponentId = ComponentId::new(0xC078);
+    const MAX: usize = 1024;
+    // The committed `APP` length, its new length, and whether the commit is
+    // accepted.
+    let rows = [
+        (0, MAX, true),
+        (0, MAX + 1, false),
+        (MAX + 8, MAX + 4, true),
+        (MAX + 8, MAX + 8, true),
+        (MAX + 8, MAX + 9, false),
+    ];
+    for (row, (app, len, accepted)) in rows.into_iter().enumerate() {
+        let mut committed = openmls::extensions::AppDataDictionary::new();
+        committed.insert(APP.as_u16(), vec![0; app]);
+        let state = Some(Zeroizing::new(vec![0; len]));
+        let result = validate_post_dictionary_size(Some(&committed), [(APP, &state)], MAX);
+        assert_eq!(result.is_ok(), accepted, "row {row}: {result:?}");
+    }
+}
+
+// ------------------------------------------------------------------------
+// Empty set and map deltas
+// ------------------------------------------------------------------------
+
+fn super_admin_only() -> MetadataPolicyProto {
+    base_policy(MetadataBasePolicy::AllowIfSuperAdmin)
+}
+
+/// An `Update` whose set or map delta has no mutations.
+fn empty_delta(component_type: ComponentType) -> AppDataUpdateOperation {
+    let payload = match component_type {
+        ComponentType::TlsSetInboxId => TlsSetDelta::<InboxId>::new().tls_serialize_detached(),
+        ComponentType::TlsMapBytesBytes => {
+            TlsMapDelta::<VLBytes, VLBytes>::new().tls_serialize_detached()
+        }
+        other => panic!("no empty delta for {other:?}"),
+    };
+    AppDataUpdateOperation::Update(payload.unwrap().into())
+}
+
+/// Judge one proposal on receipt and inside a commit, against `old_value`.
+fn standalone_and_in_commit(
+    id: ComponentId,
+    operation: &AppDataUpdateOperation,
+    actor: ActorAuthority,
+    registry: &ComponentRegistry,
+    old_value: Option<&[u8]>,
+    dm_members: Option<&DmMembers<String>>,
+) -> [Result<(), CommitRuleError>; 2] {
+    let proposer = fake_inbox(0x11).to_hex();
+    [
+        validate_standalone_app_data_update(
+            id, operation, actor, &proposer, registry, old_value, dm_members, None,
+        ),
+        validate_app_data_update_sequence(
+            [AppDataUpdateInCommit {
+                component_id: id,
+                operation,
+                actor,
+                proposer_inbox_id: &proposer,
+            }],
+            |_| old_value,
+            registry,
+            dm_members,
+            None,
+        )
+        .map(drop),
+    ]
+}
+
+/// An empty delta to an absent immutable application component is the
+/// component's one first write, so it needs the insert policy: a member
+/// cannot make it where only a super admin may. Both a set and a map, on
+/// receipt and inside a commit.
+// verifies: PERM-011, META-004
+#[xmtp_common::test(unwrap_try = true)]
+fn empty_delta_to_absent_immutable_component_is_authorized() {
+    for (id, component_type) in [
+        (ComponentId::new(0xFD01), ComponentType::TlsSetInboxId),
+        (ComponentId::new(0xFD02), ComponentType::TlsMapBytesBytes),
+    ] {
+        let registry = registry_with(id, super_admin_only(), deny(), deny(), component_type);
+        let operation = empty_delta(component_type);
+        for result in standalone_and_in_commit(id, &operation, member(), &registry, None, None) {
+            assert!(
+                matches!(result, Err(CommitRuleError::InsufficientPermissions)),
+                "{component_type:?}: {result:?}"
+            );
+        }
+        for result in standalone_and_in_commit(id, &operation, super_admin(), &registry, None, None)
+        {
+            result?;
+        }
+    }
+}
+
+/// An empty delta is an insert when the component is absent and an update
+/// when it has a value, for a built-in set and for a map with no built-in
+/// definition.
+// verifies: PERM-011
+#[xmtp_common::test(unwrap_try = true)]
+fn empty_delta_selects_insert_or_update_policy() {
+    let present_set = TlsSet::<InboxId>::from_iter([fake_inbox(0x22)])
+        .tls_serialize_detached()
+        .unwrap();
+    let present_map = TlsMap::<VLBytes, VLBytes>::new()
+        .tls_serialize_detached()
+        .unwrap();
+    // The component, its type, its insert policy, the actor that policy
+    // admits, and a present value.
+    let cases = [
+        (
+            ComponentId::ADMIN_LIST,
+            ComponentType::TlsSetInboxId,
+            admin_only(),
+            admin(),
+            present_set,
+        ),
+        (
+            ComponentId::new(0xC0E0),
+            ComponentType::TlsMapBytesBytes,
+            allow(),
+            member(),
+            present_map,
+        ),
+    ];
+    for (id, component_type, insert, inserter, present) in cases {
+        let registry = registry_with(id, insert, super_admin_only(), deny(), component_type);
+        let operation = empty_delta(component_type);
+        let write = |actor, old_value| {
+            validate_one_app_data_update_with_old_value(
+                id,
+                &operation,
+                actor,
+                "inbox_alice",
+                &registry,
+                old_value,
+                None,
+                None,
+            )
+        };
+        write(inserter, None)?;
+        assert!(
+            matches!(
+                write(inserter, Some(&present)),
+                Err(CommitRuleError::InsufficientPermissions)
+            ),
+            "{id:?}: an update was judged under the insert policy"
+        );
+        write(super_admin(), None)?;
+        write(super_admin(), Some(&present))?;
+    }
+}
+
+/// An honest empty delta still creates an absent application map when the
+/// actor's insert policy allows it, even where updates are denied.
+// verifies: PERM-011
+#[xmtp_common::test(unwrap_try = true)]
+fn empty_delta_creates_absent_map_when_insert_allowed() {
+    let id = ComponentId::new(0xC0E1);
+    let registry = registry_with(id, allow(), deny(), deny(), ComponentType::TlsMapBytesBytes);
+    let operation = empty_delta(ComponentType::TlsMapBytesBytes);
+    let post = validate_app_data_update_sequence(
+        [AppDataUpdateInCommit {
+            component_id: id,
+            operation: &operation,
+            actor: member(),
+            proposer_inbox_id: "inbox_alice",
+        }],
+        |_| None,
+        &registry,
+        None,
+        None,
+    )?;
+    let empty_map = TlsMap::<VLBytes, VLBytes>::new().tls_serialize_detached()?;
+    assert_eq!(post[&id], Some(Zeroizing::new(empty_map)));
+}
+
+/// No proposal writes `DM_MEMBERS`: not an empty delta or a pair, not a
+/// member or a super admin, not in a group or a DM, and not after a super
+/// admin registers the component with an allowing policy.
+// verifies: META-030
+#[xmtp_common::test(unwrap_try = true)]
+fn dm_members_writes_are_rejected_in_every_conversation() {
+    let id = ComponentId::DM_MEMBERS;
+    let (alice, bob) = (fake_inbox(0x11), fake_inbox(0x22));
+    let pair = TlsSet::<InboxId>::from_iter([alice, bob])
+        .tls_serialize_detached()
+        .unwrap();
+    let dm = dm_of(alice, bob);
+    let insert_pair = AppDataUpdateOperation::Update(
+        TlsSetDelta::<InboxId>::new()
+            .insert(alice)
+            .insert(bob)
+            .tls_serialize_detached()
+            .unwrap()
+            .into(),
+    );
+    let operations = [empty_delta(ComponentType::TlsSetInboxId), insert_pair];
+    let registered = registry_with(id, allow(), allow(), allow(), ComponentType::TlsSetInboxId);
+    // The registry, the committed pair, and the DM pair of the conversation.
+    let conversations = [
+        (ComponentRegistry::new(), None, None),
+        (registered, None, None),
+        (ComponentRegistry::new(), Some(pair.as_slice()), Some(&dm)),
+    ];
+    for (registry, old_value, dm_members) in &conversations {
+        for operation in &operations {
+            for actor in [member(), super_admin()] {
+                for result in standalone_and_in_commit(
+                    id,
+                    operation,
+                    actor,
+                    registry,
+                    *old_value,
+                    *dm_members,
+                ) {
+                    assert!(
+                        matches!(result, Err(CommitRuleError::InsufficientPermissions)),
+                        "{result:?}"
+                    );
+                }
+            }
+        }
+    }
 }

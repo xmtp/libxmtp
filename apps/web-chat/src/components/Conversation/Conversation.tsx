@@ -9,6 +9,8 @@ import { MembersList } from "@/components/Conversation/MembersList";
 import { HandleText } from "@/components/Handles/HandleText";
 import { Messages } from "@/components/Messages/Messages";
 import { ConversationProvider } from "@/contexts/ConversationContext";
+import { useClient } from "@/contexts/XMTPContext";
+import { useConsentState } from "@/hooks/useConsentState";
 import { useConversation } from "@/hooks/useConversation";
 import { IconInfo } from "@/icons/IconInfo";
 import { IconUsers } from "@/icons/IconUsers";
@@ -34,6 +36,7 @@ export const Conversation: React.FC<ConversationProps> = ({
     messages,
     syncing: conversationSyncing,
   } = useConversation(conversationId);
+  const consentState = useConsentState(useClient(), conversation);
 
   useEffect(() => {
     const loadMessages = async () => {
@@ -50,7 +53,8 @@ export const Conversation: React.FC<ConversationProps> = ({
     <>
       <ConversationProvider
         key={conversationId}
-        conversationId={conversationId}>
+        conversationId={conversationId}
+        consentState={consentState}>
         <ContentLayout
           title={
             handle ? (

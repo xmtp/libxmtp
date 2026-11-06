@@ -52,6 +52,9 @@ pub struct AssociationState {
     pub(crate) inbox_id: String,
     pub(crate) members: HashMap<MemberIdentifier, Member>,
     pub(crate) recovery_identifier: Identifier,
+    /// The chain id recorded for the recovery role. It survives the recovery identifier's
+    /// revocation as a member, and equals its member chain id while it is a member.
+    pub(crate) recovery_chain_id: Option<u64>,
     pub(crate) seen_signatures: HashSet<Vec<u8>>,
     /// Claimed handles in claim order; the last is the display handle.
     pub(crate) handles: Vec<Handle>,
@@ -80,10 +83,11 @@ impl std::fmt::Debug for AssociationState {
         // A handle names an inbox, so a log line carries only the count.
         write!(
             f,
-            "AssociationState {{ inbox_id: {}, members: {}, recovery: {}, seen_signatures: {}, handles: {}, handle_claims: {} }}",
+            "AssociationState {{ inbox_id: {}, members: {}, recovery: {}, recovery_chain_id: {:?}, seen_signatures: {}, handles: {}, handle_claims: {} }}",
             self.inbox_id,
             members,
             self.recovery_identifier,
+            self.recovery_chain_id,
             signatures,
             self.handles.len(),
             self.handle_claims
@@ -122,9 +126,15 @@ impl AssociationState {
         new_state
     }
 
-    pub fn set_recovery_identifier(&self, recovery_identifier: Identifier) -> Self {
+    /// The state with `recovery_identifier` holding the recovery role on `chain_id`.
+    pub fn set_recovery_identifier(
+        &self,
+        recovery_identifier: Identifier,
+        chain_id: Option<u64>,
+    ) -> Self {
         let mut new_state = self.clone();
         new_state.recovery_identifier = recovery_identifier;
+        new_state.recovery_chain_id = chain_id;
 
         new_state
     }
@@ -293,6 +303,7 @@ impl AssociationState {
             members: HashMap::from_iter([(member_identifier, new_member)]),
             seen_signatures: HashSet::new(),
             recovery_identifier: account_identifier,
+            recovery_chain_id: chain_id,
             inbox_id,
             handles: Vec::new(),
             handle_claims: 0,

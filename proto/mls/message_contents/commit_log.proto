@@ -29,6 +29,10 @@ message PlaintextCommitLogEntry {
   uint64 applied_epoch_number = 5;
   // The encryption state after the commit was applied, if successful.
   bytes applied_epoch_authenticator = 6;
+  // The 32-byte installation key of the publisher.
+  bytes author_installation_key = 7;
+  // The publisher's 64-byte Ed25519ph signature.
+  bytes author_signature = 8;
 }
 
 message CommitLogEntry {

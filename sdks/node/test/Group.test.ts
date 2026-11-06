@@ -8,7 +8,7 @@ const WAIT = { timeout: 30_000, interval: 1000 };
 
 // Group smoke tests. Rust owns group logic: membership, admin lists,
 // permissions, consent, disappearing messages, message filters and counts.
-// See `crates/xmtp_mls/src/groups/tests` and `crates/xmtp_sdk/src/tests`.
+// See `crates/xmtp_mls_engine/src/groups/tests` and `crates/xmtp_sdk/src/tests`.
 describe("Group", () => {
   it("sends, lists, and streams messages across two group creation forms", async () => {
     const { signer: signer1 } = createSigner();

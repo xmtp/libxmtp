@@ -93,6 +93,14 @@ mod tests {
             MessageBackendBuilder::default().build(),
             Err(MessageBackendBuilderError::MissingHost)
         ));
+        assert!(matches!(
+            MessageBackendBuilder::default()
+                .host("http://localhost/prefix")
+                .build(),
+            Err(MessageBackendBuilderError::Grpc(
+                xmtp_api_grpc::error::GrpcBuilderError::InvalidBackendUrl
+            ))
+        ));
         let client = MessageBackendBuilder::default()
             .host(xmtp_configuration::backend_test_url())
             .readonly(true)

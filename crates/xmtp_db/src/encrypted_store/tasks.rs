@@ -171,6 +171,16 @@ pub trait QueryTasks {
         next_attempt_at_ns: i64,
     ) -> Result<Task, StorageError>;
 
+    /// [`Self::update_task`], also setting the task's expiry.
+    fn update_task_and_expiry(
+        &self,
+        id: i32,
+        attempts: i32,
+        last_attempted_at_ns: i64,
+        next_attempt_at_ns: i64,
+        expires_at_ns: i64,
+    ) -> Result<Task, StorageError>;
+
     fn delete_task(&self, id: i32) -> Result<bool, StorageError>;
 }
 
@@ -215,6 +225,23 @@ impl<T: QueryTasks> QueryTasks for &'_ T {
         next_attempt_at_ns: i64,
     ) -> Result<Task, StorageError> {
         (**self).update_task(id, attempts, last_attempted_at_ns, next_attempt_at_ns)
+    }
+
+    fn update_task_and_expiry(
+        &self,
+        id: i32,
+        attempts: i32,
+        last_attempted_at_ns: i64,
+        next_attempt_at_ns: i64,
+        expires_at_ns: i64,
+    ) -> Result<Task, StorageError> {
+        (**self).update_task_and_expiry(
+            id,
+            attempts,
+            last_attempted_at_ns,
+            next_attempt_at_ns,
+            expires_at_ns,
+        )
     }
 
     fn delete_task(&self, id: i32) -> Result<bool, StorageError> {
@@ -333,6 +360,27 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
                     tasks::attempts.eq(attempts),
                     tasks::last_attempted_at_ns.eq(last_attempted_at_ns),
                     tasks::next_attempt_at_ns.eq(next_attempt_at_ns),
+                ))
+                .get_result::<Task>(conn)
+        })
+        .map_err(Into::into)
+    }
+
+    fn update_task_and_expiry(
+        &self,
+        id: i32,
+        attempts: i32,
+        last_attempted_at_ns: i64,
+        next_attempt_at_ns: i64,
+        expires_at_ns: i64,
+    ) -> Result<Task, StorageError> {
+        self.raw_query(|conn| {
+            diesel::update(tasks::table.filter(tasks::id.eq(id)))
+                .set((
+                    tasks::attempts.eq(attempts),
+                    tasks::last_attempted_at_ns.eq(last_attempted_at_ns),
+                    tasks::next_attempt_at_ns.eq(next_attempt_at_ns),
+                    tasks::expires_at_ns.eq(expires_at_ns),
                 ))
                 .get_result::<Task>(conn)
         })

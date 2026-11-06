@@ -80,8 +80,8 @@ import Testing
 
 enum ScopedPushFailure: Error { case lookup, write }
 @MainActor private final class ScopedPushFixture {
-	let firstID = String(repeating: "01", count: 16)
-	let secondID = String(repeating: "02", count: 16)
+	let firstID = String(repeating: "01", count: 32)
+	let secondID = String(repeating: "02", count: 32)
 	let owner = PushOwner(
 		session: SessionKey(profileID: UUID(), generation: 1),
 		installation: String(repeating: "01", count: 32),
@@ -93,17 +93,11 @@ enum ScopedPushFailure: Error { case lookup, write }
 	                                     publisher: publisher, current: { [unowned self] in owner }, permitted: { true },
 	                                     signedIn: { true })
 	func groupEnvelope(_ byte: UInt8, sequence: String) throws -> PushEnvelope {
-		try #require(PushEnvelope(
-			topic: Data([0] + Array(repeating: byte, count: 16)).base64EncodedString(),
-			sequence: sequence,
-		))
+		try PushEnvelope.fixture(.group, byte, sequence: #require(UInt64(sequence)))
 	}
 
 	func welcomeEnvelope() throws -> PushEnvelope {
-		try #require(PushEnvelope(
-			topic: Data([1] + Array(repeating: UInt8(1), count: 32)).base64EncodedString(),
-			sequence: "1",
-		))
+		PushEnvelope.fixture(.welcome, 1)
 	}
 }
 
@@ -123,7 +117,7 @@ enum ScopedPushFailure: Error { case lookup, write }
 
 	func disable() async {}
 	func conversation(id: String) async throws -> PushConversation? {
-		if holdLookup, id == String(repeating: "01", count: 16) {
+		if holdLookup, id == String(repeating: "01", count: 32) {
 			holdLookup = false
 			await withCheckedContinuation { lookupWaiter = $0 }
 			if failure == .lookup {

@@ -1,6 +1,7 @@
 //! Scripted backend subscription peer shared by connection and transport tests.
 
 use futures::{StreamExt, stream::BoxStream};
+use prost::{Message, bytes::Bytes};
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use xmtp_common::time::Duration;
@@ -10,20 +11,18 @@ use xmtp_proto::backend_v1::subscribe_request::Update as Mutate;
 use xmtp_proto::backend_v1::{
     self, SubscribeRequest, SubscribeResponse, subscribe_request, subscribe_response,
 };
-use xmtp_proto::types::Topic;
+use xmtp_proto::types::{ReceivedSubscribeResponse, Topic};
 
 const WAIT: Duration = Duration::from_secs(5);
 
 pub(crate) struct MockApi {
-    inbound: Mutex<
-        Option<tokio::sync::mpsc::UnboundedReceiver<Result<SubscribeResponse, ApiClientError>>>,
-    >,
+    inbound: Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<Result<Bytes, ApiClientError>>>>,
     captured: tokio::sync::mpsc::UnboundedSender<SubscribeRequest>,
 }
 
 pub(crate) struct MockServer {
-    pub(crate) to_client:
-        tokio::sync::mpsc::UnboundedSender<Result<SubscribeResponse, ApiClientError>>,
+    /// Encoded frames, decoded by the client's receive-only view.
+    pub(crate) to_client: tokio::sync::mpsc::UnboundedSender<Result<Bytes, ApiClientError>>,
     pub(crate) from_client: tokio::sync::mpsc::UnboundedReceiver<SubscribeRequest>,
     pub(crate) updates: HashMap<u64, Mutate>,
     active: Mutex<HashSet<Vec<u8>>>,
@@ -50,7 +49,7 @@ pub(crate) fn mock_pair() -> (MockApi, MockServer) {
 
 #[xmtp_common::async_trait]
 impl XmtpMlsBidiStreams for MockApi {
-    type SubscribeStream = BoxStream<'static, Result<SubscribeResponse, ApiClientError>>;
+    type SubscribeStream = BoxStream<'static, Result<ReceivedSubscribeResponse, ApiClientError>>;
     type Error = ApiClientError;
 
     fn host(&self) -> &str {
@@ -74,22 +73,28 @@ impl XmtpMlsBidiStreams for MockApi {
             .unwrap()
             .take()
             .expect("subscribe_bidi called twice on one mock session");
-        Ok(Box::pin(futures::stream::poll_fn(move |cx| {
-            inbound.poll_recv(cx)
-        })))
+        Ok(Box::pin(
+            futures::stream::poll_fn(move |cx| inbound.poll_recv(cx))
+                .map(|frame| Ok(ReceivedSubscribeResponse::decode(frame?)?)),
+        ))
     }
 }
 
 impl MockServer {
     pub(crate) fn send_raw(&self, response: SubscribeResponse) {
-        self.to_client.send(Ok(response)).unwrap();
+        self.send_bytes(response.encode_to_vec().into());
+    }
+
+    pub(crate) fn send_bytes(&self, frame: Bytes) {
+        self.to_client.send(Ok(frame)).unwrap();
     }
 
     /// A model can finish a delivery after the client has closed its stream.
     pub(crate) fn send_if_open(&self, response: subscribe_response::Response) {
-        let _ = self.to_client.send(Ok(SubscribeResponse {
+        let frame = SubscribeResponse {
             response: Some(response),
-        }));
+        };
+        let _ = self.to_client.send(Ok(frame.encode_to_vec().into()));
     }
 
     pub(crate) async fn next_request(&mut self) -> subscribe_request::Request {
@@ -98,11 +103,9 @@ impl MockServer {
     }
 
     pub(crate) fn send(&self, response: subscribe_response::Response) {
-        self.to_client
-            .send(Ok(SubscribeResponse {
-                response: Some(response),
-            }))
-            .unwrap();
+        self.send_raw(SubscribeResponse {
+            response: Some(response),
+        });
     }
 
     pub(crate) fn ack(&self, id: u64, targets: Vec<(Topic, u64)>) {

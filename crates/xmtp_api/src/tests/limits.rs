@@ -119,15 +119,24 @@ async fn read_topic_boundaries(#[case] read: Read, #[case] cap: usize) {
     }
 }
 
-/// Distinct publish topics split at the configured cap.
+/// Distinct publish topics split at the configured cap. The default cap
+/// equals `MAX_PUBLISH_ENVELOPES`, so the client is configured with a lower
+/// one, which the backend's own cap admits.
 // verifies: CONF-073
 #[rstest]
 #[case::at_limit(0)]
 #[case::one_past(1)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn publish_topic_boundary(#[case] extra: usize) {
-    let api = backend();
-    let cap = BACKEND_DEFAULT_MAX_PUBLISH_TOPICS;
+    let cap = 3;
+    let mut api = backend();
+    api.set_configuration(std::sync::Arc::new(ServerConfiguration {
+        limits: LimitsConfiguration {
+            max_publish_topics: cap,
+            ..LimitsConfiguration::default()
+        },
+        ..ServerConfiguration::default()
+    }));
     let topics = welcome_topics(cap + extra);
     let units = topics
         .iter()
@@ -145,14 +154,14 @@ async fn publish_topic_boundary(#[case] extra: usize) {
     );
 }
 
-/// Envelope count alone does not split a publish.
-#[rstest]
-#[case(BACKEND_DEFAULT_MAX_PUBLISH_TOPICS)]
+/// Envelope count splits a publish at `MAX_PUBLISH_ENVELOPES`, even when every
+/// envelope names one topic.
+// verifies: CONF-073
 #[xmtp_common::test(unwrap_try = true)]
-async fn publish_envelope_count_has_no_separate_cap(#[case] topic_cap: usize) {
+async fn publish_envelope_count_splits_at_the_envelope_bound() {
     let api = backend();
     let topic = welcome_topics(1).remove(0);
-    for count in [topic_cap, topic_cap + 1] {
+    for (count, requests) in [(MAX_PUBLISH_ENVELOPES, 1), (MAX_PUBLISH_ENVELOPES + 1, 2)] {
         let units = (0..count)
             .map(|index| PublishUnit::single(welcome_for(&topic, index.to_be_bytes().to_vec())))
             .collect::<crate::Result<Vec<_>>>()
@@ -164,7 +173,10 @@ async fn publish_envelope_count_has_no_separate_cap(#[case] topic_cap: usize) {
             .map(|meta| meta.cursor.as_ref().unwrap().sequence_id)
             .collect();
         assert_eq!(unique.len(), count);
-        assert_eq!(api.api_client.mls_stats().publish.get_count() - before, 1);
+        assert_eq!(
+            api.api_client.mls_stats().publish.get_count() - before,
+            requests
+        );
     }
 }
 
@@ -498,12 +510,13 @@ async fn static_frame_above_receive_rows_splits() {
 async fn identity_entry_boundary(#[case] cap: usize) {
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::associations::{
+        MemberIdentifier,
         builder::SignatureRequestBuilder,
         test_utils::{WalletTestExt, add_wallet_signature},
     };
 
     let api = backend();
-    let mut wallet = generate_local_wallet();
+    let wallet = generate_local_wallet();
     let inbox = wallet.get_inbox_id(0);
     let mut request = SignatureRequestBuilder::new(&inbox)
         .create_inbox(wallet.identifier(), 0)
@@ -514,10 +527,13 @@ async fn identity_entry_boundary(#[case] cap: usize) {
         .unwrap();
     let mut last = Cursor(0);
     for entries in 1..=cap {
-        // A new recovery address makes each signature distinct. The member set stays small.
-        let next_wallet = generate_local_wallet();
+        // Revoking a fresh non-member makes each signature text distinct. The member set stays
+        // small.
         let mut request = SignatureRequestBuilder::new(&inbox)
-            .change_recovery_address(wallet.identifier().into(), next_wallet.identifier())
+            .revoke_association(
+                wallet.identifier().into(),
+                MemberIdentifier::rand_ethereum(),
+            )
             .build();
         add_wallet_signature(&mut request, &wallet).await;
         let before = api.api_client.mls_stats().publish.get_count();
@@ -529,7 +545,6 @@ async fn identity_entry_boundary(#[case] cap: usize) {
             let cursor = result.unwrap();
             assert!(cursor > last);
             last = cursor;
-            wallet = next_wallet;
         } else {
             assert_eq!(
                 grpc_status(&result.unwrap_err()).unwrap().code(),

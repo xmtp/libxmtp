@@ -6,9 +6,7 @@ import Testing
 	@Test(arguments: [false, true])
 	func replacedControllerKeepsNewSameTagPublication(cancelOld: Bool) async throws {
 		let fixture = PushFixture(); fixture.publisher.held = true
-		let envelope = try #require(PushEnvelope(
-			topic: Data([0] + Array(repeating: UInt8(1), count: 16)).base64EncodedString(), sequence: "1",
-		))
+		let envelope = PushEnvelope.fixture(.group, 1)
 		let old = Task { await fixture.controller.receive(envelope, lease: PushLease()) }
 		for _ in 0 ..< 1000 where fixture.publisher.completion == nil {
 			await Task.yield()
@@ -63,33 +61,13 @@ import Testing
 		#expect(stable.action(registeredToken: "ab", sdkEnabled: false) == .enable)
 	}
 
-	@Test func canonicalTopicsAndTokenHex() {
-		let group = Data([0] + Array(repeating: UInt8(255), count: 16)).base64EncodedString()
-		#expect(PushEnvelope(topic: group, sequence: String(UInt64.max))?.identifier == String(repeating: "ff", count: 16))
-		for sequence in ["", "-1", "+1", "1.0", " 1", "18446744073709551616"] {
-			#expect(PushEnvelope(
-				topic: group,
-				sequence: sequence,
-			) == nil)
-		}
-		for data in [
-			Data(),
-			Data([2] + Array(repeating: UInt8(0), count: 16)),
-			Data([1] + Array(repeating: UInt8(0), count: 16)),
-			Data([0] + Array(repeating: UInt8(0), count: 32)),
-		] {
-			#expect(PushEnvelope(topic: data.base64EncodedString(), sequence: "1") == nil)
-		}
-		#expect(PushEnvelope(topic: group + "\n", sequence: "1") == nil)
+	@Test func tokenHex() {
 		#expect(PushEnvelope.hex(Data([0, 1, 10, 15, 16, 171, 255])) == "00010a0f10abff")
 	}
 
-	@Test func admissionAndDeduplication() async throws {
+	@Test func admissionAndDeduplication() async {
 		let fixture = PushFixture()
-		let envelope = try #require(PushEnvelope(
-			topic: Data([0] + Array(repeating: UInt8(1), count: 16)).base64EncodedString(),
-			sequence: "1",
-		))
+		let envelope = PushEnvelope.fixture(.group, 1)
 		fixture.preferences.enabled = false; #expect(await fixture.controller.receive(envelope, lease: PushLease()) == false)
 		fixture.preferences.enabled = true; fixture.gateway.admitted = false; #expect(await fixture.controller.receive(
 			envelope,
@@ -106,27 +84,18 @@ import Testing
 		#expect(fixture.publisher.posts == 1)
 	}
 
-	@Test func welcomeMustNameCurrentInstallation() async throws {
+	@Test func welcomeMustNameCurrentInstallation() async {
 		let fixture = PushFixture()
-		let wrong = try #require(PushEnvelope(
-			topic: Data([1] + Array(repeating: UInt8(2), count: 32)).base64EncodedString(),
-			sequence: "1",
-		))
+		let wrong = PushEnvelope.fixture(.welcome, 2)
 		#expect(await fixture.controller.receive(wrong, lease: PushLease()) == false)
-		let right = try #require(PushEnvelope(
-			topic: Data([1] + Array(repeating: UInt8(1), count: 32)).base64EncodedString(),
-			sequence: "1",
-		))
+		let right = PushEnvelope.fixture(.welcome, 1)
 		#expect(await fixture.controller.receive(right, lease: PushLease()))
 	}
 
-	@Test func suspendedReadsCannotOutliveOwnerPrivacyOrDeadline() async throws {
+	@Test func suspendedReadsCannotOutliveOwnerPrivacyOrDeadline() async {
 		for mutation in 0 ..< 4 {
 			let fixture = PushFixture(); let lease = PushLease()
-			let envelope = try #require(PushEnvelope(
-				topic: Data([0] + Array(repeating: UInt8(1), count: 16)).base64EncodedString(),
-				sequence: "1",
-			))
+			let envelope = PushEnvelope.fixture(.group, 1)
 			fixture.gateway.onRead = {
 				if mutation == 0 {
 					fixture.current = false
@@ -146,12 +115,9 @@ import Testing
 		}
 	}
 
-	@Test func latePlatformCompletionIsRemovedAfterPrivacyChange() async throws {
+	@Test func latePlatformCompletionIsRemovedAfterPrivacyChange() async {
 		let fixture = PushFixture(); fixture.publisher.held = true
-		let envelope = try #require(PushEnvelope(
-			topic: Data([0] + Array(repeating: UInt8(1), count: 16)).base64EncodedString(),
-			sequence: "1",
-		))
+		let envelope = PushEnvelope.fixture(.group, 1)
 		let task = Task { await fixture.controller.receive(envelope, lease: PushLease()) }
 		while fixture.publisher.completion == nil {
 			await Task.yield()
@@ -162,12 +128,9 @@ import Testing
 		#expect(!fixture.preferences.hasPosted(envelope.tag))
 	}
 
-	@Test func cancellationDoesNotWaitForPlatformCallback() async throws {
+	@Test func cancellationDoesNotWaitForPlatformCallback() async {
 		let fixture = PushFixture(); fixture.publisher.held = true; var finished = false
-		let envelope = try #require(PushEnvelope(
-			topic: Data([0] + Array(repeating: UInt8(1), count: 16)).base64EncodedString(),
-			sequence: "1",
-		))
+		let envelope = PushEnvelope.fixture(.group, 1)
 		let task = Task {
 			let value = await fixture.controller.receive(envelope, lease: PushLease()); finished = true; return value
 		}

@@ -53,7 +53,16 @@ function relay(request, response, path, body, transform) {
 }
 
 const server = createServer(async (request, response) => {
-  const { pathname, search } = new URL(request.url ?? "/", "http://127.0.0.1");
+  let { pathname, search } = new URL(request.url ?? "/", "http://127.0.0.1");
+  const backend = /^([\w-]+)\.(relay|transfer)\.localhost/.exec(
+    request.headers.host ?? "",
+  );
+  if (backend && pathname.startsWith("/xmtp.")) {
+    pathname =
+      backend[2] === "relay"
+        ? `/relay/${backend[1]}${pathname}`
+        : `/transfer/${backend[1]}/backend${pathname}`;
+  }
   const chunks = [];
   for await (const chunk of request) {
     chunks.push(chunk);

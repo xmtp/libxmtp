@@ -129,6 +129,10 @@ impl RetryableError for NetworkError {
     fn is_retryable(&self) -> bool {
         self.source.is_retryable()
     }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        self.source.rate_limit_delay()
+    }
 }
 
 impl NetworkError {
@@ -198,6 +202,16 @@ impl RetryableError for ApiClientError {
             Other(r) => retryable!(r),
             OtherUnretryable(_) => false,
             WritesDisabled => false,
+        }
+    }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            Self::Client { source } | Self::ClientWithEndpoint { source, .. } => {
+                source.rate_limit_delay()
+            }
+            Self::Other(error) => error.rate_limit_delay(),
+            _ => None,
         }
     }
 }

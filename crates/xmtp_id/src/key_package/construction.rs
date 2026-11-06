@@ -289,8 +289,6 @@ mod tests {
         legacy: bool,
     ) -> (OpenMlsRustCrypto, Vec<u8>) {
         use openmls::extensions::{AppDataDictionary, AppDataDictionaryExtension};
-        let provider = OpenMlsRustCrypto::default();
-        let key = XmtpInstallationCredential::new();
         let mut dictionary = AppDataDictionary::new();
         for (component, data) in components {
             let _ = dictionary.insert(*component, data.clone());
@@ -301,6 +299,14 @@ mod tests {
         if legacy {
             extensions.push(Extension::LastResort(LastResortExtension::default()));
         }
+        key_package_with_extensions(extensions)
+    }
+
+    /// A key package with `extensions`, signed by a fresh installation key.
+    /// Its capabilities advertise every extension type these tests use.
+    fn key_package_with_extensions(extensions: Vec<Extension>) -> (OpenMlsRustCrypto, Vec<u8>) {
+        let provider = OpenMlsRustCrypto::default();
+        let key = XmtpInstallationCredential::new();
         let capabilities = Capabilities::new(
             None,
             Some(&[CIPHERSUITE]),
@@ -308,6 +314,8 @@ mod tests {
                 ExtensionType::LastResort,
                 ExtensionType::ApplicationId,
                 ExtensionType::AppDataDictionary,
+                ExtensionType::Unknown(WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID),
+                ExtensionType::Unknown(WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID),
             ]),
             None,
             None,
@@ -411,5 +419,106 @@ mod tests {
                 )
             )
         ));
+    }
+
+    fn wrapper_extension(algorithm: i32, pub_key: Vec<u8>) -> Extension {
+        use prost::Message;
+        let wrapper = xmtp_proto::xmtp::mls::message_contents::WelcomeWrapperEncryption {
+            pub_key,
+            algorithm,
+        };
+        Extension::Unknown(
+            WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
+            openmls::prelude::UnknownExtension(wrapper.encode_to_vec()),
+        )
+    }
+
+    fn pointee_aead_extension(supported_aead_types: Vec<i32>) -> Extension {
+        use prost::Message;
+        let pointee =
+            xmtp_proto::xmtp::mls::message_contents::WelcomePointeeEncryptionAeadTypesExtension {
+                supported_aead_types,
+            };
+        Extension::Unknown(
+            WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
+            openmls::prelude::UnknownExtension(pointee.encode_to_vec()),
+        )
+    }
+
+    /// A package no sender can wrap a Welcome for fails verification, so the
+    /// backend refuses it and a sender records its installation as failed:
+    /// an extension that does not decode, a wrapper algorithm a key package
+    /// cannot advertise, a key of the wrong length, or a key that no HPKE
+    /// sender setup accepts.
+    #[xmtp_common::test(unwrap_try = true)]
+    // verifies: JOIN-090
+    fn unusable_addressing_extensions_fail_verification() {
+        use crate::key_package::KeyPackageVerificationError;
+        use xmtp_proto::ConversionError;
+        let reason = |error: &ConversionError| match error {
+            ConversionError::Decode(_) => "undecodable",
+            ConversionError::InvalidValue { .. } => "algorithm",
+            ConversionError::InvalidLength { .. } => "length",
+            ConversionError::InvalidPublicKey { .. } => "setup",
+            _ => "other",
+        };
+        let curve25519: i32 = WrapperAlgorithm::Curve25519.into();
+        let xwing: i32 = WrapperAlgorithm::XWingMLKEM768Draft6.into();
+        let undecodable =
+            |id| Extension::Unknown(id, openmls::prelude::UnknownExtension(vec![0xff]));
+        for (extension, expected) in [
+            (
+                undecodable(WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID),
+                "undecodable",
+            ),
+            (
+                undecodable(WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID),
+                "undecodable",
+            ),
+            (wrapper_extension(0, vec![9; 32]), "algorithm"),
+            (wrapper_extension(99, vec![9; 32]), "algorithm"),
+            (wrapper_extension(curve25519, vec![9; 31]), "length"),
+            (wrapper_extension(curve25519, vec![9; 33]), "length"),
+            (wrapper_extension(xwing, vec![9; 1215]), "length"),
+            (wrapper_extension(xwing, vec![9; 1217]), "length"),
+            // A low-order point, and a key outside the ML-KEM modulus.
+            (wrapper_extension(curve25519, vec![0; 32]), "setup"),
+            (wrapper_extension(xwing, vec![0xff; 1216]), "setup"),
+        ] {
+            let case = format!("{extension:?}");
+            let (provider, bytes) = key_package_with_extensions(vec![extension]);
+            match VerifiedKeyPackageV2::from_bytes(provider.crypto(), &bytes) {
+                Err(KeyPackageVerificationError::ConversionError(error)) => {
+                    assert_eq!(reason(&error), expected, "{case}: {error:?}")
+                }
+                other => panic!("{case}: expected a conversion error, got {other:?}"),
+            }
+        }
+    }
+
+    /// A pointee AEAD value that is unspecified or that this client does not
+    /// define counts as absent, and the package still verifies with the
+    /// values it does define. Rejecting it would make an installation that
+    /// advertises a later value unaddable by this client.
+    #[xmtp_common::test(unwrap_try = true)]
+    // verifies: JOIN-090
+    fn undefined_pointee_aead_values_are_ignored() {
+        use openmls::prelude::AeadType;
+        let chacha20_poly1305 = 3;
+        for (advertised, expected) in [
+            (vec![i32::MAX], vec![]),
+            (
+                vec![0, i32::MAX, chacha20_poly1305],
+                vec![AeadType::ChaCha20Poly1305],
+            ),
+        ] {
+            let (provider, bytes) =
+                key_package_with_extensions(vec![pointee_aead_extension(advertised.clone())]);
+            let verified = VerifiedKeyPackageV2::from_bytes(provider.crypto(), &bytes)?;
+            assert_eq!(
+                verified.pointee_aead.supported_aead_types, expected,
+                "{advertised:?}"
+            );
+        }
     }
 }

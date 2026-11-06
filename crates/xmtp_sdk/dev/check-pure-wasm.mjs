@@ -12,6 +12,7 @@ const required = [
   "generate_inbox_id",
   "is_catalogue_content_type",
   "metadata_field_ref",
+  "parse_push_hint",
   "remote_attachment_from_encrypted",
   "sdk_version",
   "standard_content_type",

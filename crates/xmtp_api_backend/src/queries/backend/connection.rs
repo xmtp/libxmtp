@@ -4,16 +4,17 @@ use crate::queries::bidi::{BidiBinding, Connection, Event, Inbound};
 use crate::queries::bidi_transport::TransportBinding;
 use xmtp_proto::api_client::XmtpMlsBidiStreams;
 use xmtp_proto::backend_v1::{
-    self, Ping, Pong, ServerEnvelope, SubscribeRequest, SubscribeResponse, subscribe_request,
-    subscribe_request::Update, subscribe_response,
+    self, Ping, Pong, SubscribeRequest, subscribe_request, subscribe_request::Update,
 };
-use xmtp_proto::types::{Topic, TopicKind};
+use xmtp_proto::types::{
+    ReceivedEnvelope, ReceivedSubscribeFrame, ReceivedSubscribeResponse, Topic, TopicKind,
+};
 
 /// The backend uses one scalar cursor per topic.
 pub struct BackendBinding;
 
 pub type BidiConnection = Connection<BackendBinding>;
-pub type BidiEvent = Event<ServerEnvelope, ServerEnvelope>;
+pub type BidiEvent = Event<ReceivedEnvelope, ReceivedEnvelope>;
 
 fn request_frame(request: subscribe_request::Request) -> SubscribeRequest {
     SubscribeRequest {
@@ -27,16 +28,16 @@ fn topic_from_wire(topic: &backend_v1::Topic) -> Option<Topic> {
     Topic::try_from(topic.topic.clone()).ok()
 }
 
-fn envelope_topic(envelope: &ServerEnvelope) -> Option<Topic> {
-    topic_from_wire(envelope.meta.as_ref()?.topic.as_ref()?)
+fn envelope_topic(envelope: &ReceivedEnvelope) -> Option<Topic> {
+    topic_from_wire(envelope.meta()?.topic.as_ref()?)
 }
 
 impl BidiBinding for BackendBinding {
     type Request = SubscribeRequest;
-    type Response = SubscribeResponse;
+    type Response = ReceivedSubscribeResponse;
     type Mutate = Update;
-    type GroupMessage = ServerEnvelope;
-    type WelcomeMessage = ServerEnvelope;
+    type GroupMessage = ReceivedEnvelope;
+    type WelcomeMessage = ReceivedEnvelope;
 
     fn mutate_frame(update: Update) -> SubscribeRequest {
         request_frame(subscribe_request::Request::Update(update))
@@ -50,8 +51,8 @@ impl BidiBinding for BackendBinding {
         request_frame(subscribe_request::Request::Pong(Pong { nonce }))
     }
 
-    fn handle(response: SubscribeResponse) -> Inbound<ServerEnvelope, ServerEnvelope> {
-        use subscribe_response::Response;
+    fn handle(response: ReceivedSubscribeResponse) -> Inbound<ReceivedEnvelope, ReceivedEnvelope> {
+        use ReceivedSubscribeFrame as Response;
         match response.response {
             Some(Response::Started(started)) => Inbound::Emit(Event::Started {
                 keepalive_interval_ms: started.keepalive_interval_ms,
@@ -78,7 +79,11 @@ impl BidiBinding for BackendBinding {
             Some(Response::Messages(messages)) => {
                 let mut group = Vec::new();
                 let mut welcome = Vec::new();
-                for envelope in messages.envelopes {
+                let Ok(envelopes) = xmtp_proto::types::received_envelopes(messages.envelopes)
+                else {
+                    return Inbound::Invalid("envelope");
+                };
+                for envelope in envelopes {
                     match envelope_topic(&envelope).map(|topic| topic.kind()) {
                         Some(TopicKind::GroupMessagesV1 | TopicKind::IdentityUpdatesV1) => {
                             group.push(envelope)
@@ -124,26 +129,26 @@ impl TransportBinding for BackendBinding {
         }
     }
 
-    fn group_topic(envelope: &ServerEnvelope) -> Option<Topic> {
+    fn group_topic(envelope: &ReceivedEnvelope) -> Option<Topic> {
         envelope_topic(envelope)
     }
 
-    fn welcome_topic(envelope: &ServerEnvelope) -> Option<Topic> {
+    fn welcome_topic(envelope: &ReceivedEnvelope) -> Option<Topic> {
         envelope_topic(envelope)
     }
 
-    fn group_cursor(envelope: &ServerEnvelope) -> Option<u64> {
-        Some(envelope.meta.as_ref()?.cursor.as_ref()?.sequence_id)
+    fn group_cursor(envelope: &ReceivedEnvelope) -> Option<u64> {
+        Some(envelope.meta()?.cursor.as_ref()?.sequence_id)
     }
 
-    fn welcome_cursor(envelope: &ServerEnvelope) -> Option<u64> {
+    fn welcome_cursor(envelope: &ReceivedEnvelope) -> Option<u64> {
         Self::group_cursor(envelope)
     }
 
-    fn group_envelope(envelope: &ServerEnvelope) -> &ServerEnvelope {
+    fn group_envelope(envelope: &ReceivedEnvelope) -> &ReceivedEnvelope {
         envelope
     }
-    fn welcome_envelope(envelope: &ServerEnvelope) -> &ServerEnvelope {
+    fn welcome_envelope(envelope: &ReceivedEnvelope) -> &ReceivedEnvelope {
         envelope
     }
 
@@ -185,6 +190,7 @@ mod tests {
     use tokio::sync::mpsc;
     use xmtp_proto::api::ApiClientError;
     use xmtp_proto::backend_v1::subscribe_request::Update as Mutate;
+    use xmtp_proto::backend_v1::{SubscribeResponse, subscribe_response};
     use xmtp_proto::types::TopicKind;
 
     use crate::test::bidi::mock_pair;
@@ -463,7 +469,8 @@ mod tests {
 
     #[xmtp_common::async_trait]
     impl XmtpMlsBidiStreams for WedgedWireApi {
-        type SubscribeStream = BoxStream<'static, Result<SubscribeResponse, ApiClientError>>;
+        type SubscribeStream =
+            BoxStream<'static, Result<ReceivedSubscribeResponse, ApiClientError>>;
         type Error = ApiClientError;
 
         fn host(&self) -> &str {
@@ -483,9 +490,10 @@ mod tests {
                 .unwrap()
                 .take()
                 .expect("subscribe_bidi called twice");
-            Ok(Box::pin(futures::stream::poll_fn(move |cx| {
-                inbound.poll_recv(cx)
-            })))
+            Ok(Box::pin(
+                futures::stream::poll_fn(move |cx| inbound.poll_recv(cx))
+                    .map(|frame| frame.map(Into::into)),
+            ))
         }
     }
 

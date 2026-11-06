@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use prost::Message;
 
 use xmtp_proto::xmtp::mls::message_contents::{
@@ -34,7 +32,7 @@ impl ContentCodec<GroupMembershipChanges> for GroupMembershipChangeCodec {
 
         Ok(EncodedContent {
             r#type: Some(GroupMembershipChangeCodec::content_type()),
-            parameters: HashMap::new(),
+            parameters: Default::default(),
             fallback: None,
             compression: None,
             content: buf,

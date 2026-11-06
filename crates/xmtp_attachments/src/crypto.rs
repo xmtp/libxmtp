@@ -5,6 +5,7 @@ use ghash::GHash;
 use ghash::universal_hash::UniversalHash as _;
 use subtle::ConstantTimeEq as _;
 use xmtp_content_types::{encryption::derive_key, remote_attachment::RemoteAttachment};
+use xmtp_cryptography::secret::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::{AttachmentError, AttachmentFailureCause};
 
@@ -14,7 +15,7 @@ const BLOCK_LEN: usize = 16;
 const MAX_GCM_INPUT_BYTES: u64 = (u32::MAX as u64 - 1) * BLOCK_LEN as u64;
 
 /// The random values used by the attachment encryption scheme.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 pub struct KeyMaterial {
     pub secret: [u8; 32],
     pub salt: [u8; 32],
@@ -77,9 +78,10 @@ struct GcmCore {
 impl GcmCore {
     fn new(material: &KeyMaterial) -> Self {
         // HKDF expansion to 32 bytes cannot fail with SHA-256.
-        let key =
-            derive_key(&material.secret, &material.salt).expect("32-byte HKDF expansion is valid");
-        let aes = Aes256::new((&key).into());
+        let key = Zeroizing::new(
+            derive_key(&material.secret, &material.salt).expect("32-byte HKDF expansion is valid"),
+        );
+        let aes = Aes256::new((&*key).into());
         let mut h = GenericArray::default();
         aes.encrypt_block(&mut h);
         let hash = GHash::new(&h);
@@ -91,7 +93,7 @@ impl GcmCore {
         let mut counter = j0;
         counter[15] = 2;
         Self {
-            cipher: ctr::Ctr32BE::<Aes256>::new((&key).into(), (&counter).into()),
+            cipher: ctr::Ctr32BE::<Aes256>::new((&*key).into(), (&counter).into()),
             hash,
             partial: [0; BLOCK_LEN],
             partial_len: 0,

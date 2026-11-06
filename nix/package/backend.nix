@@ -24,6 +24,7 @@ let
         (rust.fileset.commonCargoSources (root + /apps/backend))
         (root + /crates/xmtp_id/src/scw_verifier/chain_urls_default.json)
         (root + /crates/xmtp_id/src/scw_verifier/signature_validation.hex)
+        (root + /crates/xmtp_common/src/address-registry.txt)
       ]
       ++ map (name: rust.fileset.commonCargoSources (root + "/crates/${name}")) [
         "xmtp_attachments_server"
@@ -35,10 +36,13 @@ let
         "xmtp_id"
         "xmtp_logging"
         "xmtp_macro"
-        "xmtp_mls_common"
+        "xmtp_mls_group_keys"
+        "xmtp_mls_group_state"
+        "xmtp_mls_tls_collections"
         "xmtp_mls_validation"
         "xmtp_proto"
         "xmtp_push_types"
+        "xmtp_rate_limit"
       ]
     );
   };

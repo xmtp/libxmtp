@@ -121,7 +121,7 @@ try {
             },
           };
           const client = await sdk.Client.create(signer, {
-            backend: { url: `${location.origin}/backend` },
+            backend: { url: location.origin },
             storage: {
               location: {
                 dbPath: "/row-size-import.db3",

@@ -28,6 +28,7 @@ import {
   type StreamOptions,
   type TransactionReference,
   type WalletSendCalls,
+  XmtpError,
 } from "@xmtp/node-sdk";
 import { isHex, toBytes, type Hex } from "viem";
 
@@ -269,14 +270,24 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     }
     const client = await Client.create(signer, initializedOptions);
 
-    const info = await getInstallationInfo(client);
-    if (info.totalInstallations > 1 && info.isMostRecent) {
-      console.warn(
-        `[WARNING] You have "${info.totalInstallations}" installations. Installation ID "${info.installationId}" is the most recent. Make sure to persist and reload your installation data. If you exceed the installation limit, your Agent will stop working. Read more: https://docs.xmtp.org/agents/build-agents/local-database#installation-limits-and-revocation-rules`,
-      );
-    }
+    try {
+      const info = await getInstallationInfo(client).catch(() => {
+        console.warn("Unable to read installation information.");
+        return undefined;
+      });
+      if (info && info.totalInstallations > 1 && info.isMostRecent) {
+        console.warn(
+          `[WARNING] You have "${info.totalInstallations}" installations. Installation ID "${info.installationId}" is the most recent. Make sure to persist and reload your installation data. If you exceed the installation limit, your Agent will stop working. Read more: https://docs.xmtp.org/agents/build-agents/local-database#installation-limits-and-revocation-rules`,
+        );
+      }
 
-    return new Agent({ client });
+      return new Agent({ client });
+    } catch (error) {
+      try {
+        await client.end();
+      } catch {}
+      throw error;
+    }
   }
 
   /** Create an agent from `XMTP_*` variables. `XMTP_BACKEND_URL` overrides `options.backend`; one must be supplied. Pass `backend.credentials` in options for backend authentication. */
@@ -370,7 +381,13 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
           }
         }
         if (!options?.allowOffline && !resolvedInboxId) {
-          ids.add((await Client.inboxIdFor(identity, backend)).toLowerCase());
+          try {
+            ids.add((await Client.inboxIdFor(identity, backend)).toLowerCase());
+          } catch (error) {
+            // No inbox holds the identity, so no legacy database belongs to
+            // a current inbox of it.
+            if (!(error instanceof XmtpError.IdentityNotFound)) throw error;
+          }
           resolvedInboxId = true;
         }
         const candidate = { name: entry.name, inboxId: inboxId.toLowerCase() };
@@ -802,14 +819,17 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
       (next, mw) => {
         return async () => {
           if (!isCurrent()) return;
+          // The rest of the chain runs at most once per message.
+          let downstream: Promise<void> | undefined;
+          const once = () => (downstream ??= Promise.resolve(next()));
           try {
-            await mw(context, next);
+            await mw(context, once);
           } catch (error) {
             if (error instanceof UnacceptedValueError) throw error;
             if (!isCurrent()) return;
             const disposition = await this.#runErrorChain(error, context);
             if (disposition === "resume" && isCurrent()) {
-              await next();
+              await once();
             }
             if (disposition !== "resume") throw new UnacceptedValueError(error);
           }

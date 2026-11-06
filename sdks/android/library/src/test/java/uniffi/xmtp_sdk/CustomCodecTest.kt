@@ -41,7 +41,6 @@ class CustomCodecTest {
     ): T {
         val raw = RecordingReaderClient { RecordingMessageReader { null } }
         val client = testSDKClient(raw, codecs)
-        ClientRegistry.register(client)
         try {
             return block(raw.key)
         } finally {

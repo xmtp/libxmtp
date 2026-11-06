@@ -42,6 +42,7 @@ xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_configuration.workspace = true
 xmtp_cryptography = { workspace = true, features = ["test-utils"] }
 xmtp_id = { workspace = true, features = ["test-utils"] }
+xmtp_mls_group_keys.workspace = true
 xmtp_mls_validation = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
 
@@ -50,7 +51,7 @@ tokio = { workspace = true }
 wasm-bindgen-test.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-tokio = { workspace = true, features = ["rt-multi-thread"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "test-util"] }
 ctor.workspace = true
 
 [features]

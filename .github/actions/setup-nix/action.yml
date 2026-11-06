@@ -24,6 +24,12 @@ inputs:
       it; fork runs have none and push nothing. Dependabot runs have it only
       as a Dependabot secret.
     required: false
+  cachix-use-daemon:
+    description: >-
+      Use the Cachix daemon to upload during builds. Set "false" to upload
+      new store paths synchronously in the post-job step instead.
+    required: false
+    default: "true"
   kache:
     description: >-
       Enable pinned Kache for Cargo commands outside Nix derivations. Set
@@ -138,6 +144,19 @@ runs:
       if: ${{ runner.os == 'Linux' && runner.environment == 'github-hosted' }}
       run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
       shell: bash
+    # The Linux sandbox gives every build the same directory, /build, so
+    # outputs that embed it match across runners. Single-user Nix needs
+    # unprivileged user namespaces for it, and the GitHub-hosted Ubuntu 24.04
+    # images block them through AppArmor (actions/runner-images#10443).
+    # Without them Nix turns the sandbox off and says so only in its debug
+    # log; `sandbox-fallback = false` below makes that an error instead.
+    - name: Allow user namespaces for the Nix sandbox (Linux)
+      if: ${{ runner.os == 'Linux' }}
+      run: |
+        if [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null)" = 1 ]; then
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+        fi
+      shell: bash
     - name: Install Nix (Linux)
       if: ${{ runner.os == 'Linux' }}
       uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
@@ -148,6 +167,7 @@ runs:
           access-tokens = github.com=${{ inputs.github-token }}
           max-jobs = auto
           cores = 0
+          sandbox-fallback = false
     - name: Install Nix (macOS)
       if: ${{ runner.os != 'Linux' }}
       uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
@@ -169,6 +189,7 @@ runs:
       if: ${{ inputs.cache-mode == 'read' }}
       with:
         name: xmtp
+        useDaemon: ${{ inputs.cachix-use-daemon }}
     - name: Configure Cachix (mode ci)
       uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
       if: ${{ inputs.cache-mode == 'ci' }}
@@ -176,12 +197,14 @@ runs:
         name: xmtp-pr
         extraPullNames: xmtp
         authToken: ${{ inputs.cachix-pr-auth-token }}
+        useDaemon: ${{ inputs.cachix-use-daemon }}
     - name: Configure Cachix (mode trusted)
       uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
       if: ${{ inputs.cache-mode == 'trusted' }}
       with:
         name: xmtp
         authToken: ${{ inputs.cachix-auth-token }}
+        useDaemon: ${{ inputs.cachix-use-daemon }}
     - name: Setup Kache
       if: ${{ inputs.kache == 'true' }}
       uses: kunobi-ninja/kache-action@1a33fb2ff51be23eb9e87abeae6edb65be78f71c

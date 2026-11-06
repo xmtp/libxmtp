@@ -1,4 +1,5 @@
 use super::*;
+use crate::consent_record::ConsentType;
 use crate::group::tests::generate_group;
 use crate::group_message::tests::generate_message;
 use crate::schema::group_messages;
@@ -566,6 +567,47 @@ async fn history_snapshot_filters_before_its_limit_in_the_same_database_snapshot
     assert!(snapshot.cursor.delivery_sequence > snapshot.messages[0].cursor.delivery_sequence);
 }
 
+/// A keyed group's 64-hex id has the shape of an inbox id. An inbox consent
+/// record whose entity equals that id does not decide which of the group's
+/// messages the consent filter selects.
+#[xmtp_common::test(unwrap_try = true)]
+async fn history_snapshot_ignores_inbox_consent_for_a_group() {
+    use crate::consent_record::StoredConsentRecord;
+    let store = TestDb::create_persistent_store(None).await;
+    let db = store.db();
+    let group = generate_group(None);
+    group.store(&db)?;
+    StoredConsentRecord::new(
+        ConsentType::InboxId,
+        ConsentState::Denied,
+        hex::encode(group.id),
+    )
+    .store(&db)?;
+    let message = generate_message(None, Some(&group.id), None, None, None, None);
+    message.store(&db)?;
+    let selected = |state: ConsentState| {
+        db.delivery_history_snapshot_filtered(
+            &DeliveryScope::All,
+            &DeliveryFilter {
+                conversation_type: None,
+                consent_states: Some(vec![state]),
+            },
+            0,
+            8,
+            8192,
+        )
+        .map(|snapshot| {
+            snapshot
+                .messages
+                .into_iter()
+                .map(|row| row.message.id)
+                .collect::<Vec<_>>()
+        })
+    };
+    assert_eq!(selected(ConsentState::Unknown)?, [message.id]);
+    assert!(selected(ConsentState::Denied)?.is_empty());
+}
+
 type AppRowsObserver = Box<dyn FnMut(Option<usize>)>;
 
 thread_local! {
@@ -677,7 +719,6 @@ async fn app_rows_cursor_queries_are_bounded_batches() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn history_projection_keeps_relations_and_deletions_in_the_cursor_snapshot() {
     use crate::group_message::RelationQuery;
-    use crate::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
     let path = xmtp_common::tmp_path();
     let store = TestDb::create_persistent_store(Some(path.clone())).await;
     let writer = TestDb::create_persistent_store(Some(path)).await;
@@ -698,15 +739,9 @@ async fn history_projection_keeps_relations_and_deletions_in_the_cursor_snapshot
             let mut reply = generate_message(None, Some(&group.id), Some(2), None, None, None);
             reply.reference_id = Some(parent.id.clone());
             reply.store(&writer.db())?;
-            StoredMessageDeletion {
-                id: reply.id,
-                group_id: group.id,
-                deleted_message_id: parent.id.clone(),
-                deleted_by_inbox_id: parent.sender_inbox_id.clone(),
-                is_super_admin_deletion: false,
-                deleted_at_ns: 3,
-            }
-            .store(&writer.db())?;
+            writer
+                .db()
+                .mark_message_deleted(&parent.id, &parent.sender_inbox_id)?;
             let storage = conn.key_store();
             let projected_db = storage.db();
             let counts = projected_db.get_inbound_relation_counts(
@@ -714,13 +749,13 @@ async fn history_projection_keeps_relations_and_deletions_in_the_cursor_snapshot
                 &[&parent.id],
                 RelationQuery::default(),
             )?;
-            let deletions = projected_db.get_deletions_for_messages(vec![parent.id.clone()])?;
+            let projected_parent = projected_db.get_group_message(&parent.id)?.unwrap();
             assert!(
                 counts.is_empty(),
                 "projection observed a reply after its cursor"
             );
             assert!(
-                deletions.is_empty(),
+                projected_parent.deleted_by_inbox_id.is_none(),
                 "projection observed a deletion after its cursor"
             );
             Ok(snapshot)
@@ -735,7 +770,12 @@ async fn history_projection_keeps_relations_and_deletions_in_the_cursor_snapshot
             .get(&parent.id),
         Some(&1)
     );
-    assert_eq!(db.get_deletions_for_messages(vec![parent.id])?.len(), 1);
+    assert!(
+        db.get_group_message(&parent.id)?
+            .unwrap()
+            .deleted_by_inbox_id
+            .is_some()
+    );
     assert!(db.current_delivery_cursor()?.delivery_sequence > boundary.delivery_sequence);
 }
 

@@ -6,7 +6,6 @@
   mkShell,
   foundry-bin,
   xmtp-pnpm,
-  nodejs_26,
   uv,
   xmtp,
 }:
@@ -29,7 +28,7 @@ mkShell (
         [
           foundry-bin
           xmtp-pnpm
-          nodejs_26
+          xmtp.nodejs_26
           uv
         ]
         ++ shellCommon.wasmTools

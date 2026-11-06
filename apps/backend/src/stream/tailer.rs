@@ -20,6 +20,7 @@ use xmtp_common::{
 const GAP_BATCH: usize = 128;
 const GAP_ROWS: i64 = 64;
 const FORWARD_ROWS: i64 = 1_024;
+const ACTIVE_POLL_WAIT: Duration = Duration::from_millis(50);
 const STARTUP_SCHEMA_BUDGET: Duration = Duration::from_secs(10);
 const STARTUP_SCHEMA_RETRY_DELAY: Duration = Duration::from_millis(100);
 const STARTUP_SCHEMA_RETRY_JITTER: Duration = Duration::from_millis(25);
@@ -253,6 +254,7 @@ async fn run(
         if next_gaps.len() > max_gaps {
             return Err(Status::resource_exhausted("tailer gap capacity exceeded"));
         }
+        let wait = poll_wait(!rows.is_empty(), interval);
         registry.dispatch(rows);
         forward = next_forward;
         gaps = next_gaps;
@@ -260,8 +262,18 @@ async fn run(
             maintenance.notify_one();
         }
         if !immediate {
-            sleep(interval).await;
+            sleep(wait).await;
         }
+    }
+}
+
+/// Wait briefly after a poll that dispatched envelopes, and `interval` after
+/// an empty poll. No wait exceeds `interval`.
+fn poll_wait(dispatched: bool, interval: Duration) -> Duration {
+    if dispatched {
+        ACTIVE_POLL_WAIT.min(interval)
+    } else {
+        interval
     }
 }
 

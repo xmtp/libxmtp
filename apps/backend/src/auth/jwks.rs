@@ -48,8 +48,9 @@ impl JwksSource {
     // implements: AUTH-015, AUTH-033
     pub fn new(
         url: &str,
-        config: AuthConfig,
+        mut config: AuthConfig,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        config.clear_api_keys();
         let url = parse_jwks_url(url)?;
         let client = xmtp_common::http::client_builder()
             .redirect(Policy::none())

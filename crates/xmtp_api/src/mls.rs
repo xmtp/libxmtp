@@ -5,8 +5,8 @@ use xmtp_proto::{
     api_client::{XmtpBackendClient, XmtpMlsStreams},
     backend_v1 as wire,
     types::{
-        Cursor, GroupId, GroupMessage, GroupMessageMetadata, InstallationId, Topic, TopicCursor,
-        WelcomeMessage,
+        Cursor, GroupId, GroupMessage, GroupMessageMetadata, IncomingBatchLimits, InstallationId,
+        Topic, TopicCursor, WelcomeMessage,
     },
 };
 
@@ -77,6 +77,34 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         )]))
         .await
     }
+    /// The lowest-sequence envelope on the Welcome topic of `destination`,
+    /// with validated metadata and an undecoded payload. One `Query` with
+    /// limit 1 from cursor 0, so later envelopes are never fetched.
+    // implements: JOIN-032
+    #[xmtp_common::rpc_span]
+    pub async fn query_first_welcome(
+        &self,
+        destination: InstallationId,
+        max_bytes: usize,
+    ) -> Result<Option<wire::ServerEnvelope>> {
+        let page = self
+            .query_ordered_page(
+                HashMap::from([(Topic::new_welcome_message(destination), Cursor(0))]),
+                1,
+                IncomingBatchLimits {
+                    max_rows: 1,
+                    max_bytes,
+                },
+            )
+            .await?;
+        Ok(page
+            .batches
+            .into_iter()
+            .flat_map(|batch| batch.envelopes)
+            .next()
+            .map(|envelope| envelope.decode())
+            .transpose()?)
+    }
     pub async fn query_welcome_messages_with_cursors(
         &self,
         cursors: TopicCursor,
@@ -130,6 +158,25 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         }
         Ok(found)
     }
+    /// The newest package on the key package topic of `id`, with its sequence id.
+    // implements: JOIN-074
+    #[xmtp_common::rpc_span]
+    pub async fn newest_key_package(
+        &self,
+        id: &InstallationId,
+    ) -> Result<Option<(wire::KeyPackage, Cursor)>> {
+        let newest = self.newest(vec![Topic::new_key_package(id)], true).await?;
+        let Some(result) = newest.into_iter().next() else {
+            return Ok(None);
+        };
+        let cursor = result.meta.as_ref().and_then(|meta| meta.cursor.as_ref());
+        let cursor = Cursor(cursor.map_or(0, |cursor| cursor.sequence_id));
+        let package = decode_key_package(wire::ServerEnvelope {
+            meta: result.meta,
+            envelope: result.envelope,
+        })?;
+        Ok(Some((package, cursor)))
+    }
     #[xmtp_common::rpc_span]
     pub async fn send_welcome_messages(
         &self,
@@ -156,34 +203,50 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
     ) -> Result<Vec<wire::EnvelopeMeta>> {
         self.publish_units(units).await
     }
+    /// Publish commit-log entries in the given order, one request at a time,
+    /// and stop at the first failed request. Each stored entry's metadata is
+    /// appended to `stored`, so on an error `stored` names the stored prefix
+    /// of `entries` and a retry starts from the first entry after it.
+    // implements: FORK-021
     #[xmtp_common::rpc_span]
     pub async fn publish_commit_log(
         &self,
-        entries: Vec<wire::CommitLogEntry>,
-    ) -> Result<Vec<wire::EnvelopeMeta>> {
+        entries: Vec<wire::SealedCommitLogEntry>,
+        stored: &mut Vec<wire::EnvelopeMeta>,
+    ) -> Result<()> {
         let units = entries
             .into_iter()
             .map(|entry| {
                 PublishUnit::single_within(
                     wire::ClientEnvelope {
-                        payload: Some(wire::client_envelope::Payload::CommitLogEntry(entry)),
+                        payload: Some(wire::client_envelope::Payload::SealedCommitLogEntry(entry)),
                     },
                     self.limits(),
                 )
             })
             .collect::<Result<Vec<_>>>()?;
-        self.publish_units(units).await
+        self.publish_units_in_order(units, stored).await
     }
+    /// Read commit-log topics without opening any entry. An envelope whose
+    /// metadata does not decode is logged and left out; the read still
+    /// returns every other envelope, so one bad envelope never fails it.
     #[xmtp_common::rpc_span]
     pub async fn query_commit_log(
         &self,
         cursors: TopicCursor,
     ) -> Result<Vec<xmtp_proto::types::CommitLogEntry>> {
-        self.query_all(cursors, self.limits().max_query_limit as u32)
+        Ok(self
+            .query_all(cursors, self.limits().max_query_limit as u32)
             .await?
             .into_iter()
-            .map(|envelope| decode_commit_log_entry(envelope).map_err(Into::into))
-            .collect()
+            .filter_map(|envelope| {
+                decode_commit_log_entry(envelope)
+                    .inspect_err(|error| {
+                        tracing::warn!(%error, "discarding a commit-log envelope");
+                    })
+                    .ok()
+            })
+            .collect())
     }
     #[xmtp_common::rpc_span]
     pub async fn get_newest_message_metadata(

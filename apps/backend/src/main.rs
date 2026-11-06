@@ -1,5 +1,10 @@
 use clap::{ArgGroup, Parser};
-use std::path::PathBuf;
+use sqlx::postgres::{PgConnectOptions, PgSslMode};
+use std::{
+    net::{IpAddr, SocketAddr},
+    path::PathBuf,
+    str::FromStr,
+};
 use xmtp_backend::{
     config::{Config, ConfigError, IDENTIFIER_ATTRIBUTE, LogFormat, LogLevel, ValidatedConfig},
     server, telemetry,
@@ -84,6 +89,9 @@ async fn run(
     telemetry::describe();
     telemetry::ready(false);
     telemetry::info(env!("CARGO_PKG_VERSION"));
+    for (key, reason) in unsafe_settings(&config) {
+        tracing::warn!(key, "{reason}");
+    }
     let address = config.server.listen.clone();
     let backend = server::initialize(config).await?;
     let listener = tokio::net::TcpListener::bind(address).await?;
@@ -126,6 +134,69 @@ fn otlp_export(
             resource_attributes: resource_attributes.into_iter().collect(),
         }
     }))
+}
+
+/// Settings that admit any caller, or leave the store or a chain link
+/// unverified, beyond this host. Names keys and modes, never values.
+// implements: CONF-095
+fn unsafe_settings(config: &ValidatedConfig) -> Vec<(String, String)> {
+    let mut found = Vec::new();
+    let local = config
+        .server
+        .listen
+        .parse::<SocketAddr>()
+        .is_ok_and(|address| address.ip().is_loopback());
+    if !config.auth_enabled() && !local {
+        found.push((
+            "auth".into(),
+            format!(
+                "disabled; {} serves every caller without a credential",
+                config.server.listen
+            ),
+        ));
+    }
+    let stores = [
+        ("database.url", Some(&config.database.url)),
+        ("database.replica_url", config.database.replica_url.as_ref()),
+    ];
+    for (key, url) in stores {
+        // sqlx's own parser, so PGSSLMODE and PGHOST fold in as at connect.
+        let Some(options) = url.and_then(|url| PgConnectOptions::from_str(url).ok()) else {
+            continue;
+        };
+        let mode = options.get_ssl_mode();
+        // sqlx connects over a Unix socket when the host is a directory.
+        let socket = options.get_socket().is_some() || options.get_host().starts_with('/');
+        if !socket
+            && !is_loopback_host(options.get_host())
+            && !matches!(mode, PgSslMode::VerifyFull)
+        {
+            found.push((
+                key.into(),
+                format!("sslmode {mode:?} does not verify the server certificate and host"),
+            ));
+        }
+    }
+    for (chain, url) in &config.chains {
+        let Ok(url) = url::Url::parse(url) else {
+            continue;
+        };
+        if url.scheme() == "http" && !url.host_str().is_some_and(is_loopback_host) {
+            found.push((
+                format!("chains.\"{chain}\""),
+                "plain HTTP to a host that is not loopback".into(),
+            ));
+        }
+    }
+    found
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .trim_matches(['[', ']'])
+            .parse::<IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
 }
 
 async fn shutdown() {

@@ -12,11 +12,142 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.xmtp.android.library.deliveryTestMessage
 import java.lang.ref.WeakReference
+import java.net.InetAddress
+import java.net.ServerSocket
+import java.net.Socket
+import java.net.URI
 import java.nio.file.Files
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
+import kotlin.concurrent.thread
 
 // Hand-written Kotlin in SDKTypes.kt and SDKClient.kt: the weak ClientRegistry
 // that Message.client() reads, default storage resolution, and Message equality.
 class ClientOwnershipTest {
+    // A fresh endpoint prevents API-client caching from hiding build's native work.
+    private class Forwarder : AutoCloseable {
+        private val server = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
+        private val sockets = CopyOnWriteArrayList<Socket>()
+        val bytes = AtomicLong()
+        val url = "http://127.0.0.1:${server.localPort}"
+
+        init {
+            val upstream = URI(liveEnv("XMTP_BACKEND_URL"))
+            thread(isDaemon = true) {
+                runCatching {
+                    while (!server.isClosed) {
+                        val incoming = server.accept().also { sockets.add(it) }
+                        val outgoing = Socket(upstream.host, upstream.port).also { sockets.add(it) }
+                        pump(incoming, outgoing, true)
+                        pump(outgoing, incoming, false)
+                    }
+                }
+            }
+        }
+
+        private fun pump(
+            from: Socket,
+            to: Socket,
+            count: Boolean,
+        ) = thread(isDaemon = true) {
+            runCatching {
+                val buffer = ByteArray(8192)
+                val input = from.getInputStream()
+                val output = to.getOutputStream()
+                while (true) {
+                    val size = input.read(buffer)
+                    if (size < 0) break
+                    if (count) bytes.addAndGet(size.toLong())
+                    output.write(buffer, 0, size)
+                }
+            }
+        }
+
+        override fun close() {
+            server.close()
+            sockets.forEach { it.close() }
+        }
+    }
+
+    private class StartupCodec(
+        val failure: Throwable,
+        val failFirst: Boolean,
+    ) : ContentCodec<String> {
+        val noteType = ContentTypeId("example.org", "startup", 1u, 0u)
+        var reads = 0
+        override val type: ContentTypeId
+            get() {
+                if (++reads > if (failFirst) 0 else 1) throw failure
+                return noteType
+            }
+
+        override fun encode(value: String) = EncodedContent(noteType, emptyMap(), null, value.toByteArray())
+
+        override fun decode(encoded: EncodedContent) = encoded.content.decodeToString()
+    }
+
+    private suspend fun codecBeforeNative(build: Boolean) =
+        withTimeout(60_000) {
+            val directory = Files.createTempDirectory("xmtp-codec-startup-")
+            try {
+                withClients {
+                    val delegate = generateLocalSigner()
+                    val identity = delegate.identity()
+                    val storage = StorageOptions(location = StorageLocation.Directory(directory.toString()))
+                    val seed = if (build) create(delegate, liveOptions().copy(storage = storage)) else null
+                    val inbox = seed?.inboxId()
+                    seed?.end()
+                    val calls = AtomicInteger()
+                    val signer =
+                        object : Signer by delegate {
+                            override suspend fun identity(): PublicIdentity {
+                                calls.incrementAndGet()
+                                return delegate.identity()
+                            }
+                        }
+                    Forwarder().use { endpoint ->
+                        suspend fun open(codec: ContentCodec<*>): SDKClient =
+                            if (build) {
+                                build(
+                                    identity,
+                                    liveOptions(endpoint.url).copy(storage = storage, allowOffline = false),
+                                    inbox,
+                                    listOf(codec),
+                                )
+                            } else {
+                                create(signer, liveOptions(), codecs = listOf(codec))
+                            }
+                        val failure = IllegalStateException("codec type failed")
+                        val error = runCatching { open(StartupCodec(failure, true)) }.exceptionOrNull()
+                        assertSame(failure, error)
+                        assertEquals("create invoked the signer before codec validation", 0, calls.get())
+                        assertEquals("build sent upstream bytes before codec validation", 0L, endpoint.bytes.get())
+                        val once = StartupCodec(failure, false)
+                        val host = open(once)
+                        val encoded = once.encode("usable registry")
+                        val decoded = host.decodeCustom(encoded, encoded.content) as SDKMessageContent.Custom
+                        assertEquals("usable registry", decoded.value)
+                        assertNull(decoded.error)
+                        assertEquals("The prepared registry was rebuilt", 1, once.reads)
+                        if (build) {
+                            assertTrue("The endpoint did not forward online build", endpoint.bytes.get() > 0)
+                        } else {
+                            assertTrue("The signer was not observed", calls.get() > 0)
+                        }
+                    }
+                }
+            } finally {
+                directory.toFile().deleteRecursively()
+            }
+        }
+
+    @Test
+    fun createValidatesCodecsBeforeNativeWork() = runBlocking { codecBeforeNative(false) }
+
+    @Test
+    fun buildValidatesCodecsBeforeNativeWork() = runBlocking { codecBeforeNative(true) }
+
     private suspend fun expectClientClosed(action: suspend () -> Unit) {
         val error = runCatching { action() }.exceptionOrNull()
         assertTrue("Expected ClientClosed, got $error", error is XmtpException.ClientClosed)

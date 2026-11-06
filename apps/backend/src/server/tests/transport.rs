@@ -316,13 +316,13 @@ async fn oversized_wire_request_is_rejected_without_publish_detail_or_write() {
         envelopes: vec![envelope],
     };
     let server = TestServer::new(|config| {
-        config.limits.max_request_bytes = 66_560;
+        config.limits.max_request_bytes = 182_068;
         config.limits.max_envelope_bytes = 1_024;
     })
     .await?;
     let mut oversized = request.encode_to_vec();
-    oversized.extend_from_slice(&[0x92, 0x3e, 0xf0, 0xa2, 0x04]);
-    oversized.extend(std::iter::repeat_n(0, 70_000));
+    oversized.extend_from_slice(&[0x92, 0x3e, 0xc0, 0x9a, 0x0c]);
+    oversized.extend(std::iter::repeat_n(0, 200_000));
     let response = grpc_web_post(
         &server,
         "/xmtp.backend.v1.PublishService/Publish",
@@ -359,6 +359,8 @@ async fn oversized_publish_response_reports_transport_error_after_commit() {
     let server = TestServer::new(|config| {
         config.limits.max_envelope_bytes = 1_024;
         config.limits.max_response_bytes = 66_560;
+        config.limits.max_update_adds = 1;
+        config.limits.max_static_topics = 1;
     })
     .await?;
     let envelopes: Vec<_> = (0_u64..800)
@@ -481,6 +483,8 @@ async fn query_settles_each_envelope_after_out_of_range() {
     let server = TestServer::new(|config| {
         config.limits.max_envelope_bytes = 1_024;
         config.limits.max_response_bytes = 66_560;
+        config.limits.max_update_adds = 1;
+        config.limits.max_static_topics = 1;
     })
     .await?;
     let envelopes: Vec<_> = (0_u64..800)

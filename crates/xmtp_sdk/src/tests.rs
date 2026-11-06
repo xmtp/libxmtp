@@ -1,5 +1,6 @@
 #![cfg(not(target_arch = "wasm32"))]
 
+use xmtp_mls::prelude::*;
 mod history_pages;
 mod history_snapshot;
 mod reader_ack_cancellation;
@@ -20,7 +21,6 @@ use futures::FutureExt;
 use tokio::sync::Notify;
 use xmtp_db::{group::GroupQueryArgs, group_message::MsgQueryArgs};
 use xmtp_id::{InboxOwner, associations::unverified::UnverifiedSignature};
-use xmtp_mls::context::XmtpSharedContext;
 use xmtp_mls::subscriptions::local_delivery::LocalDeliveryError;
 
 use crate::{
@@ -622,6 +622,7 @@ mod content_validation;
 mod create_adoption;
 mod create_cleanup;
 mod error_records;
+mod error_routes;
 mod event_listeners;
 mod event_readers;
 mod foreign_callbacks;
@@ -629,12 +630,14 @@ mod group_options;
 mod handles;
 mod history_errors;
 mod identity_routes;
+mod interrupted_dm;
 mod lifecycle;
 mod message_actions;
 mod metadata_fields;
 mod permissions;
 mod public_error_actions;
 mod query_costs;
+mod reaction_pages;
 mod reader_delivery;
 mod reader_recovery;
 mod retained_content;

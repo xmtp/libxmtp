@@ -12,8 +12,8 @@
 use xmtp_configuration::{
     ApplicationComponentDefinition, AttachmentsConfiguration, AuthConfiguration,
     BACKEND_DEFAULT_MAX_UPLOAD_BYTES, ComponentPermissions, HandlesConfiguration,
-    LimitsConfiguration, MetadataPolicy, MlsConfiguration, RetentionConfiguration,
-    ServerConfiguration, SigningKeyDescription,
+    LimitsConfiguration, MAX_IDENTITY_UPDATE_ACTIONS, MetadataPolicy, MlsConfiguration,
+    RetentionConfiguration, ServerConfiguration, SigningKeyDescription,
     attachments::{
         AttachmentConfigurationError, check_base_url, check_max_upload_bytes,
         check_retention_seconds,
@@ -129,10 +129,13 @@ impl From<backend_v1::MlsConfiguration> for MlsConfiguration {
         let default = Self::default();
         Self {
             max_group_members: or_default(mls.max_group_members, default.max_group_members),
+            // A ceiling above one update's actions would let an inbox hold
+            // installations that no single update can revoke.
             max_installations_per_inbox: or_default(
                 mls.max_installations_per_inbox,
                 default.max_installations_per_inbox,
-            ),
+            )
+            .min(MAX_IDENTITY_UPDATE_ACTIONS),
             // Absent is not the same as false: an operator may switch the
             // commit log off explicitly.
             commit_log_enabled: mls.commit_log_enabled,

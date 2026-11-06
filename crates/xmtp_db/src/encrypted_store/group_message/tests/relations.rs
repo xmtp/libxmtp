@@ -898,3 +898,224 @@ fn test_inbound_relation_counts() {
         assert!(!reply_counts.contains_key(&msg3.id)); // No replies
     })
 }
+
+/// Store a reaction to `parent` in `group` at the given position.
+fn store_reaction<C: ConnectionExt>(
+    conn: &DbConnection<C>,
+    group_id: &GroupId,
+    parent: &[u8],
+    sent_at_ns: i64,
+    sequence_id: i64,
+    id: Vec<u8>,
+) -> StoredGroupMessage {
+    let mut reaction = generate_message(
+        None,
+        Some(group_id),
+        Some(sent_at_ns),
+        Some(ContentType::Reaction),
+        None,
+        None,
+    );
+    reaction.reference_id = Some(parent.to_vec());
+    reaction.sequence_id = sequence_id;
+    reaction.id = id;
+    reaction.store(conn).unwrap();
+    reaction
+}
+
+/// The limit holds for each parent, so a parent with many reactions does not
+/// starve another. Equal send times break by sequence id: a removal published
+/// after its addition sorts last even when its message id is lower.
+// verifies: PROC-053
+#[xmtp_common::test(unwrap_try = true)]
+fn inbound_relations_limit_applies_to_each_parent() {
+    with_connection(|conn| {
+        let group = generate_group(None);
+        group.store(conn).unwrap();
+        let parents: Vec<_> = (0..3)
+            .map(|_| generate_message_with_reference(conn, &group.id, 1, ContentType::Text, None))
+            .collect();
+        for parent in &parents[..2] {
+            for index in 0..10 {
+                store_reaction(
+                    conn,
+                    &group.id,
+                    &parent.id,
+                    1_000 + index,
+                    index + 1,
+                    xmtp_common::rand_vec::<32>(),
+                );
+            }
+        }
+        let addition = store_reaction(conn, &group.id, &parents[2].id, 2_000, 10, vec![0xff; 32]);
+        let removal = store_reaction(conn, &group.id, &parents[2].id, 2_000, 11, vec![0x01; 32]);
+
+        let window = |limit| {
+            conn.get_inbound_relations(
+                &group.id,
+                &parents
+                    .iter()
+                    .map(|parent| parent.id.as_slice())
+                    .collect::<Vec<_>>(),
+                RelationQuery::builder()
+                    .content_types(Some(vec![ContentType::Reaction]))
+                    .limit(Some(limit))
+                    .build()
+                    .unwrap(),
+            )
+            .unwrap()
+        };
+        let latest_three = window(3);
+        for parent in &parents[..2] {
+            let sent: Vec<_> = latest_three[&parent.id]
+                .iter()
+                .map(|reaction| reaction.sent_at_ns)
+                .collect();
+            assert_eq!(sent, [1_007, 1_008, 1_009]);
+        }
+        assert_eq!(
+            latest_three[&parents[2].id]
+                .iter()
+                .map(|reaction| &reaction.id)
+                .collect::<Vec<_>>(),
+            [&addition.id, &removal.id]
+        );
+        let latest_one = window(1);
+        assert_eq!(
+            latest_one[&parents[2].id]
+                .iter()
+                .map(|reaction| &reaction.id)
+                .collect::<Vec<_>>(),
+            [&removal.id]
+        );
+    })
+}
+
+/// A stitched DM's reactions can be stored in any of its groups, so the
+/// window, the count and the cursor all range over every group of the DM.
+// verifies: PROC-053, PROC-054, DMS-009
+#[xmtp_common::test(unwrap_try = true)]
+fn inbound_relations_window_spans_stitched_dm_groups() {
+    use crate::group::tests::generate_dm;
+    use xmtp_common::Generate;
+    with_connection(|conn| {
+        let first = generate_dm(None);
+        first.store(conn).unwrap();
+        let mut second = first.clone();
+        second.id = GroupId::generate();
+        second.store(conn).unwrap();
+        let parent = generate_message_with_reference(conn, &first.id, 1, ContentType::Text, None);
+        let mut reactions = Vec::new();
+        for (group_id, sent_at_ns) in [
+            (first.id, 100),
+            (first.id, 101),
+            (first.id, 102),
+            (second.id, 200),
+            (second.id, 201),
+            (second.id, 202),
+            (second.id, 203),
+        ] {
+            reactions.push(store_reaction(
+                conn,
+                &group_id,
+                &parent.id,
+                sent_at_ns,
+                0,
+                xmtp_common::rand_vec::<32>(),
+            ));
+        }
+        let reaction_only = || RelationQuery {
+            content_types: Some(vec![ContentType::Reaction]),
+            ..Default::default()
+        };
+        let sent = |query: RelationQuery| -> Vec<i64> {
+            conn.get_inbound_relations(&first.id, &[parent.id.as_slice()], query)
+                .unwrap()
+                .remove(&parent.id)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|reaction| reaction.sent_at_ns)
+                .collect()
+        };
+
+        assert_eq!(
+            sent(RelationQuery {
+                limit: Some(5),
+                ..reaction_only()
+            }),
+            [102, 200, 201, 202, 203]
+        );
+        let counts = conn
+            .get_inbound_relation_counts(&first.id, &[parent.id.as_slice()], reaction_only())
+            .unwrap();
+        assert_eq!(counts[&parent.id], 7);
+
+        let before = conn
+            .get_inbound_relation_cursor(
+                &first.id,
+                &parent.id,
+                &reactions[4].id,
+                &[ContentType::Reaction],
+            )
+            .unwrap();
+        assert!(before.is_some(), "a sibling group's reaction is a cursor");
+        assert_eq!(
+            sent(RelationQuery {
+                before,
+                ..reaction_only()
+            }),
+            [100, 101, 102, 200]
+        );
+    })
+}
+
+/// The reaction window ranks key columns only, so a read of a message's 50
+/// latest reactions does not copy every reaction payload into SQLite's
+/// sorter. A member's reactions are otherwise a memory cost that grows with
+/// every reaction they send.
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+fn reaction_window_does_not_sort_payloads() {
+    const REACTIONS: i64 = 500;
+    const PAYLOAD_BYTES: usize = 32 * 1024;
+    /// Room for the 50 returned rows (1.6 MiB) and the page cache, half the
+    /// 16 MiB of stored payloads. A sort of every payload uses about 25 MB.
+    const MAX_EXTRA_BYTES: i64 = 8 * 1024 * 1024;
+
+    with_connection(|conn| {
+        let group = generate_group(None);
+        group.store(conn).unwrap();
+        let parent = generate_message_with_reference(conn, &group.id, 1, ContentType::Text, None);
+        for index in 0..REACTIONS {
+            let mut reaction = generate_message(
+                None,
+                Some(&group.id),
+                Some(1_000 + index),
+                Some(ContentType::Reaction),
+                None,
+                None,
+            );
+            reaction.reference_id = Some(parent.id.clone());
+            reaction.sequence_id = index + 1;
+            reaction.decrypted_message_bytes = vec![7; PAYLOAD_BYTES];
+            reaction.store(conn).unwrap();
+        }
+        let query = RelationQuery {
+            content_types: Some(vec![ContentType::Reaction]),
+            limit: Some(50),
+            ..Default::default()
+        };
+        // SAFETY: plain reads of SQLite's global allocation counters.
+        let before = unsafe { libsqlite3_sys::sqlite3_memory_used() };
+        unsafe { libsqlite3_sys::sqlite3_memory_highwater(1) };
+        let window = conn
+            .get_inbound_relations(&group.id, &[parent.id.as_slice()], query)
+            .unwrap();
+        let extra = unsafe { libsqlite3_sys::sqlite3_memory_highwater(0) } - before;
+        assert_eq!(window[&parent.id].len(), 50);
+        assert!(
+            extra < MAX_EXTRA_BYTES,
+            "a 50-row window over {REACTIONS} reactions used {extra} extra bytes"
+        );
+    })
+}

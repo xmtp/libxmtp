@@ -5,8 +5,11 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.webkit.MimeTypeMap
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.xmtp.android.example.messenger.SessionKey
 import uniffi.xmtp_sdk.DownloadedAttachment
@@ -14,8 +17,10 @@ import uniffi.xmtp_sdk.RemoteAttachment
 import uniffi.xmtp_sdk.SDKClient
 import uniffi.xmtp_sdk.attachments
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.LinkOption.NOFOLLOW_LINKS
 
-/** A verified result can enter this class only through the SDK download operation. */
+/** SDK plaintext paths contain only complete, verified files (ATCH-051). */
 class AttachmentFiles(
     private val context: Context,
     private val key: SessionKey,
@@ -23,12 +28,15 @@ class AttachmentFiles(
     private val accepts: (SessionKey) -> Boolean,
 ) {
     private val verified = VerifiedAttachmentCache<DownloadedAttachment>()
+    private val previewMutex = Mutex()
     internal val retained = verified.retained
     internal var beforeDownloadAdmission: suspend () -> Unit = {}
     internal var beforeOpenCopy: suspend () -> Unit = {}
     internal var beforeSaveCopy: suspend () -> Unit = {}
 
     internal fun clearVerified() = verified.clear()
+
+    internal fun forget(messageId: String) = verified.remove(messageId)
 
     private fun checkCurrent() = check(accepts(key)) { "The session changed" }
 
@@ -47,6 +55,50 @@ class AttachmentFiles(
         return downloaded
     }
 
+    /** Restore an SDK-owned plaintext file without ever starting a network transfer. */
+    internal suspend fun restore(
+        messageId: String,
+        remote: RemoteAttachment,
+        admission: () -> Boolean,
+    ): DownloadedAttachment? {
+        checkCurrent()
+        val generation = verified.generation()
+        val path = client.attachments().localPath(remote)
+        val downloaded =
+            withContext(Dispatchers.IO) {
+                val file = File(path)
+                val directory = file.parentFile ?: return@withContext null
+
+                fun present() =
+                    Files.isDirectory(directory.toPath(), NOFOLLOW_LINKS) &&
+                        Files.isRegularFile(file.toPath(), NOFOLLOW_LINKS)
+                if (!present()) return@withContext null
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(path, bounds)
+                val filename = remote.filename ?: "File"
+                val mime =
+                    bounds.outMimeType
+                        ?: MimeTypeMap.getSingleton().getMimeTypeFromExtension(
+                            filename.substringAfterLast('.', "").lowercase(),
+                        )
+                        ?: file.inputStream().use { input ->
+                            val header = ByteArray(5)
+                            if (input.read(header) == header.size &&
+                                header.contentEquals("%PDF-".toByteArray(Charsets.US_ASCII))
+                            ) {
+                                "application/pdf"
+                            } else {
+                                null
+                            }
+                        }
+                if (!present()) return@withContext null
+                DownloadedAttachment(path, mime, filename)
+            } ?: return null
+        checkCurrent()
+        check(verified.admit(generation, messageId, downloaded, admission)) { "The file view changed" }
+        return downloaded
+    }
+
     suspend fun preview(messageId: String): Bitmap? =
         preview(
             checkNotNull(verified[messageId]) {
@@ -54,19 +106,33 @@ class AttachmentFiles(
             },
         )
 
-    internal suspend fun preview(downloaded: DownloadedAttachment): Bitmap? =
+    internal suspend fun preview(
+        downloaded: DownloadedAttachment,
+        admission: () -> Boolean = { true },
+    ): Bitmap? =
+        previewMutex.withLock {
+            withContext(Dispatchers.IO) {
+                checkCurrent()
+                if (!admission()) return@withContext null
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(downloaded.path, bounds)
+                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
+                var sample = 1
+                while (bounds.outWidth / sample > 1024 || bounds.outHeight / sample > 1024) sample *= 2
+                val settings = BitmapFactory.Options().apply { inSampleSize = sample }
+                val bitmap = BitmapFactory.decodeFile(downloaded.path, settings)
+                val current = accepts(key) && admission()
+                if (!current) bitmap?.recycle()
+                bitmap.takeIf { current }
+            }
+        }
+
+    internal suspend fun imageDimensions(downloaded: DownloadedAttachment): Pair<Int, Int>? =
         withContext(Dispatchers.IO) {
             checkCurrent()
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeFile(downloaded.path, bounds)
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
-            var sample = 1
-            while (bounds.outWidth / sample > 1024 || bounds.outHeight / sample > 1024) sample *= 2
-            val settings = BitmapFactory.Options().apply { inSampleSize = sample }
-            val bitmap = BitmapFactory.decodeFile(downloaded.path, settings)
-            val current = accepts(key)
-            if (!current) bitmap?.recycle()
-            bitmap.takeIf { current }
+            if (bounds.outWidth > 0 && bounds.outHeight > 0) bounds.outWidth to bounds.outHeight else null
         }
 
     internal fun verifiedResult(messageId: String): DownloadedAttachment? =

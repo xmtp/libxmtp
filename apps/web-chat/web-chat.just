@@ -6,6 +6,7 @@ _env := ". " + root + "/dev/docker/load-env"
 set shell := ["../../dev/nix-shell"]
 
 sdk:
+    bash ../../dev/js/require-deps.sh apps/web-chat
     cd {{ root }} && pnpm -r --filter '@xmtp/browser-sdk...' run build
 
 dev: sdk

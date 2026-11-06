@@ -8,6 +8,9 @@ pub trait QueryDms {
     /// Same behavior as fetched, but will stitch DM groups
     fn fetch_stitched(&self, key: &GroupId) -> Result<Option<StoredGroup>, ConnectionError>;
 
+    /// The group an app sees for `dm_id`, in the order `fetch_stitched` uses.
+    fn find_dm_by_dm_id(&self, dm_id: &str) -> Result<Option<StoredGroup>, ConnectionError>;
+
     fn find_active_dm_group<M>(&self, members: M) -> Result<Option<StoredGroup>, ConnectionError>
     where
         M: std::fmt::Display;
@@ -22,6 +25,10 @@ where
 {
     fn fetch_stitched(&self, key: &GroupId) -> Result<Option<StoredGroup>, ConnectionError> {
         (**self).fetch_stitched(key)
+    }
+
+    fn find_dm_by_dm_id(&self, dm_id: &str) -> Result<Option<StoredGroup>, ConnectionError> {
+        (**self).find_dm_by_dm_id(dm_id)
     }
 
     fn find_active_dm_group<M>(&self, members: M) -> Result<Option<StoredGroup>, ConnectionError>
@@ -56,8 +63,13 @@ impl<C: ConnectionExt> QueryDms for DbConnection<C> {
             return Ok(group);
         };
 
-        // Otherwise, return the stitched DM: the same winner `find_groups`
-        // and `conversation_list` pick.
+        self.find_dm_by_dm_id(&dm_id)
+    }
+
+    // implements: DMS-007
+    fn find_dm_by_dm_id(&self, dm_id: &str) -> Result<Option<StoredGroup>, ConnectionError> {
+        // The stitched DM: the same winner `find_groups` and
+        // `conversation_list` pick.
         //
         // A `Restored` row is an archive placeholder with no joined MLS state,
         // so a DM the client can act in outranks it even when the placeholder

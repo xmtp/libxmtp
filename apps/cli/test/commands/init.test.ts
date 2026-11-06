@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises";
+import { chmod, open, readFile, stat } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -18,7 +19,7 @@ describe("init", () => {
   });
 
   it("generates keys and writes to file", async () => {
-    const testPath = getTestEnvPath();
+    const testPath = join(getTestEnvPath(), "nested", ".env");
     const result = await runCommand([
       "init",
       ...initFlags,
@@ -37,19 +38,11 @@ describe("init", () => {
     expect(
       content.match(/XMTP_DB_ENCRYPTION_KEY=([a-f0-9]{64})/i),
     ).not.toBeNull();
+    expect((await stat(testPath)).mode & 0o077).toBe(0);
+    expect((await stat(dirname(testPath))).mode & 0o077).toBe(0);
   });
 
-  it("outputs to stdout", async () => {
-    const result = await runCommand(["init", ...initFlags, "--stdout"]);
-
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("XMTP_WALLET_KEY=0x");
-    expect(result.stdout).toContain("XMTP_DB_ENCRYPTION_KEY=");
-    expect(result.stdout).toContain(`XMTP_BACKEND_URL=${backendUrl}`);
-    expect(result.stdout).toContain("XMTP_ENV=local");
-  });
-
-  it("sets a custom database label", async () => {
+  it("prints keys and a custom database label to stdout", async () => {
     const result = await runCommand([
       "init",
       ...initFlags,
@@ -59,6 +52,9 @@ describe("init", () => {
     ]);
 
     expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("XMTP_WALLET_KEY=0x");
+    expect(result.stdout).toContain("XMTP_DB_ENCRYPTION_KEY=");
+    expect(result.stdout).toContain(`XMTP_BACKEND_URL=${backendUrl}`);
     expect(result.stdout).toContain("XMTP_ENV=staging-a");
   });
 
@@ -114,6 +110,8 @@ describe("init", () => {
       `Configuration written to ${testPath}`,
     );
     const originalContent = await readFile(testPath, "utf-8");
+    await chmod(testPath, 0o644);
+    const oldHandle = await open(testPath);
 
     const result = await runCommand([
       "init",
@@ -127,5 +125,8 @@ describe("init", () => {
     const updatedContent = await readFile(testPath, "utf-8");
     expect(updatedContent).not.toBe(originalContent);
     expect(updatedContent).toContain("XMTP_WALLET_KEY=0x");
+    expect((await stat(testPath)).mode & 0o777).toBe(0o600);
+    expect(await oldHandle.readFile("utf-8")).toBe(originalContent);
+    await oldHandle.close();
   });
 });

@@ -39,6 +39,7 @@ fun MessengerShell(
     extraScreen: @Composable (Screen) -> Unit = {},
     composerExtra: @Composable () -> Unit = {},
     messageExtra: @Composable (MessageRow) -> Unit = {},
+    attachmentActions: @Composable (MessageRow, Boolean, () -> Unit) -> Unit = { _, _, _ -> },
 ) {
     MessengerTheme(state.shell.appearance, state.shell.reducedMotion) {
         val preview = LocalBackPreview.current
@@ -98,6 +99,7 @@ fun MessengerShell(
                                     extraScreen,
                                     composerExtra,
                                     messageExtra,
+                                    attachmentActions,
                                 )
                             }
                         }
@@ -109,7 +111,15 @@ fun MessengerShell(
                             fadeIn(tween(duration)) togetherWith
                                 fadeOut(tween(duration))
                         }, label = "Screen") { route ->
-                            RouteContent(route, state, actions, extraScreen, composerExtra, messageExtra)
+                            RouteContent(
+                                route,
+                                state,
+                                actions,
+                                extraScreen,
+                                composerExtra,
+                                messageExtra,
+                                attachmentActions,
+                            )
                         }
                     }
                 }
@@ -143,6 +153,7 @@ private fun RouteContent(
     extraScreen: @Composable (Screen) -> Unit,
     composerExtra: @Composable () -> Unit,
     messageExtra: @Composable (MessageRow) -> Unit,
+    attachmentActions: @Composable (MessageRow, Boolean, () -> Unit) -> Unit,
 ) {
     Column(Modifier.fillMaxSize()) {
         if (route != AppRoute.Connect && route != AppRoute.ChooseHandle) ShellHeader(route, state, actions)
@@ -179,7 +190,14 @@ private fun RouteContent(
                                 RequestsScreen(state.request, actions.request, actions.shell)
                             }
                         }
-                        ChatScreen(state.chat, actions.chat, actions.shell, composerExtra, messageExtra)
+                        ChatScreen(
+                            state.chat,
+                            actions.chat,
+                            actions.shell,
+                            composerExtra,
+                            messageExtra,
+                            attachmentActions,
+                        )
                     }
                 }
 

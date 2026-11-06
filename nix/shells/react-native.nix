@@ -3,7 +3,7 @@
   pkgs,
   lib,
   mkShell,
-  nodejs_26,
+  xmtp,
   xmtp-pnpm,
   python311,
   jdk21,
@@ -95,7 +95,7 @@ mkShell {
   );
   passthru = { inherit gradle; };
   packages = [
-    nodejs_26
+    xmtp.nodejs_26
     xmtp-pnpm
     python311
     jdk21

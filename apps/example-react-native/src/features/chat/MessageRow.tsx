@@ -65,6 +65,7 @@ export const MessageRow = memo(function MessageRow({
   senderHandle,
 }: MessageRowProps) {
   const mine = row.sender === own;
+  const attachment = row.content.kind === "attachment";
   const showsSender = !mine && isGroup;
   const badges = reactionBadges(row.reactions, own);
   return (
@@ -91,7 +92,7 @@ export const MessageRow = memo(function MessageRow({
           styles.column,
           mine ? styles.columnOutgoing : styles.columnIncoming,
         ]}>
-        {showsSender ? (
+        {showsSender && !attachment ? (
           <IdentityText
             variant="caption2"
             color="secondaryLabel"
@@ -103,7 +104,10 @@ export const MessageRow = memo(function MessageRow({
         <MessageBubbleWrapper row={row} mine={mine} allowed={allowed}>
           <View>
             <MessageAccessibility row={row} allowed={allowed}>
-              <Bubble isOutgoing={mine}>
+              <Bubble
+                isOutgoing={mine}
+                showsTail={!attachment}
+                style={attachment ? styles.attachment : undefined}>
                 <MessageContent row={row} isOutgoing={mine} allowed={allowed} />
               </Bubble>
             </MessageAccessibility>
@@ -117,7 +121,7 @@ export const MessageRow = memo(function MessageRow({
             )}
           </View>
         </MessageBubbleWrapper>
-        {mine ? (
+        {mine && (!attachment || row.delivery !== "published") ? (
           <Text
             variant="caption2"
             color="secondaryLabel"
@@ -171,6 +175,7 @@ const styles = StyleSheet.create({
   column: { flexShrink: 1, gap: 4 },
   columnOutgoing: { alignItems: "flex-end" },
   columnIncoming: { alignItems: "flex-start" },
+  attachment: { paddingLeft: 0, paddingRight: 0, paddingVertical: 0 },
   badges: {
     flexDirection: "row",
     gap: 2,

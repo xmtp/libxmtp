@@ -322,13 +322,19 @@ export default function SessionProbe() {
           return run("allowRequests", async () => {
             const current = sessionController.getState();
             if (current.kind !== "active") throw new Error("No open session");
-            const requests = await current.session.client.conversations.list({
-              consentStates: ["unknown"],
-            });
-            for (const conversation of requests) {
-              await conversation.updateConsentState("allowed");
+            // One list call returns one page. An allowed conversation leaves
+            // the unknown list, so read pages until none remain.
+            let allowed = 0;
+            for (;;) {
+              const requests = await current.session.client.conversations.list({
+                consentStates: ["unknown"],
+              });
+              if (requests.length === 0) return allowed;
+              for (const conversation of requests) {
+                await conversation.updateConsentState("allowed");
+              }
+              allowed += requests.length;
             }
-            return requests.length;
           });
         case "handles":
           return run("initialRoute", async () => {

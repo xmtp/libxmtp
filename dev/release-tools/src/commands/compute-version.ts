@@ -10,14 +10,15 @@ import {
 import type { GlobalArgs, ReleaseType } from "@/types";
 
 export const command = "compute-version";
-export const describe = "Compute the full version string for a release type";
+export const describe = "Compute a backend release version";
 
 export function builder(yargs: Argv<GlobalArgs>) {
   return yargs
     .option("sdk", {
       type: "string",
       demandOption: true,
-      describe: "SDK name (e.g. ios)",
+      choices: ["libxmtp"] as const,
+      describe: "Backend (libxmtp)",
     })
     .option("releaseType", {
       type: "string",
@@ -58,6 +59,11 @@ export function handler(
     }
   >,
 ) {
+  if (argv.sdk !== "libxmtp") {
+    throw new Error(
+      "SDK and CLI releases require the frozen dev/sdk_version.py plan",
+    );
+  }
   if (argv.releaseType === "rc" && argv.rcNumber == null) {
     throw new Error("--rc-number is required when --release-type is 'rc'");
   }
@@ -65,9 +71,9 @@ export function handler(
   // even used: a malformed one always means broken plumbing.
   const runTimestamp = validateTimestamp(argv.timestamp);
 
-  const config = getSdkConfig(argv.sdk);
   const baseVersion =
-    argv.baseVersion ?? config.manifest.readVersion(argv.repoRoot);
+    argv.baseVersion ??
+    getSdkConfig(argv.sdk).manifest.readVersion(argv.repoRoot);
   const shortSha =
     argv.releaseType === "dev" ? getShortSha(argv.repoRoot) : undefined;
   const fromMain =

@@ -6,8 +6,9 @@ import org.junit.Test
 import java.util.Base64
 
 class NotificationHandlerTest {
-    private val groupA = "11".repeat(16)
-    private val groupB = "22".repeat(16)
+    private val groupA = "11".repeat(32)
+    private val groupB = "22".repeat(32)
+    private val keyedGroup = "33".repeat(32)
     private val installationA = "aa".repeat(32)
     private val installationB = "bb".repeat(32)
 
@@ -63,10 +64,13 @@ class NotificationHandlerTest {
         }
     }
 
-    @Test fun parsesUnsignedSequencesAndRejectsMalformedPayloads() {
-        assertEquals(ULong.MAX_VALUE, parsePush(payload(sequence = "18446744073709551615"))?.sequence)
+    @Test fun parsesBackendSequencesAndRejectsMalformedPayloads() {
+        assertEquals(9223372036854775807uL, parsePush(payload(sequence = "9223372036854775807"))?.sequence)
         assertEquals(9007199254740993uL, parsePush(payload(sequence = "9007199254740993"))?.sequence)
         for (sequence in listOf(
+            "0",
+            "9223372036854775808",
+            "18446744073709551615",
             "18446744073709551616",
             "-1",
             "+1",
@@ -88,6 +92,40 @@ class NotificationHandlerTest {
             assertNull(parsePush(data))
         }
     }
+
+    @Test fun kindByteDecidesBetweenGroupAndWelcomeTopicsOfEqualLength() {
+        val keyed = parsePush(payload(id = keyedGroup))
+        assertEquals(PushKind.GROUP, keyed?.kind)
+        assertEquals(keyedGroup, keyed?.identifier)
+        val welcome = parsePush(payload(1, keyedGroup))
+        assertEquals(PushKind.WELCOME, welcome?.kind)
+        assertEquals(keyedGroup, welcome?.identifier)
+        for (data in listOf(
+            // A 16-byte group id has no topic, so a 17-byte topic is refused.
+            payload(id = "11".repeat(16)),
+            payload(1, "11".repeat(16)),
+            payload(id = keyedGroup.dropLast(2)),
+            payload(id = keyedGroup + "33"),
+            payload(id = "33".repeat(24)),
+            payload(4, keyedGroup),
+            payload() + ("topic" to ""),
+        )) {
+            assertNull(parsePush(data))
+        }
+    }
+
+    @Test fun admitsKnownKeyedGroup() =
+        runBlocking {
+            val host = Host(PushOwner("A", 1, installationA))
+            host.local["A" to keyedGroup] = PushConversation(keyedGroup, true, true)
+            assertTrue(PushHandler(host).receive(payload(id = keyedGroup)))
+            assertEquals(
+                keyedGroup,
+                host.posted.values
+                    .single()
+                    .conversation,
+            )
+        }
 
     @Test fun admitsKnownGroupAndDmAndDeduplicatesByTopicSequence() =
         runBlocking {

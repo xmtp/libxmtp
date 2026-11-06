@@ -91,40 +91,13 @@ mock! {
     }
 
     impl QueryConsentRecord for DbQuery {
-        fn get_consent_record(
+        fn consent_row(
             &self,
-            entity: String,
-            entity_type: crate::consent_record::ConsentType,
+            key: &crate::consent_record::ConsentKey,
         ) -> Result<Option<crate::consent_record::StoredConsentRecord>, crate::ConnectionError>;
 
         fn consent_records(
             &self,
-        ) -> Result<Vec<crate::consent_record::StoredConsentRecord>, crate::ConnectionError>;
-
-        fn consent_records_paged(
-            &self,
-            limit: i64,
-            offset: i64,
-        ) -> Result<Vec<crate::consent_record::StoredConsentRecord>, crate::ConnectionError>;
-
-        fn insert_newer_consent_record(
-            &self,
-            record: crate::consent_record::StoredConsentRecord,
-        ) -> Result<crate::consent_record::ConsentMerge, crate::ConnectionError>;
-
-        fn insert_or_replace_consent_records(
-            &self,
-            records: &[crate::consent_record::StoredConsentRecord],
-        ) -> Result<Vec<crate::consent_record::StoredConsentRecord>, crate::ConnectionError>;
-
-        fn maybe_insert_consent_record_return_existing(
-            &self,
-            record: &crate::consent_record::StoredConsentRecord,
-        ) -> Result<Option<crate::consent_record::StoredConsentRecord>, crate::ConnectionError>;
-
-        fn find_consent_by_dm_id(
-            &self,
-            dm_id: &str,
         ) -> Result<Vec<crate::consent_record::StoredConsentRecord>, crate::ConnectionError>;
     }
 
@@ -155,6 +128,11 @@ mock! {
             key: &GroupId,
         ) -> Result<Option<crate::group::StoredGroup>, ConnectionError>;
 
+        fn find_dm_by_dm_id(
+            &self,
+            dm_id: &str,
+        ) -> Result<Option<crate::group::StoredGroup>, ConnectionError>;
+
         #[mockall::concretize]
         fn find_active_dm_group<M>(
             &self,
@@ -168,6 +146,7 @@ mock! {
     }
 
     impl QueryGroup for DbQuery {
+        fn delete_oneshot_group(&self, group_id: &GroupId) -> Result<(), ConnectionError>;
         #[mockall::concretize]
         fn find_groups<A: AsRef<crate::group::GroupQueryArgs>>(
             &self,
@@ -260,11 +239,7 @@ mock! {
 
         fn get_conversation_type(&self, group_id: &GroupId) -> Result<ConversationType, crate::ConnectionError>;
 
-        fn set_group_commit_log_public_key(
-            &self,
-            group_id: &GroupId,
-            public_key: &[u8],
-        ) -> Result<(), StorageError>;
+        fn set_should_publish_commit_log(&self, group_id: &GroupId, should_publish: bool) -> Result<(), crate::ConnectionError>;
 
         fn set_group_commit_log_forked_status(
             &self,
@@ -285,6 +260,10 @@ mock! {
             fn get_groups_have_pending_leave_request(
         &self,
     ) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
+
+        fn stored_group_refs(&self, scope: &crate::group::GroupScope) -> Result<Vec<crate::group::StoredGroupRef>, crate::ConnectionError>;
+
+        fn group_set_generation(&self) -> Result<i64, crate::ConnectionError>;
     }
 
     impl QueryGroupVersion for DbQuery {
@@ -350,6 +329,11 @@ mock! {
             intent_id: crate::group_intent::ID,
         ) -> Result<(), StorageError>;
 
+        fn set_group_intent_follow_up_failed(
+            &self,
+            intent_id: crate::group_intent::ID,
+        ) -> Result<(), StorageError>;
+
         fn supersede_pending_intents_for_inactive_group(
             &self,
             group_id: &[u8],
@@ -388,6 +372,11 @@ mock! {
             intent: &crate::group_intent::StoredGroupIntent,
             msg_id: Option<Vec<u8>>,
         ) -> Result<(), StorageError>;
+
+        fn delete_group_intent(
+            &self,
+            intent_id: crate::group_intent::ID,
+        ) -> Result<usize, StorageError>;
     }
 
     impl QueryReaddStatus for DbQuery {
@@ -481,6 +470,14 @@ mock! {
             relation_query: crate::group_message::RelationQuery,
         ) -> Result<crate::group_message::RelationCounts, crate::ConnectionError>;
 
+        fn get_inbound_relation_cursor<'a>(
+            &self,
+            group_id: &'a GroupId,
+            message_id: &'a [u8],
+            relation_id: &'a [u8],
+            content_types: &'a [crate::group_message::ContentType],
+        ) -> Result<Option<crate::group_message::RelationCursor>, crate::ConnectionError>;
+
         #[mockall::concretize]
         fn get_group_message<MessageId: AsRef<[u8]>>(
             &self,
@@ -535,7 +532,10 @@ mock! {
             msg_id: &MessageId,
         ) -> Result<usize, crate::ConnectionError>;
 
-        fn delete_expired_messages(&self) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError>;
+        fn delete_expired_messages(
+            &self,
+            pass_start_ns: i64,
+        ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError>;
 
         fn min_expire_at_ns(&self) -> Result<Option<i64>, crate::ConnectionError>;
 
@@ -543,6 +543,12 @@ mock! {
         fn delete_message_by_id<MessageId: AsRef<[u8]>>(
             &self,
             message_id: MessageId,
+        ) -> Result<usize, crate::ConnectionError>;
+
+        fn mark_message_deleted(
+            &self,
+            id: &[u8],
+            deleted_by_inbox_id: &str,
         ) -> Result<usize, crate::ConnectionError>;
 
         #[mockall::concretize]
@@ -609,6 +615,8 @@ mock! {
             id: i32,
         ) -> Result<Vec<crate::key_package_history::StoredKeyPackageHistoryEntry>, StorageError>;
 
+        fn settle_key_packages(&self, served_hash_ref: Vec<u8>, served: Cursor) -> Result<(), StorageError>;
+
         fn get_expired_key_packages(
             &self,
         ) -> Result<Vec<crate::key_package_history::StoredKeyPackageHistoryEntry>, StorageError>;
@@ -627,8 +635,9 @@ mock! {
     }
 
     impl QueryDeviceSyncMessages for DbQuery {
-        fn unprocessed_sync_group_messages(
+        fn unprocessed_sync_group_messages<'a>(
             &self,
+            after: Option<&'a crate::processed_device_sync_messages::SyncMessageKey>,
         ) -> Result<Vec<crate::group_message::StoredGroupMessage>, StorageError>;
 
         fn sync_group_messages_paged(
@@ -641,12 +650,6 @@ mock! {
             &self,
             message_id: &[u8],
         ) -> Result<(), StorageError>;
-
-        fn increment_device_sync_msg_attempt(
-            &self,
-            message_id: &[u8],
-            max_attempts: i32,
-        ) -> Result<i32, StorageError>;
     }
 
     impl QueryRefreshState for DbQuery {
@@ -738,6 +741,10 @@ mock! {
     }
 
     impl QueryRemoteCommitLog for DbQuery {
+        fn set_commit_log_reader_epoch_floor(&self, group_id: &GroupId, epoch: i64) -> Result<(), crate::ConnectionError>;
+        fn get_commit_log_publisher_boundaries(&self, group_id: &GroupId) -> Result<HashMap<Vec<u8>, i64>, crate::ConnectionError>;
+        fn set_commit_log_publisher_boundaries(&self, group_id: &GroupId, boundaries: &HashMap<Vec<u8>, i64>) -> Result<(), crate::ConnectionError>;
+
         fn get_latest_remote_log_for_group(&self, group_id: &GroupId) -> Result<Option<RemoteCommitLog>, crate::ConnectionError>;
 
         fn get_remote_commit_log_after_cursor(
@@ -795,7 +802,7 @@ mock! {
     }
 
     impl QueryNotifications for DbQuery {
-        fn disable_notifications(&self) -> Result<(crate::notifications::StoredNotification, Vec<crate::notifications::UploadedTopic>), StorageError>;
+        fn disable_notifications(&self) -> Result<crate::notifications::StoredNotification, StorageError>;
         fn notification_record(&self) -> Result<crate::notifications::StoredNotification, StorageError>;
         fn save_notification_record(&self, record: &crate::notifications::StoredNotification) -> Result<(), StorageError>;
         fn uploaded_topics(&self) -> Result<Vec<crate::notifications::UploadedTopic>, StorageError>;
@@ -825,6 +832,15 @@ mock! {
             attempts: i32,
             last_attempted_at_ns: i64,
             next_attempt_at_ns: i64,
+        ) -> Result<crate::tasks::Task, StorageError>;
+
+        fn update_task_and_expiry(
+            &self,
+            id: i32,
+            attempts: i32,
+            last_attempted_at_ns: i64,
+            next_attempt_at_ns: i64,
+            expires_at_ns: i64,
         ) -> Result<crate::tasks::Task, StorageError>;
 
         fn delete_task(&self, id: i32) -> Result<bool, StorageError>;
@@ -885,25 +901,15 @@ mock! {
             _id: &[u8],
         ) -> Result<Option<crate::message_deletion::StoredMessageDeletion>, crate::ConnectionError>;
 
-        fn get_deletion_by_deleted_message_id(
+        fn record_deletion(
             &self,
-            _deleted_message_id: &[u8],
+            _record: &crate::message_deletion::StoredMessageDeletion,
+        ) -> Result<crate::message_deletion::StoredMessageDeletion, crate::ConnectionError>;
+
+        fn first_deletion_of(
+            &self,
+            _target: &crate::group_message::StoredGroupMessage,
         ) -> Result<Option<crate::message_deletion::StoredMessageDeletion>, crate::ConnectionError>;
-
-        fn get_deletions_for_messages(
-            &self,
-            _message_ids: Vec<Vec<u8>>,
-        ) -> Result<Vec<crate::message_deletion::StoredMessageDeletion>, crate::ConnectionError>;
-
-        fn get_group_deletions(
-            &self,
-            _group_id: &GroupId,
-        ) -> Result<Vec<crate::message_deletion::StoredMessageDeletion>, crate::ConnectionError>;
-
-        fn is_message_deleted(
-            &self,
-            _message_id: &[u8],
-        ) -> Result<bool, crate::ConnectionError>;
     }
 
 }

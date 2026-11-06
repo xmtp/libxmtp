@@ -115,6 +115,56 @@ async fn account_moves_to_another_inbox_only_with_explicit_reassignment() {
     first.end().await?;
 }
 
+/// Recovery moves only to an identity of the inbox, as the network reports
+/// it. A change to any other identity fails as invalid input before the
+/// signer is asked. Once another installation adds the identity, the same
+/// call on this installation, which has not read that add, signs once and
+/// moves recovery.
+#[xmtp_common::test(unwrap_try = true)]
+async fn change_recovery_identifier_requires_a_member() {
+    let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let owner: Arc<dyn Signer> = Arc::new(RecordingSigner {
+        key: PrivateKeySigner::random(),
+        calls: calls.clone(),
+    });
+    let owner_identity = signer::identity(owner.clone()).await?;
+    let client = Client::create(owner.clone(), options()).await?;
+    let other_installation = Client::create(owner.clone(), options()).await?;
+    assert_eq!(other_installation.inbox_id(), client.inbox_id());
+    calls.lock().expect("calls").clear();
+    let fresh = crate::generate_local_signer().await;
+    let fresh_identity = signer::identity(fresh.clone()).await?;
+
+    let refused = client
+        .change_recovery_identifier(owner.clone(), fresh_identity.clone())
+        .await;
+    assert!(
+        matches!(&refused, Err(XmtpError::InvalidInput(details))
+            if details.message == "the new recovery identity is not an identity of the inbox"),
+        "a change to a non-member must refuse, got {refused:?}"
+    );
+    assert!(calls.lock().expect("calls").is_empty());
+    let state = client.inbox_state(true).await?;
+    assert_eq!(
+        state.recovery_identity.identifier,
+        owner_identity.identifier
+    );
+
+    other_installation.unsafe_add_account(fresh, false).await?;
+    wait_for_backend_inbox(&fresh_identity, client.inbox_id()).await?;
+    client
+        .change_recovery_identifier(owner, fresh_identity.clone())
+        .await?;
+    assert_eq!(*calls.lock().expect("calls"), ["sign"]);
+    let state = client.inbox_state(true).await?;
+    assert_eq!(
+        state.recovery_identity.identifier,
+        fresh_identity.identifier
+    );
+    other_installation.end().await?;
+    client.end().await?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn encryption_round_trips_and_rejects_changed_bytes() {
     let plaintext = b"sdk attachment".to_vec();

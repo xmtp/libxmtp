@@ -5,8 +5,8 @@
 // through the send journal (journal ID = draft ID), then removes the draft once
 // the message is published. An ambiguous queue failure leaves the draft
 // `unknown` ("Review send"); a definite rejection restores it for another send
-// without uploading again. Downloads need a tap, re-check consent first, run
-// once per message, and are all dropped when consent changes.
+// without uploading again. Received files need a tap only when no local copy
+// exists. Downloads re-check consent and run once per message at a time.
 
 import type { RemoteAttachment } from "@xmtp/react-native-sdk";
 
@@ -17,7 +17,6 @@ import {
   type FileDraft,
   type FilePhase,
   type VerifiedFile,
-  VerifiedFileCache,
   AttachmentCopy,
   defaultCard,
   mimeTypeFor,
@@ -45,6 +44,10 @@ export interface AttachmentGateway {
   pending(): Promise<RemoteAttachment[]>;
   /** Uploads and returns the final status phase. Throws `AttachmentError`. */
   upload(file: RemoteAttachment): Promise<FilePhase>;
+  /** Returns existing SDK plaintext only; never starts a network request. */
+  local(file: RemoteAttachment): Promise<VerifiedFile | undefined>;
+  /** A completed download can make a file available to another open screen. */
+  watchDownloads(listener: (file: RemoteAttachment) => void): () => void;
   /** Downloads, checks the digest and decrypts. Throws `AttachmentError`. */
   download(file: RemoteAttachment): Promise<VerifiedFile>;
   /** Deletes the SDK's local copy and record (`attachments.deleteLocal`). */
@@ -113,7 +116,9 @@ type Failed =
 
 export class AttachmentStore extends Store<AttachmentStoreState> {
   readonly #ports: AttachmentStorePorts;
-  readonly #verified = new VerifiedFileCache();
+  readonly #verified = new Map<string, VerifiedFile>();
+  readonly #failedDownloads = new Set<string>();
+  readonly #localRefreshes = new Set<string>();
   #revision = 0;
   readonly #admissions = new Map<string, object>();
   readonly #discarded = new Set<string>();
@@ -556,23 +561,60 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
     return this.#session(() => this.#downloadOnce(messageId, file));
   }
 
+  /** Restores local files and downloads own files once, without retrying failures. */
+  prepare(
+    messageId: string,
+    file: RemoteAttachment,
+    outgoing: boolean,
+  ): Promise<void> {
+    if (!this.#downloadable(messageId, this.#revision)) {
+      return Promise.resolve();
+    }
+    const mode =
+      outgoing && !this.#failedDownloads.has(messageId) ? "own" : "local";
+    return this.#session(() => this.#downloadOnce(messageId, file, mode));
+  }
+
+  /** Rechecks this file when another screen finishes downloading it. */
+  watchFile(messageId: string, file: RemoteAttachment): () => void {
+    return this.#ports.gateway.watchDownloads((downloaded) => {
+      if (!sameFile(file, downloaded)) return;
+      if (this.#admissions.has(messageId)) {
+        this.#localRefreshes.add(messageId);
+      } else {
+        void this.prepare(messageId, file, false);
+      }
+    });
+  }
+
   async #downloadOnce(
     messageId: string,
     file: RemoteAttachment,
+    automatic?: "own" | "local",
   ): Promise<void> {
     if (this.#admissions.has(messageId)) return;
     const token = {};
     this.#admissions.set(messageId, token);
     const revision = this.#revision;
     try {
-      await this.#download(messageId, file, revision);
+      if (!this.#downloadable(messageId, revision)) return;
+      await this.#download(messageId, file, revision, automatic === "local");
     } catch (error) {
       if (revision === this.#revision) {
+        // A failed card may check for a file downloaded elsewhere on focus.
+        // If that local read also fails, preserve its error without triggering
+        // another render and automatic attempt.
+        if (automatic === "local" && this.#failedDownloads.has(messageId))
+          return;
+        this.#failedDownloads.add(messageId);
         this.#handleFailure(error, { kind: "download", messageId, file });
       }
     } finally {
       if (this.#admissions.get(messageId) === token) {
         this.#admissions.delete(messageId);
+        if (this.#localRefreshes.delete(messageId)) {
+          void this.prepare(messageId, file, false);
+        }
       }
     }
   }
@@ -582,6 +624,8 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
       revision === this.#revision &&
       this.#ports.allowed() &&
       this.#ports.admit() &&
+      this.#ports.acceptsSession() &&
+      !this.#verified.has(messageId) &&
       this.getState().cards[messageId]?.phase !== "downloading"
     );
   }
@@ -590,16 +634,24 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
     messageId: string,
     file: RemoteAttachment,
     revision: number,
+    localOnly = false,
   ): Promise<void> {
     if (!this.#downloadable(messageId, revision)) return;
     const authorize = this.#ports.authorizeDownload;
     if (authorize !== undefined && !(await authorize())) return;
     if (!this.#downloadable(messageId, revision)) return;
-    this.#setCard({
-      ...defaultCard(messageId, file),
-      phase: "downloading",
-    });
-    const verified = await this.#ports.gateway.download(file);
+    // Local recovery keeps the existing phase until it succeeds. A repeated
+    // local failure must preserve Retry without driving another focus attempt.
+    if (!localOnly) {
+      this.#setCard({
+        ...defaultCard(messageId, file),
+        phase: "downloading",
+      });
+    }
+    const verified = localOnly
+      ? await this.#ports.gateway.local(file)
+      : await this.#ports.gateway.download(file);
+    if (verified === undefined) return;
     if (
       revision !== this.#revision ||
       !this.#ports.admit() ||
@@ -607,21 +659,14 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
     ) {
       return;
     }
-    const evicted = this.#verified.put(messageId, verified);
-    this.#apply((state) => {
-      const cards: Record<string, FileCard> = Object.fromEntries(
-        Object.entries(state.cards).map(([id, card]) => [
-          id,
-          evicted.includes(id) ? { ...card, phase: "available" } : card,
-        ]),
-      );
-      const base = defaultCard(messageId, file);
-      cards[messageId] = {
-        ...base,
-        name: verified.filename,
-        phase: "verified",
-      };
-      return { ...state, cards };
+    // These are file descriptors, not decoded images. Keep them while the
+    // screen is alive so scrolling cannot turn a downloaded file into a button.
+    this.#verified.set(messageId, verified);
+    this.#failedDownloads.delete(messageId);
+    this.#setCard({
+      ...defaultCard(messageId, file),
+      name: verified.filename,
+      phase: "verified",
     });
   }
 
@@ -639,6 +684,7 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
   invalidateDownloads(): void {
     this.#revision += 1;
     this.#admissions.clear();
+    this.#localRefreshes.clear();
     this.#verified.clear();
     const cards: Record<string, FileCard> = {};
     for (const [id, card] of Object.entries(this.getState().cards)) {

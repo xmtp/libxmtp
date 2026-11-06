@@ -7,7 +7,10 @@ use std::{
     future::Future,
 };
 use tonic::Code;
-use xmtp_common::{RetryableError, retry_async};
+use xmtp_common::{
+    ExponentialBackoff, Retry, RetryableError, Strategy, retry_async,
+    time::{Duration, Instant},
+};
 use xmtp_configuration::*;
 use xmtp_proto::{
     api::grpc_status,
@@ -37,6 +40,17 @@ struct PublishEnvelope {
     topic: Topic,
 }
 
+impl PublishEnvelope {
+    fn parse(envelope: wire::ClientEnvelope) -> Result<Self> {
+        let parsed = xmtp_mls_validation::parse_envelope(envelope)?;
+        Ok(Self {
+            envelope: parsed.envelope,
+            canonical: parsed.canonical,
+            topic: parsed.topic,
+        })
+    }
+}
+
 /// One envelope, or a commit and its proposals. A unit is never split.
 #[derive(Clone, Debug)]
 pub struct PublishUnit {
@@ -57,15 +71,11 @@ impl PublishUnit {
         let envelopes = envelopes
             .into_iter()
             .map(|envelope| {
-                let parsed = xmtp_mls_validation::parse_envelope(envelope)?;
-                if parsed.canonical.bytes.len() > limits.max_envelope_bytes {
+                let envelope = PublishEnvelope::parse(envelope)?;
+                if envelope.canonical.bytes.len() > limits.max_envelope_bytes {
                     return Err(ApiError::EnvelopeTooLarge);
                 }
-                Ok(PublishEnvelope {
-                    envelope: parsed.envelope,
-                    canonical: parsed.canonical,
-                    topic: parsed.topic,
-                })
+                Ok(envelope)
             })
             .collect::<Result<Vec<_>>>()?;
         let unit = Self { envelopes };
@@ -93,6 +103,29 @@ impl PublishUnit {
     pub fn single(envelope: wire::ClientEnvelope) -> Result<Self> {
         Self::new(vec![envelope])
     }
+
+    /// Build a unit of saved envelopes only to settle them with
+    /// [`ApiClientWrapper::settle_units`]. It is not measured against any
+    /// bound, so it may not fit in one request: never publish it.
+    pub fn for_settlement(envelopes: Vec<wire::ClientEnvelope>) -> Result<Self> {
+        if envelopes.is_empty() {
+            return Err(ApiError::InvalidRequest("empty publish unit"));
+        }
+        let envelopes = envelopes
+            .into_iter()
+            .map(PublishEnvelope::parse)
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Self { envelopes })
+    }
+}
+
+/// The backend fails a whole read that names a topic it does not route, such
+/// as one built from a 16-byte group id. Refuse such a read before sending.
+fn routable<'a>(topics: impl IntoIterator<Item = &'a Topic>) -> Result<()> {
+    for topic in topics {
+        Topic::parse(topic)?;
+    }
+    Ok(())
 }
 
 pub(crate) fn request(units: &[PublishUnit]) -> wire::PublishRequest {
@@ -106,6 +139,7 @@ pub(crate) fn request(units: &[PublishUnit]) -> wire::PublishRequest {
 /// Measure repeated envelope fields without cloning or encoding the request.
 struct PublishMeasure<'a> {
     bytes: usize,
+    envelopes: usize,
     topics: HashSet<&'a Topic>,
     limits: &'a LimitsConfiguration,
 }
@@ -113,6 +147,7 @@ impl<'a> PublishMeasure<'a> {
     fn new(limits: &'a LimitsConfiguration) -> Self {
         Self {
             bytes: 0,
+            envelopes: 0,
             topics: HashSet::new(),
             limits,
         }
@@ -122,18 +157,21 @@ impl<'a> PublishMeasure<'a> {
         for envelope in &unit.envelopes {
             let len = envelope.canonical.bytes.len();
             self.bytes += 1 + prost::length_delimiter_len(len) + len;
+            self.envelopes += 1;
             self.topics.insert(&envelope.topic);
         }
     }
 
     fn fits(&self) -> bool {
         self.bytes <= self.limits.max_request_bytes
+            && self.envelopes <= MAX_PUBLISH_ENVELOPES
             && self.topics.len() <= self.limits.max_publish_topics
     }
 }
 
-/// Split units into requests the deployment accepts. A commit and
-/// its proposals are one unit and never straddle a chunk.
+/// Split units into requests the deployment accepts, each with at most
+/// `MAX_PUBLISH_ENVELOPES` envelopes. A commit and its proposals are one unit
+/// and never straddle a chunk; a unit that fits in no request is refused.
 // implements: CONF-073
 pub fn chunk_publish_within<'a>(
     units: &'a [PublishUnit],
@@ -190,8 +228,13 @@ pub(crate) fn publish_error_reason(
         .and_then(|error| wire::publish_error::Reason::try_from(error.reason).ok())
 }
 
+/// A refusal that a smaller request may avoid. A rate-limit rejection is
+/// never one: splitting it multiplies the load the limit refused.
+// implements: CONF-073, RATE-041
 pub(crate) fn size_error(error: &(dyn std::error::Error + 'static)) -> bool {
-    if crate::preflight::failure(error).is_some() {
+    if crate::preflight::failure(error).is_some()
+        || xmtp_api_grpc::error::rate_limit_delay(error).is_some()
+    {
         return false;
     }
     let Some(status) = grpc_status(error) else {
@@ -231,12 +274,46 @@ impl<E: RetryableError + 'static> RetryableError for CallError<E> {
             }
         }
     }
+
+    fn rate_limit_delay(&self) -> Option<Duration> {
+        match self {
+            Self::Resize(_) => None,
+            Self::Retry(error) => xmtp_api_grpc::error::rate_limit_delay(error),
+        }
+    }
+}
+
+/// The client's backoff, which also gives up on a rate-limit wait that would
+/// end after the caller's deadline, so the caller still sees the delay.
+struct Until<'a> {
+    strategy: &'a ExponentialBackoff,
+    deadline: Option<Instant>,
+}
+
+impl Strategy for Until<'_> {
+    fn backoff(&self, attempts: usize, time_spent: Instant) -> Option<Duration> {
+        self.strategy.backoff(attempts, time_spent)
+    }
+
+    fn backoff_at_least(
+        &self,
+        attempts: usize,
+        time_spent: Instant,
+        floor: Duration,
+    ) -> Option<Duration> {
+        let wait = self
+            .strategy
+            .backoff_at_least(attempts, time_spent, floor)?;
+        self.deadline
+            .is_none_or(|deadline| deadline.saturating_duration_since(Instant::now()) > wait)
+            .then_some(wait)
+    }
 }
 
 impl<C> ApiClientWrapper<C> {
     pub(crate) async fn retry_call<T, E, F, Fut>(
         &self,
-        mut call: F,
+        call: F,
         resize: bool,
     ) -> std::result::Result<T, E>
     where
@@ -244,8 +321,33 @@ impl<C> ApiClientWrapper<C> {
         F: FnMut() -> Fut,
         Fut: Future<Output = std::result::Result<T, E>>,
     {
+        self.retry_call_until(call, resize, None).await
+    }
+
+    /// Retry `call` with backoff. A rate-limit rejection waits at least its
+    /// delay before the next attempt; a wait that does not fit the retry
+    /// budget, or that would end after `deadline`, returns the error at once.
+    // implements: RATE-041
+    pub(crate) async fn retry_call_until<T, E, F, Fut>(
+        &self,
+        mut call: F,
+        resize: bool,
+        deadline: Option<Instant>,
+    ) -> std::result::Result<T, E>
+    where
+        E: RetryableError + 'static,
+        F: FnMut() -> Fut,
+        Fut: Future<Output = std::result::Result<T, E>>,
+    {
+        let retry = Retry::builder()
+            .retries(self.retry_strategy.retries())
+            .with_strategy(Until {
+                strategy: self.retry_strategy.strategy(),
+                deadline,
+            })
+            .build();
         retry_async!(
-            self.retry_strategy,
+            retry,
             (async {
                 call().await.map_err(|error| {
                     if resize && size_error(&error) {
@@ -272,7 +374,9 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
             .collect::<Vec<_>>();
         let mut responses: Vec<_> = stream::iter(chunks.into_iter().enumerate().map(
             |(index, chunk)| async move {
-                Ok::<_, ApiError>((index, self.publish_chunk(&chunk).await?))
+                let mut metas = Vec::new();
+                self.publish_chunk(&chunk, &mut metas).await?;
+                Ok::<_, ApiError>((index, metas))
             },
         ))
         .buffer_unordered(MAX_PUBLISH_CHUNKS_IN_FLIGHT)
@@ -282,9 +386,32 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         Ok(responses.into_iter().flat_map(|(_, metas)| metas).collect())
     }
 
-    async fn publish_chunk(&self, units: &[PublishUnit]) -> Result<Vec<wire::EnvelopeMeta>> {
+    /// Publish units with one request in flight at a time, in unit order, and
+    /// stop at the first failed request. Each stored envelope's metadata is
+    /// appended to `stored` as its request returns, so on an error `stored`
+    /// names the stored prefix; the envelopes of the failed request may or
+    /// may not be stored. A commit-log reader, which keeps only a continuous
+    /// chain, never sees a later request stored ahead of an earlier one.
+    pub async fn publish_units_in_order(
+        &self,
+        units: Vec<PublishUnit>,
+        stored: &mut Vec<wire::EnvelopeMeta>,
+    ) -> Result<()> {
+        for chunk in chunk_publish_within(&units, self.limits())? {
+            self.publish_chunk(chunk, stored).await?;
+        }
+        Ok(())
+    }
+
+    /// Publish one chunk, appending each stored envelope's metadata to
+    /// `metas` in envelope order. A size refusal splits the chunk, and the
+    /// halves go out one after the other.
+    async fn publish_chunk(
+        &self,
+        units: &[PublishUnit],
+        metas: &mut Vec<wire::EnvelopeMeta>,
+    ) -> Result<()> {
         let mut pending = VecDeque::from([units]);
-        let mut metas = Vec::new();
         while let Some(units) = pending.pop_front() {
             let request = request(units);
             match self
@@ -313,7 +440,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
                 Err(error) => return Err(dyn_err(error)),
             }
         }
-        Ok(metas)
+        Ok(())
     }
 
     /// Read one bounded ordered page without decoding MLS payloads.
@@ -332,6 +459,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         {
             return Err(ApiError::InvalidRequest("query limit"));
         }
+        routable(cursors.keys())?;
         let topics: Vec<_> = cursors.into_iter().collect();
         let mut pending: VecDeque<_> = topics
             .chunks(self.limits().max_query_topics)
@@ -363,7 +491,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
             };
             let response = match self
                 .retry_call(
-                    || self.api_client.query(request.clone()),
+                    || self.api_client.query_raw_envelopes(request.clone()),
                     requested_limit > 1 || topics.len() > 1,
                 )
                 .await
@@ -392,9 +520,11 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
                 return Err(ApiError::InvalidResponse("query response limit"));
             }
             let mut positions = topics.iter().cloned().collect();
+            let envelopes = xmtp_proto::types::received_envelopes(response.envelopes)
+                .map_err(|error| dyn_err(xmtp_proto::api::ApiClientError::from(error)))?;
             let batches = match xmtp_api_backend::envelope::ordered_batches(
                 &mut positions,
-                response.envelopes,
+                envelopes,
                 remaining,
             ) {
                 Ok(batches) => batches,
@@ -415,13 +545,48 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
                 remaining.max_bytes -= batch
                     .envelopes
                     .iter()
-                    .map(Message::encoded_len)
+                    .map(|envelope| envelope.raw().len())
                     .sum::<usize>();
             }
             page.has_more |= has_more;
             page.batches.extend(batches);
         }
         Ok(page)
+    }
+
+    /// Fold one bounded ordered page at a time without retaining earlier pages.
+    /// Cursors advance before the fold runs. Remove a topic from the fold's
+    /// cursors to stop reading it. An API or fold error stops the read immediately;
+    /// the caller owns persistence of each page and its durable cursors.
+    pub async fn fold_ordered_pages<E: From<ApiError>>(
+        &self,
+        mut cursors: TopicCursor,
+        limits: IncomingBatchLimits,
+        mut fold: impl FnMut(Vec<OrderedEnvelopeBatch>, &mut TopicCursor) -> std::result::Result<(), E>,
+    ) -> std::result::Result<(), E> {
+        let limit = limits
+            .max_rows
+            .min(self.limits().max_query_limit)
+            .min(u32::MAX as usize) as u32;
+        while !cursors.is_empty() {
+            let page = self
+                .query_ordered_page(cursors.clone(), limit, limits)
+                .await?;
+            for batch in &page.batches {
+                let cursor = batch
+                    .envelopes
+                    .last()
+                    .and_then(|envelope| envelope.meta())
+                    .and_then(|meta| meta.cursor.as_ref())
+                    .ok_or(ApiError::InvalidResponse("ordered page cursor"))?;
+                cursors.insert(batch.topic.clone(), Cursor(cursor.sequence_id));
+            }
+            fold(page.batches, &mut cursors)?;
+            if !page.has_more {
+                break;
+            }
+        }
+        Ok(())
     }
 
     /// Capture fixed newest targets. Absent topics have target zero.
@@ -450,6 +615,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
     }
 
     /// Read every page. Each topic advances only to its own returned cursor.
+    /// Use [`Self::fold_ordered_pages`] to process a backlog without retaining it all.
     pub async fn query_all(
         &self,
         cursors: TopicCursor,
@@ -458,6 +624,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         if limit == 0 || limit as usize > self.limits().max_query_limit {
             return Err(ApiError::InvalidRequest("query limit"));
         }
+        routable(cursors.keys())?;
         let topics: Vec<_> = cursors.into_iter().collect();
         let results: Vec<Vec<_>> = stream::iter(
             topics
@@ -646,6 +813,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         topics: Vec<Topic>,
         full: bool,
     ) -> Result<Vec<wire::query_newest_response::Result>> {
+        routable(&topics)?;
         let topics: Vec<_> = topics
             .into_iter()
             .collect::<HashSet<_>>()
@@ -737,16 +905,17 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
 mod tests {
     use super::*;
     use xmtp_mls_validation::test_utils::{
-        GroupMessageKind, group_message_envelope, inline_welcome_envelope,
+        GroupMessageKind, group_keys, inline_welcome_envelope, keyed_group_message_envelope,
     };
 
     #[xmtp_common::test(unwrap_try = true)]
     fn running_publish_measure_matches_encoded_mixed_request() {
+        let keys = group_keys(2);
         let units = [
             PublishUnit::single(inline_welcome_envelope([1; 32]))?,
             PublishUnit::new(vec![
-                group_message_envelope([2; 16], GroupMessageKind::Proposal, [0; 127]),
-                group_message_envelope([2; 16], GroupMessageKind::Commit, [0; 16384]),
+                keyed_group_message_envelope(&keys, GroupMessageKind::Proposal, [0; 127]),
+                keyed_group_message_envelope(&keys, GroupMessageKind::Commit, [0; 16384]),
             ])?,
             PublishUnit::single(inline_welcome_envelope([1; 32]))?,
             PublishUnit::single(inline_welcome_envelope([3; 32]))?,

@@ -18,7 +18,7 @@ use xmtp_common::toxiproxy_test;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::text::TextCodec;
 use xmtp_cryptography::utils::generate_local_wallet;
-use xmtp_db::consent_record::{ConsentType, StoredConsentRecord};
+use xmtp_db::consent_record::ConsentType;
 use xmtp_db::identity::StoredIdentity;
 use xmtp_db::prelude::*;
 use xmtp_db::{
@@ -50,7 +50,17 @@ async fn get_key_package_init_key<Context: XmtpSharedContext, Id: AsRef<[u8]>>(
 // Client::close coordinated-shutdown tests
 // ============================================================
 
+mod device_sync;
+mod engine_suites;
 mod groups;
 mod identity;
+mod inbox_handles;
+mod incoming;
 mod lifecycle;
+mod notifications;
+#[cfg(not(target_arch = "wasm32"))]
+mod preflight;
+mod server_configuration;
+mod storage_location;
+mod stream_failure;
 mod sync;

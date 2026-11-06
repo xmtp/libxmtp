@@ -468,6 +468,7 @@ where
                     total += 1;
                 }
             }
+            drop(table);
             self.store.increment(w, net, total)?;
             Ok(())
         };
@@ -523,6 +524,7 @@ where
                 }
                 true
             })?;
+            drop(table);
             self.store.decrement(w, net, total)?;
             Ok(())
         })
@@ -541,6 +543,7 @@ where
             let mut item = existing.map(|v| v.value()).unwrap_or(Default::default());
             f(&mut item);
             table.insert(key, item)?;
+            drop(table);
             if !was_present {
                 self.store.increment(w, net, 1)?;
             }
@@ -631,6 +634,7 @@ where
                     total += 1;
                 }
             }
+            drop(table);
             self.store.increment(w, net, total)?;
             Ok(())
         };
@@ -687,6 +691,7 @@ where
                 }
                 true
             })?;
+            drop(table);
             self.store.decrement(w, net, total)?;
             Ok(())
         })
@@ -705,6 +710,7 @@ where
             let mut item = existing.map(|v| v.value()).unwrap_or(Default::default());
             f(&mut item);
             table.insert(key, item)?;
+            drop(table);
             if !was_present {
                 self.store.increment(w, net, 1)?;
             }
@@ -773,7 +779,7 @@ where
     }
 }
 
-#[derive(Debug, Clone, Default, Readable, Writable)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Readable, Writable)]
 pub struct Metadata {
     pub identities: u32,
     pub groups: u32,
@@ -815,12 +821,6 @@ impl redb::Value for Metadata {
 
     fn type_name() -> redb::TypeName {
         redb::TypeName::new("store metadata")
-    }
-}
-
-impl<'a> MetadataStore<'a> {
-    pub(super) fn from_write_tx(tx: &'a WriteTransaction, network: u64) -> Self {
-        Self::with_network(MetadataStorage, DatabaseOrTransaction::WriteTx(tx), network)
     }
 }
 

@@ -1,8 +1,11 @@
 use super::query::count;
-use crate::{Backend, api, validation::lookup_key};
+use crate::{Backend, api, config::Category, server::rate_limit::Charger, validation::lookup_key};
 use tonic::{Request, Response, Status};
 use xmtp_common::RetryableError;
-use xmtp_id::{associations::AccountId, scw_verifier::SmartContractSignatureVerifier};
+use xmtp_id::{
+    associations::AccountId,
+    scw_verifier::{ScwInput, SmartContractSignatureVerifier},
+};
 
 #[cfg(test)]
 mod tests;
@@ -49,14 +52,22 @@ impl api::identity_service_server::IdentityService for Backend {
     #[xmtp_common::rpc_span]
     /// Verify each supplied smart-contract-wallet signature independently.
     ///
-    /// Malformed account IDs and hashes fail before verifier calls. Provider
-    /// failures map to `UNAVAILABLE`, while a negative signature verdict is a
-    /// successful response with `is_valid` set to false.
-    // implements: API-231, API-271
+    /// Every entry is checked before the first verifier call, so one whose
+    /// account id is not a non-zero `eip155` account, whose hash is not 32
+    /// bytes, or whose signature is longer than `MAX_SCW_SIGNATURE_BYTES`
+    /// fails the request with `INVALID_ARGUMENT` and reaches no chain or
+    /// cache. A `chain_verify` unit for each entry, or 1 for a request with
+    /// none, is then spent; a denial reaches no chain or cache either. The
+    /// entries are then verified through the cache, at most
+    /// `MAX_CHAIN_CALLS_IN_FLIGHT` at a time, and answered in request order.
+    /// Provider failures map to `UNAVAILABLE`, while a negative signature
+    /// verdict is a successful response with `is_valid` set to false.
+    // implements: API-231, API-301, RATE-010
     async fn verify_smart_contract_wallet_signatures(
         &self,
         request: Request<api::VerifySmartContractWalletSignaturesRequest>,
     ) -> Result<Response<api::VerifySmartContractWalletSignaturesResponse>, Status> {
+        let charger = Charger::of(&request);
         let request = request.into_inner();
         count(
             request.signatures.len(),
@@ -72,29 +83,32 @@ impl api::identity_service_server::IdentityService for Backend {
                     .hash
                     .try_into()
                     .map_err(|_| Status::invalid_argument("hash must contain 32 bytes"))?;
-                Ok((account, hash, input.signature, input.block_number))
+                ScwInput::checked(account, hash, input.signature.into(), input.block_number)
+                    .map_err(|_| Status::invalid_argument("unverifiable account id or signature"))
             })
             .collect::<Result<Vec<_>, Status>>()?;
-        let mut responses = Vec::with_capacity(inputs.len());
-        for (account, hash, signature, block) in inputs {
-            let result = crate::validation::ObservedVerifier(&self.verifier)
-                .is_valid_signature(account, hash, signature.into(), block)
-                .await
-                .map_err(|error| {
-                    if error.is_retryable() {
-                        Status::unavailable("signature verifier unavailable")
-                    } else {
-                        Status::invalid_argument("signature verification failed")
-                    }
-                })?;
-            responses.push(
-                api::verify_smart_contract_wallet_signatures_response::Response {
+        charger
+            .charge(Category::ChainVerify, inputs.len().max(1))
+            .await?;
+        let responses = crate::validation::ObservedVerifier(&self.verifier)
+            .verify_many(&inputs)
+            .await
+            .map_err(|error| {
+                if error.is_retryable() {
+                    Status::unavailable("signature verifier unavailable")
+                } else {
+                    Status::invalid_argument("signature verification failed")
+                }
+            })?
+            .into_iter()
+            .map(
+                |result| api::verify_smart_contract_wallet_signatures_response::Response {
                     is_valid: result.is_valid,
                     block_number: result.block_number,
                     error: result.error,
                 },
-            );
-        }
+            )
+            .collect();
         Ok(Response::new(
             api::VerifySmartContractWalletSignaturesResponse { responses },
         ))

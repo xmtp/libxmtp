@@ -37,6 +37,8 @@ pub(in crate::delivery) fn consumed(index: i64, readable: bool) -> EnrichedStore
         envelope_hash: None,
         expiry_ns: None,
         inserted_at_ns: 1,
+        expiry_unknown: false,
+        deleted_by_inbox_id: None,
         expire_at_ns: None,
         should_push: false,
         idempotency_key: index.to_string(),

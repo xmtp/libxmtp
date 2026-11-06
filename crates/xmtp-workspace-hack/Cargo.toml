@@ -29,6 +29,7 @@ alloy-rpc-client = { version = "2", default-features = false, features = ["reqwe
 alloy-sol-type-parser = { version = "1", default-features = false, features = ["serde", "std"] }
 alloy-sol-types = { version = "1", default-features = false, features = ["json", "std"] }
 alloy-transport-http = { version = "2", default-features = false, features = ["reqwest"] }
+block-buffer = { version = "0.12", default-features = false, features = ["zeroize"] }
 bytes = { version = "1", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 cipher = { version = "0.4", default-features = false, features = ["zeroize"] }
@@ -41,7 +42,7 @@ crypto-common-c65f7effa3be6d31 = { package = "crypto-common", version = "0.1", d
 derive_more = { version = "2", default-features = false, features = ["add", "add_assign", "as_ref", "deref", "deref_mut", "display", "from", "from_str", "index", "index_mut", "into", "into_iterator", "not", "std"] }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["32-column-tables", "returning_clauses_for_sqlite_3_35", "serde_json"] }
 digest-93f6ce9d446188ac = { package = "digest", version = "0.10", features = ["mac", "oid", "std"] }
-digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid"] }
+digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid", "zeroize"] }
 ed25519-dalek = { version = "2", features = ["digest", "rand_core"] }
 either = { version = "1", features = ["serde", "use_std"] }
 elliptic-curve = { version = "0.13", default-features = false, features = ["ecdh", "hazmat", "jwk", "pem", "std"] }
@@ -72,11 +73,11 @@ memchr = { version = "2" }
 nu-ansi-term = { version = "0.50" }
 num-traits = { version = "0.2", features = ["i128", "libm"] }
 once_cell = { version = "1" }
-openmls = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5", default-features = false, features = ["clonable", "draft-ietf-mls-pq-ciphersuites", "test-utils"] }
-openmls_memory_storage = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
-openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5", features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
+openmls = { git = "https://github.com/xmtp/openmls", rev = "39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
+openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b", default-features = false, features = ["clonable", "draft-ietf-mls-pq-ciphersuites", "test-utils"] }
+openmls_memory_storage = { git = "https://github.com/xmtp/openmls", rev = "39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
+openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
+openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b", features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
 p256 = { version = "0.13", features = ["ecdh", "jwk"] }
 percent-encoding = { version = "2" }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9", default-features = false, features = ["serde", "thread_rng"] }
@@ -94,7 +95,8 @@ serde = { version = "1", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1", default-features = false, features = ["alloc", "rc", "result", "std"] }
 serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value"] }
 serde_spanned = { version = "1", default-features = false, features = ["serde", "std"] }
-sha2 = { version = "0.10" }
+sha2-93f6ce9d446188ac = { package = "sha2", version = "0.10" }
+sha2-a6292c17cd707f01 = { package = "sha2", version = "0.11", features = ["zeroize"] }
 slab = { version = "0.4" }
 smallvec = { version = "1", default-features = false, features = ["const_new", "serde", "union"] }
 subtle = { version = "2", features = ["const-generics"] }
@@ -127,6 +129,7 @@ alloy-sol-macro-input = { version = "1", default-features = false, features = ["
 alloy-sol-type-parser = { version = "1", default-features = false, features = ["serde", "std"] }
 alloy-sol-types = { version = "1", default-features = false, features = ["json", "std"] }
 alloy-transport-http = { version = "2", default-features = false, features = ["reqwest"] }
+block-buffer = { version = "0.12", default-features = false, features = ["zeroize"] }
 bytes = { version = "1", features = ["serde"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }
 chrono = { version = "0.4", features = ["serde"] }
@@ -141,7 +144,7 @@ derive_more = { version = "2", default-features = false, features = ["add", "add
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["32-column-tables", "returning_clauses_for_sqlite_3_35", "serde_json"] }
 diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", features = ["32-column-tables", "sqlite"] }
 digest-93f6ce9d446188ac = { package = "digest", version = "0.10", features = ["mac", "oid", "std"] }
-digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid"] }
+digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid", "zeroize"] }
 ed25519-dalek = { version = "2", features = ["digest", "rand_core"] }
 either = { version = "1", features = ["serde", "use_std"] }
 elliptic-curve = { version = "0.13", default-features = false, features = ["ecdh", "hazmat", "jwk", "pem", "std"] }
@@ -172,11 +175,11 @@ memchr = { version = "2" }
 nu-ansi-term = { version = "0.50" }
 num-traits = { version = "0.2", features = ["i128", "libm"] }
 once_cell = { version = "1" }
-openmls = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5", default-features = false, features = ["clonable", "draft-ietf-mls-pq-ciphersuites", "test-utils"] }
-openmls_memory_storage = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
-openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5", features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
+openmls = { git = "https://github.com/xmtp/openmls", rev = "39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
+openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b", default-features = false, features = ["clonable", "draft-ietf-mls-pq-ciphersuites", "test-utils"] }
+openmls_memory_storage = { git = "https://github.com/xmtp/openmls", rev = "39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
+openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
+openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b", features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
 p256 = { version = "0.13", features = ["ecdh", "jwk"] }
 percent-encoding = { version = "2" }
 proc-macro2 = { version = "1", features = ["span-locations"] }
@@ -195,7 +198,8 @@ serde = { version = "1", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1", default-features = false, features = ["alloc", "rc", "result", "std"] }
 serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value"] }
 serde_spanned = { version = "1", default-features = false, features = ["serde", "std"] }
-sha2 = { version = "0.10" }
+sha2-93f6ce9d446188ac = { package = "sha2", version = "0.10" }
+sha2-a6292c17cd707f01 = { package = "sha2", version = "0.11", features = ["zeroize"] }
 slab = { version = "0.4" }
 smallvec = { version = "1", default-features = false, features = ["const_new", "serde", "union"] }
 subtle = { version = "2", features = ["const-generics"] }
@@ -242,6 +246,7 @@ time = { version = "0.3", default-features = false, features = ["formatting"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tracing-log = { version = "0.2" }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 
 [target.x86_64-unknown-linux-gnu.build-dependencies]
@@ -272,6 +277,7 @@ time = { version = "0.3", default-features = false, features = ["formatting"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tracing-log = { version = "0.2" }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 
 [target.aarch64-apple-darwin.dependencies]
@@ -302,6 +308,7 @@ time = { version = "0.3", default-features = false, features = ["formatting"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tracing-log = { version = "0.2" }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 
 [target.aarch64-apple-darwin.build-dependencies]
@@ -333,6 +340,7 @@ time = { version = "0.3", default-features = false, features = ["formatting"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tracing-log = { version = "0.2" }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 
 [target.aarch64-linux-android.dependencies]
@@ -363,6 +371,7 @@ time = { version = "0.3", default-features = false, features = ["formatting"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tracing-log = { version = "0.2" }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 
 [target.aarch64-linux-android.build-dependencies]
@@ -394,6 +403,7 @@ time = { version = "0.3", default-features = false, features = ["formatting"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tracing-log = { version = "0.2" }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 
 [target.x86_64-linux-android.dependencies]
@@ -423,6 +433,7 @@ time = { version = "0.3", default-features = false, features = ["formatting"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tracing-log = { version = "0.2" }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 
 [target.x86_64-linux-android.build-dependencies]
@@ -453,6 +464,7 @@ time = { version = "0.3", default-features = false, features = ["formatting"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tracing-log = { version = "0.2" }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 
 ### END HAKARI SECTION

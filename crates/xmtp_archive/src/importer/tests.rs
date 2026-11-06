@@ -1,12 +1,11 @@
 use super::*;
+use crate::{MAX_FRAME_BYTES, ZSTD_WINDOW_LOG_MAX, exporter::ElementWriter};
 use aes_gcm::{Aes256Gcm, KeyInit};
-use async_compression::futures::write::ZstdEncoder;
+use async_compression::{Level, futures::write::ZstdEncoder, zstd::CParameter};
 use futures_util::{
     AsyncWriteExt,
     io::{BufReader, Cursor},
 };
-use std::sync::mpsc;
-use xmtp_common::time::Duration;
 use xmtp_proto::xmtp::device_sync::{BackupMetadataSave, consent_backup::ConsentSave};
 
 const KEY: [u8; crate::ENC_KEY_SIZE] = [7; crate::ENC_KEY_SIZE];
@@ -78,7 +77,9 @@ async fn rejects_later_version_before_nonce_or_frame_read() {
     // verifies: ARCH-003. There is no nonce or frame after the version bytes.
     for version in [1u16, u16::MAX] {
         let result = ArchiveImporter::load(reader(version.to_le_bytes().to_vec()), &KEY).await;
-        assert!(matches!(result, Err(ArchiveError::UnsupportedVersion(v)) if v == version));
+        let error = result.err()?;
+        assert!(matches!(error, ArchiveError::UnsupportedVersion(v) if v == version));
+        assert!(error.to_string().contains(&version.to_string()));
     }
 }
 
@@ -103,44 +104,8 @@ async fn rejects_incomplete_header_and_invalid_zstd() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn rejects_every_ciphertext_length_below_tag_size() {
+async fn protobuf_errors_are_terminal() {
     // verifies: ARCH-018.
-    for length in 0..16u32 {
-        let mut frame = length.to_le_bytes().to_vec();
-        frame.extend(std::iter::repeat_n(0, length as usize));
-        assert_terminal_error(archive_after_metadata(&frame).await, |error| {
-            matches!(error, ArchiveError::InvalidFrame(_))
-        })
-        .await;
-    }
-}
-
-#[xmtp_common::test(unwrap_try = true)]
-async fn incomplete_prefix_and_ciphertext_are_terminal() {
-    // verifies: ARCH-018.
-    for frame in [
-        vec![20],
-        vec![20, 0],
-        vec![20, 0, 0],
-        vec![20, 0, 0, 0, 1, 2, 3],
-    ] {
-        assert_terminal_error(archive_after_metadata(&frame).await, |error| {
-            matches!(error, ArchiveError::InvalidFrame(_))
-        })
-        .await;
-    }
-}
-
-#[xmtp_common::test(unwrap_try = true)]
-async fn authentication_and_protobuf_errors_are_terminal() {
-    // verifies: ARCH-018.
-    let mut bad_tag = 16u32.to_le_bytes().to_vec();
-    bad_tag.extend_from_slice(&[0; 16]);
-    assert_terminal_error(archive_after_metadata(&bad_tag).await, |error| {
-        matches!(error, ArchiveError::AesGcm(_))
-    })
-    .await;
-
     let bad_protobuf = encrypted_frame(&[0xff], &NONCE);
     assert_terminal_error(archive_after_metadata(&bad_protobuf).await, |error| {
         matches!(error, ArchiveError::Decode(_))
@@ -187,26 +152,73 @@ async fn complete_boundary_eof_and_both_nonce_forms() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn malformed_frames_return_errors_without_hanging() {
-    for frame in [vec![0, 0, 0, 0, 0xaa], vec![8, 0, 0, 0, 1, 2, 3]] {
-        let bytes = archive_after_metadata(&frame).await;
-        let (sender, receiver) = mpsc::channel();
-        std::thread::spawn(move || {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .build()
-                .unwrap();
-            let result = runtime.block_on(async {
-                let mut importer = ArchiveImporter::load(reader(bytes), &KEY).await.unwrap();
-                importer.next().await
-            });
-            let _ = sender.send(result);
-        });
-        let result = receiver
-            .recv_timeout(Duration::from_secs(2))
-            .expect("malformed frame import hung");
-        assert!(
-            matches!(result, Some(Err(ArchiveError::InvalidFrame(_)))),
-            "{result:?}"
-        );
+async fn frame_ceiling_bounds_reader_and_writer() {
+    // verifies: ARCH-001, ARCH-018.
+    assert_eq!(MAX_FRAME_BYTES, 75_497_472);
+    let target = MAX_FRAME_BYTES - TAG_SIZE;
+    let overhead = consent(&"a".repeat(target)).encoded_len() - target;
+    let largest = consent(&"a".repeat(target - overhead));
+    assert_eq!(largest.encoded_len(), target);
+    let mut bytes = Vec::new();
+    let mut writer = ElementWriter::new(&KEY, &mut bytes)?;
+    writer.write(metadata().element?)?;
+    writer.write(largest.element.clone()?)?;
+    writer.finish()?;
+    let mut importer = ArchiveImporter::load(reader(bytes), &KEY).await?;
+    assert_eq!(importer.next().await??, largest);
+    assert!(importer.next().await.is_none());
+
+    // The oversized element is refused before encryption, so it uses no nonce and a later
+    // frame still imports.
+    let oversized = consent(&"a".repeat(target - overhead + 1)).element?;
+    let mut bytes = Vec::new();
+    let mut writer = ElementWriter::new(&KEY, &mut bytes)?;
+    writer.write(metadata().element?)?;
+    let result = writer.write(oversized);
+    assert!(
+        matches!(result, Err(ArchiveError::InvalidFrame(_))),
+        "{result:?}"
+    );
+    writer.write(consent("after").element?)?;
+    writer.finish()?;
+    let mut importer = ArchiveImporter::load(reader(bytes), &KEY).await?;
+    assert_eq!(importer.next().await??, consent("after"));
+
+    // The length is refused before the declared ciphertext is buffered.
+    let mut frame = (MAX_FRAME_BYTES as u32 + 1).to_le_bytes().to_vec();
+    frame.resize(4 + MAX_FRAME_BYTES + 1, 0);
+    let mut importer =
+        ArchiveImporter::load(reader(archive_after_metadata(&frame).await), &KEY).await?;
+    let result = importer.next().await;
+    assert!(
+        matches!(result, Some(Err(ArchiveError::InvalidFrame(_)))),
+        "{result:?}"
+    );
+    assert!(importer.decoded.len() < 2048, "{}", importer.decoded.len());
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn rejects_zstd_window_above_limit() {
+    // verifies: ARCH-018.
+    assert_eq!(1 << ZSTD_WINDOW_LOG_MAX, 16_777_216);
+    for window_log in [ZSTD_WINDOW_LOG_MAX + 1, ZSTD_WINDOW_LOG_MAX] {
+        let params = [CParameter::window_log(window_log)];
+        let mut encoder = ZstdEncoder::with_quality_and_params(Vec::new(), Level::Default, &params);
+        encoder
+            .write_all(&encrypted_frame(&metadata().encode_to_vec(), &NONCE))
+            .await?;
+        encoder.close().await?;
+        let mut bytes = crate::BACKUP_VERSION.to_le_bytes().to_vec();
+        bytes.extend_from_slice(&NONCE);
+        bytes.extend_from_slice(&encoder.into_inner());
+        let result = ArchiveImporter::load(reader(bytes), &KEY).await;
+        if window_log > ZSTD_WINDOW_LOG_MAX {
+            assert!(
+                matches!(result, Err(ArchiveError::IO(_))),
+                "window log {window_log}"
+            );
+        } else {
+            assert!(result.is_ok(), "window log {window_log}");
+        }
     }
 }

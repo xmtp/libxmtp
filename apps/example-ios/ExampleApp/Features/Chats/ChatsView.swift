@@ -18,23 +18,25 @@ struct ChatsView: View {
 	var onMute: ((String, Bool) -> Void)?
 	var body: some View {
 		List {
-			Button { onNavigate(.requests) } label: {
-				HStack(spacing: 12) {
-					Image(systemName: "tray")
-						.font(dynamicTypeSize.isAccessibilitySize ? .system(size: 24) : .title3)
-						.foregroundStyle(.tint)
-					VStack(alignment: .leading, spacing: 4) {
-						requestsTitleLayout {
-							Text(String(localized: "chats.requests", table: "Chats")).font(.headline)
-							if let count = store.state.requestCount {
-								Text("· \(count)").font(dynamicTypeSize.isAccessibilitySize ? .caption : .headline)
+			if store.state.requestCount != 0 {
+				Button { onNavigate(.requests) } label: {
+					HStack(spacing: 12) {
+						Image(systemName: "tray")
+							.font(dynamicTypeSize.isAccessibilitySize ? .system(size: 24) : .title3)
+							.foregroundStyle(.tint)
+						VStack(alignment: .leading, spacing: 4) {
+							requestsTitleLayout {
+								Text(String(localized: "chats.requests", table: "Chats")).font(.headline)
+								if let count = store.state.requestCount {
+									Text("· \(count)").font(dynamicTypeSize.isAccessibilitySize ? .caption : .headline)
+								}
 							}
+							Text(String(localized: "chats.requests.detail", table: "Chats")).font(.subheadline).foregroundStyle(.secondary)
 						}
-						Text(String(localized: "chats.requests.detail", table: "Chats")).font(.subheadline).foregroundStyle(.secondary)
-					}
-					Spacer()
-					Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
-				}.padding(.vertical, 8)
+						Spacer()
+						Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+					}.padding(.vertical, 8)
+				}
 			}
 			ForEach(Array(store.state.visibleRows.enumerated()), id: \.element.id) { index, row in
 				Button { onNavigate(.chat(row.id)) } label: { ConversationRowView(row: row) }

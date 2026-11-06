@@ -9,7 +9,7 @@
 **Build secure messaging into your app.**
 
 [![CI](https://github.com/xmtp/libxmtp/actions/workflows/ci.yml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/ci.yml)
-[![Version 8 RC](https://img.shields.io/badge/SDKs-8.0.0--rc3-blue)](https://xmtp.org/get-started/install/)
+[![Version 8 RC](https://img.shields.io/badge/SDKs-8.0.0--rc4-blue)](https://xmtp.org/get-started/install/)
 [![MIT license](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 
 XMTP is an open protocol for end-to-end encrypted direct messages and group conversations. Use it to add chat to your mobile or web app, connect people with agents from other apps, or connect agents to agents.
@@ -36,12 +36,12 @@ XMTP supports tens of thousands of active conversations for a single user. Explo
 
 ## Start building an app
 
-This README uses the version 8 release candidate, `8.0.0-rc3`, for the SDKs and messaging backend. Choose your platform below and follow the [installation guide](https://xmtp.org/get-started/install/) to get started. App developers can use the SDK packages directly.
+This README uses the version 8 release candidate, `8.0.0-rc4`, for the SDKs and messaging backend. Choose your platform below and follow the [installation guide](https://xmtp.org/get-started/install/) to get started. App developers can use the SDK packages directly.
 
 Use an existing backend or [run the messaging backend](https://xmtp.org/get-started/run-the-backend/). For a Node.js app, install the SDK in your app project:
 
 ```sh
-npm install --save-exact @xmtp/node-sdk@8.0.0-rc3
+npm install --save-exact @xmtp/node-sdk@8.0.0-rc4
 ```
 
 Follow the [chat app quickstart](https://xmtp.org/get-started/quickstart/) to create a signer and client with a 32-byte database encryption key. Create a conversation with a registered recipient's inbox ID. Send a message and receive it with the other client. Use the same backend for both clients.

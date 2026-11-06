@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { chmod, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import {
@@ -11,7 +11,7 @@ import {
 import { isHex, toBytes, toHex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
-import type { XmtpConfig } from "./config.js";
+import { DEFAULT_HOME_DIR, type XmtpConfig } from "./config.js";
 
 const LOG_LEVELS = {
   off: "off",
@@ -96,8 +96,11 @@ export async function createClient(
 
   const signer = createEOASigner(config.walletKey);
 
+  // The CLI-owned home holds keys and databases: owner only. Best effort, so
+  // a missing or read-only home does not stop the command.
+  await chmod(DEFAULT_HOME_DIR, 0o700).catch(() => {});
   if (config.dbPath) {
-    await mkdir(dirname(config.dbPath), { recursive: true });
+    await mkdir(dirname(config.dbPath), { recursive: true, mode: 0o700 });
   }
 
   const level = parseLogLevel(config.logLevel);

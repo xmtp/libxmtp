@@ -7,19 +7,27 @@ import { isDm, isGroup } from "@/utils/conversation";
 import { consentStateMap, conversationTypeMap } from "@/utils/enums";
 
 export default class ConversationsList extends BaseCommand {
-  static description = `List all conversations.
+  static description = `List conversations, newest first.
 
-Lists conversations for the current client with optional filtering.
+Lists one page of conversations for the current client with optional
+filtering: 100 by default, at most 1000 with --limit.
 
 Use --type to filter by conversation type (dm or group).
 Use --consent-state to filter by consent state (repeatable).
 Use --order-by to control sort order (created-at or last-activity).
-Use --created-after / --created-before to filter by creation time.`;
+Use --created-after / --created-before to filter by creation time.
+To read the next page in created-at order, pass the last conversation's
+createdAtNs as --created-before and its id as --before-id.`;
 
   static examples = [
     {
       command: "<%= config.bin %> <%= command.id %>",
-      description: "List all conversations",
+      description: "List the 100 most recently active conversations",
+    },
+    {
+      command:
+        "<%= config.bin %> <%= command.id %> --order-by created-at --created-before <createdAtNs> --before-id <id>",
+      description: "List the next page after a conversation, by creation time",
     },
     {
       command: "<%= config.bin %> <%= command.id %> --type dm",
@@ -52,8 +60,14 @@ Use --created-after / --created-before to filter by creation time.`;
       description: "Filter by conversation type",
     })(),
     limit: Flags.integer({
-      description: "Maximum number of conversations to return",
+      description:
+        "Maximum number of conversations to return, from 1 to 1000 (default 100)",
       helpValue: "<number>",
+    }),
+    "before-id": Flags.string({
+      description:
+        "Resume after this conversation; needs --created-before in created-at order",
+      helpValue: "<id>",
     }),
     "consent-state": Flags.option({
       options: ["allowed", "denied", "unknown"] as const,
@@ -104,6 +118,7 @@ Use --created-after / --created-before to filter by creation time.`;
             this.parseBigInt(flags["created-before"], "created-before")!,
           )
         : undefined,
+      beforeId: flags["before-id"],
     });
 
     const output = await Promise.all(
@@ -114,6 +129,7 @@ Use --created-after / --created-before to filter by creation time.`;
           id: conversation.id,
           type: isGroup(conversation) ? "group" : "dm",
           createdAt: conversation.createdAt.date.toISOString(),
+          createdAtNs: conversation.createdAt.ns.toString(),
           consentState: state.consentState,
           isActive: state.isActive,
         };

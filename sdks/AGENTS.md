@@ -1,95 +1,20 @@
 # XMTP SDKs
 
-The instructions below apply to the TypeScript SDKs in `node`, `browser`,
-`agent`, and `react-native`. See `android/AGENTS.md` and `ios/AGENTS.md` for
-the Kotlin and Swift SDKs. React Native also has native host rules in
-`react-native/AGENTS.md`.
+Shared behavior belongs in Rust/core and `crates/xmtp_sdk`; platform packages wrap
+it. Never edit generated bindings. Keep native streams open through retryable
+faults; core owns ordered recovery and durable delivery progress.
 
-The JavaScript SDKs use the root pnpm workspace. Node and Browser use the
-generated Rust SDK product. React Native uses the same public TypeScript
-projection over a JSI native binding. Agent uses Node. Published package names
-are `@xmtp/node-sdk`, `@xmtp/browser-sdk`, `@xmtp/agent-sdk`, and
-`@xmtp/react-native-sdk`.
+For JS/TS SDKs (`node`, `browser`, `agent`, `react-native`):
 
-## Commands
-
-```bash
-dev/nix-shell 'just install-js' # install the root pnpm workspace once
-dev/nix-shell 'just js sdk-products' # stage Node, Browser, and React Native JS/types
-dev/nix-shell 'just js sdk-products node' # stage the generated Node product
-dev/nix-shell 'just js sdk-products browser' # stage the generated Browser product
-dev/nix-shell 'just js sdk-products react-native' # stage RN JS/types without mobile binaries
-dev/nix-shell 'just react-native check' # build and check React Native JS/types
-dev/nix-shell 'just js check-node' # typecheck Node and agent SDKs
-dev/nix-shell 'just js check-notification-surface' # published Node types; Browser/WASM absence
-dev/nix-shell 'just js lint-node' # lint Node and agent SDKs
-dev/nix-shell 'just js build-node' # build Node and agent SDKs
-dev/nix-shell 'just js check' # typecheck all
-dev/nix-shell 'just js build'
-dev/nix-shell 'just js lint' # oxlint
-dev/nix-shell 'just js test' # needs `just backend up`
-```
-
-## Shared SDK rules
-
-- Require an explicit `backend` for client creation. Do not select a URL from `env`.
-  Browser also requires explicit `storage`.
-- Use `env` only as the label in the default database file name.
-- Keep the API-client cache key as `<backendUrl>|<appVersion>`.
-- Keep the file archive export and import tests that remain. Node
-  `test/DeviceSync.test.ts` owns the SDK file-archive round trip, and
-  `crates/xmtp_sdk/src/tests/archives.rs` owns file export, metadata, and import.
-  Swift, Kotlin, and React Native have no archive file test.
-
-Native streams stay open during retryable network faults and resume in order.
-
-## Task graph
-
-SDK recipes stage the selected SDK products before package tasks. The public
-product is `target/sdk-packages/<target>`. Local imports use a full copy in
-`sdks/<target>/dist`, with the pinned runtime assets. React Native JS/types
-can be staged without mobile binaries. Its installed consumer proofs use the
-canonical tarball assembled from the Linux and Darwin native components; see
-`react-native/AGENTS.md`. Source package builds
-(`dev/js/sdk-package`) run `just sdk generate <target>` before Node/Browser
-staging; with `XMTP_SDK_BUILD=nix` they copy the release-profile Nix trees
-instead, as CI and release do. React Native defaults to its lightweight Nix
-JS/types product; `XMTP_SDK_BUILD=cargo` explicitly selects local release-profile
-generation. Shared typecheck, build, and full lint stage all three products.
-Node-only and notification-surface checks keep their narrower inputs. The helper
-refuses `XMTP_SDK_GENERATED_DIR`: it stages only what it
-generated. Do not use
-`--parallel` or `--no-sort`; they can bypass task dependencies. See the
-`writing-typescript` skill for the root pnpm workspace and formatting.
-
-## Gotchas
-
-- Start `just backend up` for tests; `just js` loads this worktree's backend URL.
-- `agent` reads types from `node/dist`. Build `node` first.
-
-## Durable message delivery
-
-- Message iterators acknowledge the previous item only when the app requests the next item. `return` and `end` do not acknowledge it.
-- Calling `await stream.onValue(callback)` selects callback mode and starts consumption. A successful callback return permits the next read to acknowledge delivery. Do not also iterate that stream.
-- Core owns network recovery for message and conversation streams. Public stream options do not accept `retryAttempts`, `retryDelay`, `retryOnFail`, `onRetry`, `onFail`, `onRestart`, or `disableSync`. Callback or acknowledgement failure stops message delivery; it does not restart the callback.
-- Conversation streams open without a separate pre-sync. Call an explicit `sync()` method when the app needs a current snapshot. Browser and Node lifecycle options are `signal`, `onClose`, and `onConnectionStateChange`.
-- Storage errors end message streams after the operation's normal retry policy. Enrichment must preserve the storage cause. A replacement may repeat an app callback whose acknowledgement failed.
-- Close and fence a failed reader before `onClose` reports a failed reason. Preserve the original error if cleanup fails. The caller can repair storage and open another stream on the same client.
-- Use `from` with a `DeliveryCursor` for replay. Replay does not change default delivery progress.
-- Use `beginningDeliveryCursor` for the first retained item, or the cursor from `messageHistorySnapshot` for history plus live delivery.
-- Catch-up state does not depend on application acknowledgement. Keep typed
-  stream failure details and all topic obligations when reporting errors.
-
-The host reader tests use fake readers from the staged Node package. They need
-the generated package but do not need a backend. The recipe stages the package:
-
-```bash
-dev/nix-shell 'just js test-node-sdk-ci test/streamRuntime.test.ts'
-```
-
-## Agent stream lifecycle
-
-The Agent SDK reports terminal stream errors and requires an explicit `start()`
-to open a new generation. Error middleware alone does not reopen streams.
-`start()` skips the separate conversation pre-sync and reports local pump
-readiness, including while offline.
+- Use the root pnpm workspace. `dev/nix-shell 'just install-js'` installs it;
+  `dev/nix-shell 'just js sdk-products [node|browser|react-native]'` stages products.
+- Use the task graph; never `--parallel` or `--no-sort`. Agent consumes Node's
+  `dist`. Read [package preparation](DEVELOPMENT.md) when changing build routes.
+- Client creation requires explicit `backend`; Browser also requires `storage`.
+  `env` labels database files, never selects a backend. Preserve the API cache
+  key `<backendUrl>|<appVersion>`.
+- Tests need `just backend up` through Nix unless documented otherwise.
+- Iteration acknowledges the previous message on the next read; close/end do
+  not acknowledge. Callback mode acknowledges only after callback success and
+  cannot also iterate. Keep typed failures; never automatically replace failed
+  readers. Read [delivery rules](DEVELOPMENT.md#durable-message-delivery) for stream work.

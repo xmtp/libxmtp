@@ -137,6 +137,8 @@ ratio. Collector loss can reduce that population further.
 | `xmtp_auth_rejections_total` | counter | Authentication rejections by reason. | reason | fixed | auth admission | Missing or invalid caller credentials | One increment per rejected request |
 | `xmtp_auth_jwks_refresh_total` | counter | JWKS refresh attempts by result. | result | fixed | JWKS refresh | Key source unavailable | Success swaps keys; failure keeps the last set |
 | `xmtp_auth_keys` | gauge | Loaded JWT verification keys. | none | none | key load and refresh | Empty or unexpected key set | Number of usable keys |
+| `xmtp_rate_limit_rejections_total` | counter | Denied rate-limit spends by category and auth type. | category, auth_type | request, publish, identity_update, chain_verify, push, upload, stream_rent; api_key, jwt, ip | rate-limit spend | Callers over their limits | One increment per denied spend |
+| `xmtp_rate_limit_evictions_total` | counter | Rate-limit entries forgotten before they were earned back. | none | none | rate-limit spend | `rate_limits.max_memory_mib` too small for the callers | Entries evicted while not at full allowance |
 | `xmtp_push_recipients_total` | counter | Push recipient changes by action. | action | registered, unregistered, expired, dead | recipient changes | Registration and deletion activity | Recipient changes |
 | `xmtp_push_deliveries_total` | counter | Push deliveries by channel and outcome. | channel, outcome | apns, fcm, http; delivered, failed, rejected, mismatch, dead, suppressed | completed delivery | Provider results and sender suppression | Push delivery results |
 | `xmtp_push_dispatcher` | gauge | Whether this instance holds the push dispatcher lock. | none | none | lock acquisition and release | One holder per database | Push dispatcher holder |
@@ -157,6 +159,17 @@ Auth rejection reasons are `missing`, `malformed`, `unsupported_alg`, `untrusted
 are `ok` and `error`. These labels never contain token data or key IDs. Each
 rejected request also records its gRPC status. Auth rejection logs use DEBUG and
 contain only the request ID, the backend identifier, and the reason. A JWKS fetch failure logs the host only.
+
+Rate-limit categories are `request`, `publish`, `identity_update`, `chain_verify`,
+`push`, `upload`, and `stream_rent`; auth types are `api_key`, `jwt`, and `ip`.
+Neither label names a caller. A denial logs one DEBUG event, `rate limit
+exceeded`, with only the request ID, the backend identifier, the category, and
+the auth type; it never carries a client or peer address, a JWT subject or
+issuer, or an `X-Forwarded-For` value. A request whose `request` spend is
+denied records `ResourceExhausted` in the RPC counters. A growing
+`xmtp_rate_limit_evictions_total` means the limiter's table is full and
+callers are being forgotten before their spends are earned back: raise
+`rate_limits.max_memory_mib`.
 
 With no `[auth]` section, or with `auth.enabled = false`, authentication is
 disabled and no key is loaded. With auth enabled, health, `ConfigurationService`,

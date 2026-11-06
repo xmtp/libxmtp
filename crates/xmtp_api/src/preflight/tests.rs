@@ -15,6 +15,7 @@ async fn preflight_blocks_every_public_dispatch_before_binding() {
     }
     blocked!(api.publish(Default::default()));
     blocked!(api.query(Default::default()));
+    blocked!(api.query_raw_envelopes(Default::default()));
     blocked!(api.query_newest(Default::default()));
     blocked!(api.get_inbox_ids(Default::default()));
     blocked!(api.get_configuration(Default::default()));
@@ -137,7 +138,7 @@ async fn preflight_resource_exhausted_does_not_dispatch_or_resize_target() {
     // The mock has no query expectation: any target dispatch fails this test.
     let error = api
         .query_all(
-            std::collections::HashMap::from([(Topic::new_group_message([1; 16]), Cursor(0))]),
+            std::collections::HashMap::from([(Topic::new_group_message([1; 32]), Cursor(0))]),
             8,
         )
         .await

@@ -4,23 +4,27 @@
 mod tests;
 pub(crate) mod webhook_url;
 
+use webhook_url::WebhookUrlError;
+
 use std::collections::HashSet;
 use subtle::ConstantTimeEq;
 use tonic::{Request, Response, Status};
+use xmtp_configuration::MAX_SUBSCRIPTION_HMAC_KEYS;
 use xmtp_cryptography::secret::Zeroizing;
 use xmtp_proto::types::{Topic, TopicKind};
 
 use crate::{
     Backend, api,
+    config::Category,
     db::{PushChannel, PushRecipientRecord, PushSubscriptionRecord, RecipientStateRecord},
     error::Error,
+    server::rate_limit::Charger,
 };
 
 const IDENTITY_BYTES: usize = 32;
 const MAX_DELIVERY_CHARACTERS: usize = 2048;
 const MIN_SIGNING_KEY_BYTES: usize = 16;
 const MAX_SIGNING_KEY_BYTES: usize = 64;
-const MAX_HMAC_KEYS: usize = 3;
 const HMAC_KEY_BYTES: usize = 42;
 pub(crate) const MALFORMED_REQUEST: &str = "request is malformed";
 const MALFORMED_SUBSCRIPTION: &str = "subscription is malformed";
@@ -78,13 +82,20 @@ impl api::notification_service_server::NotificationService for Backend {
         Ok(Response::new(api::UnregisterResponse {}))
     }
 
+    /// Each topic added is charged one `push` unit after the request's
+    /// identity is checked and before the recipient is read, so a request
+    /// over its caller's limit is refused the same way whether or not its
+    /// recipient exists.
     #[xmtp_common::rpc_span]
+    // implements: RATE-010
     async fn update_subscriptions(
         &self,
         request: Request<api::UpdateSubscriptionsRequest>,
     ) -> Result<Response<api::RecipientState>, Status> {
+        let charger = Charger::of(&request);
         let mut request = request.into_inner();
         let hash = identity(&request.recipient_id, &request.recipient_secret)?;
+        charger.charge(Category::Push, request.adds.len()).await?;
         let recipient = self
             .store
             .load_recipient(&request.recipient_id)
@@ -120,8 +131,8 @@ impl Backend {
         })
     }
 
-    /// Check channel availability, URL, and signing key in wire order. The
-    /// signing key moves out of the request.
+    /// Check channel availability, signing key, and delivery shape, then the
+    /// webhook URL. The signing key moves out of the request.
     // implements: PUSH-210, PUSH-256
     async fn validate_delivery(
         &self,
@@ -140,10 +151,7 @@ impl Backend {
             }
             Some(Delivery::Http(http)) => {
                 let signing_key = Zeroizing::new(std::mem::take(&mut http.signing_key));
-                let config = self.config.push.http.as_ref().ok_or_else(unconfigured)?;
-                webhook_url::validate(&http.url, config)
-                    .await
-                    .map_err(|_| Status::invalid_argument("webhook url is not allowed"))?;
+                self.config.push.http.as_ref().ok_or_else(unconfigured)?;
                 if !(MIN_SIGNING_KEY_BYTES..=MAX_SIGNING_KEY_BYTES).contains(&signing_key.len()) {
                     return Err(Status::invalid_argument(
                         "webhook signing key length is not allowed",
@@ -158,6 +166,16 @@ impl Backend {
             || delivery.contains('\0')
         {
             return Err(Status::invalid_argument(MALFORMED_REQUEST));
+        }
+        // The lookup runs last, so a request that fails a check needing no
+        // lookup is never answered UNAVAILABLE.
+        if let (PushChannel::Http, Some(config)) = (channel, self.config.push.http.as_ref()) {
+            webhook_url::validate(&delivery, config)
+                .await
+                .map_err(|e| match e {
+                    WebhookUrlError::NotAllowed => Status::invalid_argument(e.to_string()),
+                    WebhookUrlError::Unavailable => Status::unavailable(e.to_string()),
+                })?;
         }
         Ok((channel, delivery, signing_key))
     }
@@ -206,7 +224,7 @@ fn validate_subscriptions(
         .iter_mut()
         .map(|add| {
             if add.hmac_epoch_base < 0
-                || add.hmac_keys.len() > MAX_HMAC_KEYS
+                || add.hmac_keys.len() > MAX_SUBSCRIPTION_HMAC_KEYS
                 || add.hmac_keys.iter().any(|key| key.len() != HMAC_KEY_BYTES)
             {
                 return Err(malformed());

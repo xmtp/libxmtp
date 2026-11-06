@@ -7,10 +7,24 @@ pub mod backend;
 pub mod tester_utils;
 
 #[cfg(any(test, feature = "test-utils"))]
+pub mod device_sync;
+
+#[cfg(any(test, feature = "test-utils"))]
 pub mod fixtures;
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod identity;
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod inbox_handles;
+
+#[cfg(all(any(test, feature = "test-utils"), not(target_arch = "wasm32")))]
+pub mod preflight;
+
+#[cfg(test)]
+pub(crate) mod notifications;
 pub mod test_mocks_helpers;
-mod tester_utils_trait_ext;
-pub use tester_utils_trait_ext::*;
+pub use crate::groups::test_support::MlsGroupExt;
 
 use crate::XmtpApi;
 use crate::{
@@ -18,7 +32,6 @@ use crate::{
     builder::{ClientBuilder, DeviceSyncMode},
     context::{XmtpMlsLocalContext, XmtpSharedContext},
     groups::{GroupError, MlsGroup},
-    identity::IdentityStrategy,
 };
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Notify;
@@ -35,6 +48,42 @@ mod definitions;
 pub use definitions::*;
 
 use super::VersionInfo;
+
+/// Each secret that must stay in the client, in the encodings a leak would
+/// take: the group root and each private or symmetric key of the group key
+/// table, as raw bytes and as lowercase and uppercase hex. The keys derive
+/// here from the spec's salt and `info` labels, not through `GroupKeys`.
+#[cfg(any(test, feature = "test-utils"))]
+#[doc(hidden)]
+pub fn group_secret_encodings(
+    root: &xmtp_mls_group_keys::group_keys::GroupRoot,
+) -> Vec<(String, Vec<u8>)> {
+    let hkdf = hkdf::Hkdf::<sha2::Sha256>::new(Some(b"xmtp group root"), root.as_bytes());
+    let mut secrets = vec![("group root".to_string(), root.as_bytes().to_vec())];
+    for info in [
+        "xmtp group signing key",
+        "xmtp commit log signing key",
+        "xmtp commit log encryption key",
+        "xmtp commit log nonce key",
+    ] {
+        let mut key = [0u8; 32];
+        hkdf.expand(info.as_bytes(), &mut key).unwrap();
+        secrets.push((info.to_string(), key.to_vec()));
+    }
+    secrets
+        .into_iter()
+        .flat_map(|(name, bytes)| {
+            [
+                (format!("{name} as hex"), hex::encode(&bytes).into_bytes()),
+                (
+                    format!("{name} as upper-case hex"),
+                    hex::encode_upper(&bytes).into_bytes(),
+                ),
+                (name, bytes),
+            ]
+        })
+        .collect()
+}
 
 impl<A, S> ClientBuilder<A, S> {
     pub async fn temp_store(self) -> Self {
@@ -114,12 +163,7 @@ impl ClientBuilder<TestClient, TestMlsStorage> {
     }
 }
 
-pub fn identity_setup(owner: impl InboxOwner) -> IdentityStrategy {
-    let nonce = 1;
-    let ident = owner.get_identifier().unwrap();
-    let inbox_id = ident.inbox_id(nonce).unwrap();
-    IdentityStrategy::new(inbox_id, ident, nonce)
-}
+pub use crate::identity_lifecycle::identity_setup;
 
 /// wrapper over a `Notify` with a 60-second timeout for waiting
 #[derive(Clone, Default)]
@@ -182,6 +226,79 @@ where
         xmtp_common::time::timeout(Duration::from_secs(20), poll)
             .await
             .expect("no welcome arrived within 20 s")
+    }
+
+    /// The local store's key for this installation's Welcome topic.
+    pub fn welcome_topic(&self) -> xmtp_db::incoming_envelope::StreamTopic {
+        xmtp_db::incoming_envelope::StreamTopic {
+            entity_id: self.context.installation_id().to_vec(),
+            kind: xmtp_db::incoming_envelope::NetworkEntityKind::Welcome,
+        }
+    }
+
+    async fn newest_welcome_cursor(&self) -> Option<xmtp_proto::types::Cursor> {
+        self.context
+            .api()
+            .query_welcome_messages(self.context.installation_id())
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|welcome| welcome.cursor)
+            .max()
+    }
+
+    /// Assert that this installation rejected its newest published Welcome
+    /// for good: the last terminal rejection names it with `invalid_welcome`
+    /// and its pending row is gone.
+    pub async fn assert_newest_welcome_rejected(&self) {
+        use xmtp_db::incoming_envelope::QueryIncomingEnvelope;
+
+        let topic = self.welcome_topic();
+        let newest = self
+            .newest_welcome_cursor()
+            .await
+            .expect("a published Welcome");
+        let db = self.context.db();
+        let rejected = db
+            .read_last_rejection(&topic)
+            .unwrap()
+            .expect("a terminal rejection");
+        assert_eq!(rejected.sequence_id, newest);
+        assert_eq!(rejected.code, "invalid_welcome");
+        assert!(db.pending_envelope(&topic, newest).unwrap().is_none());
+    }
+
+    /// Sync Welcomes until the newest published Welcome, which must be past
+    /// `after`, is rejected for good; then assert as
+    /// [`Self::assert_newest_welcome_rejected`] does and return its cursor.
+    /// A Welcome a test just sent can reach the backend's read replica after
+    /// the first query. Panics if it is not rejected within 20 s.
+    pub async fn wait_for_newest_welcome_rejected(
+        &self,
+        after: xmtp_proto::types::Cursor,
+    ) -> xmtp_proto::types::Cursor {
+        use xmtp_db::incoming_envelope::QueryIncomingEnvelope;
+
+        let topic = self.welcome_topic();
+        let poll = async {
+            loop {
+                let _ = self.sync_welcomes().await;
+                let newest = self.newest_welcome_cursor().await;
+                let rejected = self.context.db().read_last_rejection(&topic).unwrap();
+                if let (Some(newest), Some(rejected)) = (newest, rejected)
+                    && newest > after
+                    && rejected.sequence_id == newest
+                {
+                    return newest;
+                }
+                xmtp_common::task::yield_now().await;
+            }
+        };
+        let newest = xmtp_common::time::timeout(Duration::from_secs(20), poll)
+            .await
+            .expect("the newest Welcome was not rejected within 20 s");
+        self.assert_newest_welcome_rejected().await;
+        newest
     }
 }
 

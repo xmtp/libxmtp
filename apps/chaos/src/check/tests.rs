@@ -10,7 +10,7 @@ use super::{InstanceSnapshot, Oracle, RollCall, Verdict};
 
 fn group() -> GroupSnapshot {
     GroupSnapshot {
-        group_id: "07070707070707070707070707070707".into(),
+        group_id: "07".repeat(32),
         epoch: 2,
         epoch_authenticator: "state".into(),
         members: ["a", "b"]
@@ -44,9 +44,9 @@ fn population() -> Vec<InstanceSnapshot> {
             stream_owner: true,
             groups: vec![group()],
             checkpoint: CheckpointSnapshot {
-                group_ids: vec!["07070707070707070707070707070707".into()],
+                group_ids: vec!["07".repeat(32)],
                 topics: vec![BarrierTopicSnapshot {
-                    topic: hex::encode(xmtp_proto::types::Topic::new_group_message([7; 16])),
+                    topic: hex::encode(xmtp_proto::types::Topic::new_group_message([7; 32])),
                     target: Some(10),
                     received: 10,
                     processed: 10,
@@ -62,6 +62,85 @@ fn population() -> Vec<InstanceSnapshot> {
 
 fn oracle() -> Oracle {
     Oracle::new(false, RetryBudgets::default())
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn run_limit_requires_restored_contention_and_completed_obligations() {
+    use crate::supervisor::run_incomplete_at_limit;
+
+    let mut instances = population();
+    let complete = oracle().evaluate(1, 0, &instances, &[]);
+    assert!(!complete.violation);
+    assert!(!run_incomplete_at_limit(&complete, 0, false, &instances));
+    assert!(run_incomplete_at_limit(&complete, 0, true, &instances));
+    assert!(run_incomplete_at_limit(&complete, 1, false, &instances));
+    instances[1].groups[0].active = false;
+    assert!(run_incomplete_at_limit(&complete, 0, false, &instances));
+    assert!(run_incomplete_at_limit(&complete, 0, true, &instances));
+    instances[1].groups[0].active = true;
+    instances[1].inbox_id = instances[0].inbox_id.clone();
+    assert!(run_incomplete_at_limit(&complete, 0, false, &instances));
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn closeout_requires_contention_after_successful_repair() {
+    use crate::supervisor::{CloseoutDecision, closeout_decision, run_incomplete_at_limit};
+
+    let instances = population();
+    let complete = oracle().evaluate(1, 0, &instances, &[]);
+    let repaired = run_incomplete_at_limit(&complete, 0, true, &instances);
+    assert!(repaired);
+    assert_eq!(
+        closeout_decision(1, 100, repaired, 0),
+        CloseoutDecision::Continue
+    );
+    let contended = run_incomplete_at_limit(&complete, 0, false, &instances);
+    assert_eq!(
+        closeout_decision(2, 200, contended, 2),
+        CloseoutDecision::Pass
+    );
+    assert_eq!(
+        closeout_decision(2, 200, contended, 1),
+        CloseoutDecision::Continue
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn closeout_does_not_pass_failed_repairs_or_unresolved_work() {
+    use crate::supervisor::{
+        CLOSEOUT_BUDGET_MS, CLOSEOUT_MAX_ROUNDS, CloseoutDecision, closeout_decision,
+        run_incomplete_at_limit,
+    };
+
+    let mut instances = population();
+    let complete = oracle().evaluate(1, 0, &instances, &[]);
+    let pending = run_incomplete_at_limit(&complete, 1, false, &instances);
+    assert_eq!(
+        closeout_decision(CLOSEOUT_MAX_ROUNDS, 200, pending, 2),
+        CloseoutDecision::Inconclusive
+    );
+    block_topic(&mut instances[0], false);
+    let stalled = oracle().evaluate(1, 0, &instances, &[]);
+    let incomplete = run_incomplete_at_limit(&stalled, 0, false, &instances);
+    assert!(incomplete);
+    assert_eq!(
+        closeout_decision(CLOSEOUT_MAX_ROUNDS, 200, incomplete, 2),
+        CloseoutDecision::Inconclusive
+    );
+    instances[1].groups[0].active = false;
+    let failed_repair = run_incomplete_at_limit(&complete, 0, true, &instances);
+    assert_eq!(
+        closeout_decision(CLOSEOUT_MAX_ROUNDS, 200, failed_repair, 0),
+        CloseoutDecision::Inconclusive
+    );
+    assert_eq!(
+        closeout_decision(1, CLOSEOUT_BUDGET_MS, false, 2),
+        CloseoutDecision::Inconclusive
+    );
+    assert_eq!(
+        closeout_decision(CLOSEOUT_MAX_ROUNDS, 200, false, 0),
+        CloseoutDecision::Inconclusive
+    );
 }
 
 fn missing_stream_call() -> RollCall {
@@ -84,7 +163,7 @@ fn block_topic(instance: &mut InstanceSnapshot, unrelated: bool) {
         code: "unsupported_version".into(),
     });
     if unrelated {
-        pending.topic = hex::encode(xmtp_proto::types::Topic::new_group_message([8; 16]));
+        pending.topic = hex::encode(xmtp_proto::types::Topic::new_group_message([8; 32]));
         instance.checkpoint.topics.push(pending);
     } else {
         instance.checkpoint.topics[0] = pending;
@@ -318,7 +397,7 @@ async fn completed_welcome_uses_receipt_and_unresolved_ids_without_processed_pre
     instances[0].checkpoint.topics[0]
         .unresolved_welcomes
         .clear();
-    instances[0].checkpoint.topics[0].topic = hex::encode(Topic::new_group_message([7; 16]));
+    instances[0].checkpoint.topics[0].topic = hex::encode(Topic::new_group_message([7; 32]));
     assert_eq!(
         oracle().evaluate(1, 0, &instances, &[]).verdict,
         Verdict::Stall
@@ -472,7 +551,7 @@ async fn shared_database_requires_only_the_stream_owner() {
     shared.stream_owner = true;
     instances.push(shared);
     let mut call = RollCall {
-        group_id: "07070707070707070707070707070707".into(),
+        group_id: "07".repeat(32),
         token: "token".into(),
         sender_installation: "a".into(),
         expected_installations: BTreeSet::from(["a".into(), "b".into()]),
@@ -506,7 +585,7 @@ async fn installation_joined_after_rollcall_does_not_owe_earlier_tokens() {
         });
     }
     let mut call = RollCall {
-        group_id: "07070707070707070707070707070707".into(),
+        group_id: "07".repeat(32),
         token: "token".into(),
         sender_installation: "a".into(),
         expected_installations: BTreeSet::from(["a".into(), "b".into()]),
@@ -569,4 +648,22 @@ async fn reports_bound_history_without_erasing_generation_or_fork_evidence() {
     assert_eq!(after.commits.len(), 64);
     assert_eq!(after.commit_evidence_omitted, 68);
     assert_eq!(after.removal_evidence_omitted, 67);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn changing_blocker_codes_does_not_restart_the_liveness_budget() {
+    let mut instances = population();
+    block_topic(&mut instances[0], false);
+    let budgets = RetryBudgets::default();
+    let mut oracle = Oracle::new(false, budgets);
+    assert_eq!(
+        oracle.evaluate(1, 0, &instances, &[]).verdict,
+        Verdict::Stall
+    );
+    instances[0].checkpoint.topics[0].cause = Some(BarrierCause::Blocked {
+        code: "different_blocker".into(),
+    });
+    let result = oracle.evaluate(2, budgets.blocked_welcome_ms + 1, &instances, &[]);
+    assert_eq!(result.verdict, Verdict::Brick);
+    assert!(result.violation);
 }

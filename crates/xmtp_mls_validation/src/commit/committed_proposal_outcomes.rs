@@ -15,7 +15,7 @@ use openmls::{
     schedule::PreSharedKeyId,
 };
 use tls_codec::DeserializeBytes as _;
-use xmtp_mls_common::app_data::component_id::ComponentId;
+use xmtp_mls_group_state::app_data::component_id::ComponentId;
 
 use super::{CommitRuleError, validate_committed_proposals};
 
@@ -43,7 +43,7 @@ fn psk() -> Proposal {
 }
 
 /// Every proposal kind outside the allowlist except `PreSharedKey`.
-fn held_kinds() -> Vec<Proposal> {
+fn unsupported_kinds() -> Vec<Proposal> {
     // No extensions.
     let gce = GroupContextExtensionProposalIn::tls_deserialize_exact_bytes(&[0]).unwrap();
     // group_id <1 byte>, version mls10, ciphersuite 0x0001, no extensions.
@@ -71,31 +71,30 @@ fn assert_invalid_list(proposals: &[Proposal]) {
     assert!(error.is_safe_rejection(), "an invalid list is terminal");
 }
 
-/// verifies: GMOD-001
+/// verifies: GMOD-059
 ///
-/// A commit carrying any unsupported kind other than `PreSharedKey` is held,
-/// never rejected: a later client version may support it, so rejecting would
-/// fork the group. The check covers the whole list, so a held kind after an
-/// allowed one still holds the commit.
+/// A commit carrying any unsupported kind other than `PreSharedKey` is a
+/// terminal rejection. The check covers the whole list, so an unsupported
+/// kind after an allowed one still rejects the commit.
 #[xmtp_common::test(unwrap_try = true)]
-fn committed_proposal_outcomes_hold_unsupported_kinds() {
-    for held in held_kinds() {
-        let kind = held.proposal_type();
-        let error = check(&[remove_member(), update(COMPONENT), held]).unwrap_err();
+fn committed_proposal_outcomes_reject_unsupported_kinds() {
+    for unsupported in unsupported_kinds() {
+        let kind = unsupported.proposal_type();
+        let error = check(&[remove_member(), update(COMPONENT), unsupported]).unwrap_err();
         assert!(
             matches!(error, CommitRuleError::UnsupportedProposalType(t) if t == kind),
-            "{kind:?} must hold the commit, got {error:?}"
+            "{kind:?} must reject the commit, got {error:?}"
         );
-        assert!(!error.is_safe_rejection(), "{kind:?} must not be terminal");
+        assert!(error.is_safe_rejection(), "{kind:?} must be terminal");
     }
 }
 
-/// verifies: GMOD-001
+/// verifies: GMOD-059
 ///
-/// A committed `PreSharedKey` is a terminal rejection, but it never masks a
-/// held kind in the same list: holding is the outcome that cannot fork.
+/// A committed `PreSharedKey` is a terminal rejection, alone or with another
+/// unsupported kind in the same list.
 #[xmtp_common::test(unwrap_try = true)]
-fn committed_proposal_outcomes_reject_psk_unless_held() {
+fn committed_proposal_outcomes_reject_psk() {
     let error = check(&[remove_member(), psk()]).unwrap_err();
     assert!(matches!(error, CommitRuleError::NoPSKSupport), "{error:?}");
     assert!(error.is_safe_rejection());
@@ -106,8 +105,31 @@ fn committed_proposal_outcomes_reject_psk_unless_held() {
             error,
             CommitRuleError::UnsupportedProposalType(ProposalType::SelfRemove)
         ),
-        "a held kind outranks the PSK rejection, got {error:?}"
+        "{error:?}"
     );
+    assert!(error.is_safe_rejection());
+}
+
+/// verifies: GMOD-059
+///
+/// Every proposal type other than the four allowed ones is a terminal
+/// rejection, standalone or committed, so no member holds its group head on
+/// one.
+#[xmtp_common::test(unwrap_try = true)]
+fn unsupported_proposal_types_are_terminal() {
+    for kind in [
+        ProposalType::PreSharedKey,
+        ProposalType::Reinit,
+        ProposalType::ExternalInit,
+        ProposalType::GroupContextExtensions,
+        ProposalType::SelfRemove,
+        ProposalType::AppEphemeral,
+        ProposalType::Grease(0x0A0A),
+        ProposalType::Custom(0xF000),
+    ] {
+        let error = CommitRuleError::UnsupportedProposalType(kind);
+        assert!(error.is_safe_rejection(), "{kind:?} must be terminal");
+    }
 }
 
 /// verifies: GMOD-030

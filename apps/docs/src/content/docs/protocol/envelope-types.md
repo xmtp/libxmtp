@@ -20,6 +20,8 @@ Application messages carry encrypted content such as text, attachments, reaction
 
 Commits can add or remove members, update metadata, update permissions, rotate keys, or repair missing membership. A client processes commits in backend topic order.
 
+Every group message carries a signature by the group's signing key, whose public key is the group ID. Only installations that were ever members of the group hold that key. The backend refuses a group message whose signature does not verify.
+
 ## Welcome messages
 
 A Welcome bootstraps a new member with group context, encrypted group secrets, the ratchet tree, and confirmation data. It depends on the new installation's key package.
@@ -36,4 +38,4 @@ An identity update can also claim a [handle](/protocol/identity/#handles), a pub
 
 ## Commit-log entries
 
-A commit-log entry records a group commit for fork detection. Its topic is separate from the group-message topic, even though both use the group ID as their identifier.
+A commit-log entry records a group commit for fork detection. Its topic is named by the group's commit-log ID, not by the group ID, so the group ID does not reveal it. Each entry is encrypted and signed under keys that only installations that were ever members of the group hold, and the backend refuses an entry whose signature does not verify.

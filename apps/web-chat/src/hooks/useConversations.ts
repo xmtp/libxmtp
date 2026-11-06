@@ -16,6 +16,9 @@ import {
 } from "@/stores/inbox/hooks";
 import { inboxStore } from "@/stores/inbox/store";
 
+/** The largest page the SDK returns. */
+const CONVERSATION_PAGE_LIMIT = 1000;
+
 export const useConversations = () => {
   const client = useClient();
   const { addConversations, addConversation, addMessage, setLastSyncedAt } =
@@ -27,12 +30,24 @@ export const useConversations = () => {
   const refreshConversationsList = useCallback(async () => {
     setLoading(true);
     try {
-      const convos = await client.conversations.list({
-        createdAfter:
-          inboxStore.getState().lastCreatedAt === undefined
-            ? undefined
-            : new Timestamp(inboxStore.getState().lastCreatedAt!),
-      });
+      const lastCreatedAt = inboxStore.getState().lastCreatedAt;
+      const createdAfter =
+        lastCreatedAt === undefined ? undefined : new Timestamp(lastCreatedAt);
+      // One list call returns one page. Read creation-order pages, newest
+      // first, until a page is short.
+      const convos: Conversation[] = [];
+      for (;;) {
+        const last = convos.at(-1);
+        const page = await client.conversations.list({
+          orderBy: "createdAt",
+          createdAfter,
+          createdBefore: last?.createdAt,
+          beforeId: last?.id,
+          limit: CONVERSATION_PAGE_LIMIT,
+        });
+        convos.push(...page);
+        if (page.length < CONVERSATION_PAGE_LIMIT) break;
+      }
       await addConversations(convos);
       setLastSyncedAt(dateToNs(new Date()));
       return convos;

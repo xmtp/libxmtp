@@ -42,7 +42,7 @@ export async function exercise(path: string): Promise<void> {
     },
   };
   const options: Public.ClientOptions = {
-    backend: { url: `${location.origin}/backend` },
+    backend: { url: location.origin },
     storage: {
       location: { dbPath: path, attachmentsDir: `${path}-attachments` },
       label: path,

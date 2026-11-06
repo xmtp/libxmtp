@@ -26,6 +26,24 @@ fn encoded_content_requires_complete_type_and_preserves_custom_bytes() {
         assert!(!details.retryable);
     }
     let content = sample("custom.example", "opaque");
+    for _ in 0..16 {
+        let make_reply = || -> Result<_, crate::XmtpError> {
+            let mut nested = sample("custom.example", "opaque");
+            nested
+                .parameters
+                .extend(["alpha", "beta", "gamma"].map(|key| (key.into(), key.into())));
+            encode_standard(StandardContent::Reply {
+                reference: crate::MessageId::from_bytes(&[0xaa; 32])?,
+                reference_inbox_id: Some(crate::InboxId::try_from("inbox".to_string())?),
+                content: nested,
+            })
+        };
+        assert_eq!(
+            encode_encoded_content(make_reply()?)?,
+            encode_encoded_content(make_reply()?)?,
+            "SDK Reply envelope bytes"
+        );
+    }
     let decoded = decode_encoded_content(encode_encoded_content(content.clone())?)?;
     assert_eq!(decoded.r#type.authority_id, content.r#type.authority_id);
     assert_eq!(decoded.r#type.type_id, content.r#type.type_id);
@@ -240,6 +258,7 @@ fn remote_attachment_requires_each_catalogue_parameter() {
 #[cfg(test)]
 // verifies: CTYPE-011
 // verifies: CTYPE-024
+// verifies: CTYPE-029
 #[xmtp_common::test(unwrap_try = true)]
 fn malformed_nested_reply_content_is_rejected() {
     use prost::Message as _;
@@ -265,28 +284,16 @@ fn malformed_nested_reply_content_is_rejected() {
             content: b"compressed text".to_vec(),
             ..Default::default()
         },
+        ProtoEncodedContent {
+            r#type: Some(xmtp_content_types::text::TextCodec::content_type()),
+            content: vec![0xff, 0xfe],
+            ..Default::default()
+        },
     ] {
         let mut outer = xmtp_content_types::reply::ReplyCodec::encode(reply.clone())?;
         outer.content = nested.encode_to_vec();
         assert!(decode_standard(outer.try_into()?).is_err());
     }
-}
-
-#[cfg(test)]
-// verifies: CTYPE-029
-#[xmtp_common::test(unwrap_try = true)]
-fn malformed_nested_standard_reply_content_is_rejected() {
-    let nested = ProtoEncodedContent {
-        r#type: Some(xmtp_content_types::text::TextCodec::content_type()),
-        content: vec![0xff, 0xfe],
-        ..Default::default()
-    };
-    let outer = xmtp_content_types::reply::ReplyCodec::encode(xmtp_content_types::reply::Reply {
-        reference: "a".repeat(64),
-        reference_inbox_id: None,
-        content: nested,
-    })?;
-    assert!(decode_standard(outer.try_into()?).is_err());
 }
 
 #[cfg(test)]
@@ -603,5 +610,83 @@ fn standard_codec_errors_keep_distinct_typed_outcomes() {
         assert!(matches!(details.category, crate::ErrorCategory::Input));
         assert!(!details.retryable);
         assert!(!details.message.is_empty());
+    }
+}
+
+/// The SDK's envelope conversion stops a compressed reaction at the reaction
+/// limit, like the core decoder, and other compressed content keeps the
+/// shared budget.
+// verifies: CTYPE-034
+#[cfg(test)]
+#[xmtp_common::test(unwrap_try = true)]
+fn decode_encoded_content_limits_compressed_reactions() {
+    use prost::Message as _;
+    use xmtp_content_types::{compression, reaction::ReactionCodec};
+    use xmtp_proto::xmtp::mls::message_contents::Compression;
+
+    let deflated = |r#type, content: Vec<u8>| {
+        let envelope = ProtoEncodedContent {
+            r#type: Some(r#type),
+            content,
+            ..Default::default()
+        };
+        compression::compress(envelope, Compression::Deflate).map(|e| e.encode_to_vec())
+    };
+    let reaction = proto::ReactionV2 {
+        reference: "ab".repeat(32),
+        content: "a".repeat(1 << 20),
+        ..Default::default()
+    };
+    let bytes = deflated(ReactionCodec::content_type(), reaction.encode_to_vec())?;
+    match decode_encoded_content(bytes) {
+        Err(crate::XmtpError::CodecDecodeFailed(_)) => {}
+        Err(error) => panic!("unexpected error {error:?}"),
+        Ok(content) => panic!("decoded {} reaction bytes", content.content.len()),
+    }
+    let text = deflated(
+        xmtp_content_types::text::TextCodec::content_type(),
+        vec![b'a'; 1 << 20],
+    )?;
+    assert_eq!(decode_encoded_content(text)?.content.len(), 1 << 20);
+}
+
+/// A reply's nested reaction is decompressed under the reaction limit, so a
+/// compressed one stops at the limit instead of expanding before the length
+/// check rejects it.
+// verifies: CTYPE-034
+#[cfg(test)]
+#[xmtp_common::test(unwrap_try = true)]
+fn reply_with_compressed_nested_reaction_stops_at_the_limit() {
+    use prost::Message as _;
+    use xmtp_content_types::{compression, reaction::ReactionCodec, reply::ReplyCodec};
+    use xmtp_proto::xmtp::mls::message_contents::Compression;
+
+    let nested = compression::compress(
+        ProtoEncodedContent {
+            r#type: Some(ReactionCodec::content_type()),
+            content: proto::ReactionV2 {
+                reference: "ab".repeat(32),
+                content: "a".repeat(1 << 20),
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            ..Default::default()
+        },
+        Compression::Deflate,
+    )?;
+    let outer = ReplyCodec::encode(xmtp_content_types::reply::Reply {
+        reference: "ab".repeat(32),
+        reference_inbox_id: None,
+        content: nested,
+    })?;
+    match decode_standard(outer.try_into()?) {
+        Err(crate::XmtpError::CodecDecodeFailed(details)) => assert!(
+            details
+                .message
+                .contains("decompressed content exceeds 4096 bytes"),
+            "the nested reaction expanded before it failed: {}",
+            details.message
+        ),
+        other => panic!("a reply with an oversized nested reaction decoded: {other:?}"),
     }
 }

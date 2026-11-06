@@ -45,7 +45,7 @@ alix.worker().register_interest(SyncMetric::PayloadSent, 1).wait().await?;
 ## Stream assertions
 
 `assert_msg!(stream, "text")` and `assert_msg_exists!` are exported from
-`crates/xmtp_mls/src/subscriptions/mod.rs`.
+`crates/xmtp_mls_streams/tests/streams/main.rs`.
 
 ## Custom helpers
 

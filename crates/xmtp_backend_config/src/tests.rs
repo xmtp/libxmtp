@@ -1,7 +1,7 @@
 use super::*;
 use std::collections::BTreeSet;
 
-mod example;
+pub(crate) mod example;
 
 /// A command that runs one test of this test binary in a child process. The
 /// test is named by `module_path!()` where it is defined and its function name.
@@ -275,11 +275,8 @@ fn unknown_keys_are_refused_in_every_table() {
         {
             continue;
         }
-        tables.push(if element {
-            format!("{}[]", row.key)
-        } else {
-            row.key.clone()
-        });
+        let table = listed_keys(&rows, &row.key);
+        tables.push(if element { format!("{table}[]") } else { table });
     }
     for (table, enabled) in tables
         .iter()
@@ -301,6 +298,73 @@ fn unknown_keys_are_refused_in_every_table() {
             matches!(error, ConfigError::Invalid { reason, .. } if reason == "is not a configuration key"),
             "an unlisted key in [{table}] with auth enabled = {enabled}: {error}"
         );
+    }
+}
+
+/// `key` with each operator-chosen segment, such as `<category>`, replaced by
+/// the first name the `key one of:` check of that segment's row lists.
+fn listed_keys(rows: &[example::FieldRow], key: &str) -> String {
+    let mut listed = String::new();
+    let mut rest = key;
+    while let Some(open) = rest.find('<') {
+        let close = open + rest[open..].find('>').expect("an unclosed <");
+        let segment = &key[..key.len() - rest.len() + close + 1];
+        listed.push_str(&rest[..open]);
+        listed.push_str(&listed_names(rows, segment)[0]);
+        rest = &rest[close + 1..];
+    }
+    listed.push_str(rest);
+    listed
+}
+
+/// The names the `key one of:` check of the row for `key` lists.
+fn listed_names(rows: &[example::FieldRow], key: &str) -> Vec<String> {
+    let row = rows
+        .iter()
+        .find(|row| row.key == key)
+        .unwrap_or_else(|| panic!("{key} has no row"));
+    standard_checks(&row.checks)
+        .iter()
+        .find_map(|check| check.strip_prefix("key one of: "))
+        .unwrap_or_else(|| panic!("{key} lists no key names"))
+        .split(", ")
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Every category and tier name the field table lists loads, under
+/// `rate_limits.categories` and in an override, and names its own limits.
+#[xmtp_common::test(unwrap_try = true)]
+fn every_listed_rate_limit_name_is_accepted() {
+    const MINIMAL: &str =
+        "[server]\nidentifier = 'org.xmtp.test'\n[database]\nurl = 'postgres://localhost/xmtp'\n";
+    let rows = example::field_table();
+    let tiers = listed_names(&rows, "rate_limits.categories.<category>.<tier>");
+    let caller = CallerKey::ApiKey("bot".into());
+    for (key, override_limits) in [
+        ("rate_limits.categories.<category>", false),
+        ("rate_limits.overrides[].limits.<category>", true),
+    ] {
+        for name in listed_names(&rows, key) {
+            let document = if override_limits {
+                format!(
+                    "{MINIMAL}[[rate_limits.overrides]]\napi_key = 'bot'\n\
+                     [rate_limits.overrides.limits]\n{name} = []\n"
+                )
+            } else {
+                let lists: String = tiers.iter().map(|tier| format!("{tier} = []\n")).collect();
+                format!("{MINIMAL}[rate_limits.categories.{name}]\n{lists}")
+            };
+            let config = ValidatedConfig::load_str(&document)
+                .unwrap_or_else(|error| panic!("{key} {name}: {error}"));
+            // Only the named category's limits are the empty list.
+            let emptied: Vec<&str> = Category::ALL
+                .into_iter()
+                .filter(|category| config.rate_limits().limits(*category, &caller).is_empty())
+                .map(Category::as_str)
+                .collect();
+            assert_eq!(emptied, [name.as_str()], "{key}");
+        }
     }
 }
 
@@ -399,7 +463,8 @@ enum AuthSource {
 }
 
 /// A configuration that loads and holds every table of the field table, with
-/// an enabled `[auth]` table.
+/// an enabled `[auth]` table, and the installation ceiling at the top of its
+/// range.
 fn full_document(auth: AuthSource) -> toml::Table {
     let mut document: toml::Table = toml::from_str(
         r#"
@@ -414,7 +479,19 @@ url = "postgres://localhost/xmtp"
 [retention]
 [validation]
 [limits]
+max_scw_signatures = 200
+[rate_limits]
+trusted_proxies = ["10.0.0.0/8"]
+[[rate_limits.categories.request.default]]
+count = 100
+window_seconds = 60
+[[rate_limits.overrides]]
+api_key = "bot"
+[[rate_limits.overrides.limits.request]]
+count = 100
+window_seconds = 60
 [mls]
+max_installations_per_inbox = 100
 [handles]
 [chains]
 "eip155:1" = "https://rpc.example.org"
@@ -526,8 +603,6 @@ fn every_cross_field_relationship_is_rejected() {
     assert_invalid(config.clone().validate(), "limits.max_update_adds");
     config = toml::from_str(MINIMAL)?;
     config.limits.max_envelope_bytes = DELIVERY_FRAME_BYTES - ENVELOPE_METADATA_AND_FRAMING_BYTES;
-    config.limits.max_request_bytes = DELIVERY_FRAME_BYTES;
-    config.limits.max_response_bytes = DELIVERY_FRAME_BYTES;
     config.clone().validate()?;
     config.limits.max_envelope_bytes = DELIVERY_FRAME_BYTES;
     assert_invalid(config.clone().validate(), "limits.max_envelope_bytes");
@@ -785,7 +860,7 @@ fn environment_references_resolve_once_in_every_string_position() {
     ))?;
     assert_eq!(config.telemetry.service_name, format!("env:{TARGET}"));
     assert_eq!(
-        config.into_config().auth?.audiences?,
+        config.into_config().auth?.audiences.take()?,
         vec!["xmtp.example.org".to_owned(), "literal".to_owned()]
     );
     let error = ValidatedConfig::load_str(&format!(
@@ -896,7 +971,7 @@ fn the_minimum_client_version_is_optional_and_semantic() {
 /// The transport ceiling is fixed, so a budget above it would promise a client
 /// something the transport cannot carry.
 #[xmtp_common::test(unwrap_try = true)]
-// verifies: CONF-008
+// verifies: CONF-096
 fn request_and_response_budgets_stop_at_the_transport_ceiling() {
     for field in ["limits.max_request_bytes", "limits.max_response_bytes"] {
         let mut config: Config = toml::from_str(MINIMAL)?;
@@ -910,6 +985,114 @@ fn request_and_response_budgets_stop_at_the_transport_ceiling() {
             _ => config.limits.max_response_bytes += 1,
         }
         assert_invalid(config.clone().validate(), field);
+    }
+}
+
+/// Distinct, largest legal group topics, not the legacy 16-byte identifiers.
+fn subscription_topic(id: usize) -> xmtp_proto::xmtp::backend::v1::Topic {
+    let mut bytes = vec![0; 33];
+    bytes[1..9].copy_from_slice(&(id as u64).to_be_bytes());
+    xmtp_proto::types::Topic::parse(&bytes).unwrap();
+    xmtp_proto::xmtp::backend::v1::Topic { topic: bytes }
+}
+
+// verifies: CONF-096
+#[xmtp_common::test(unwrap_try = true)]
+fn request_budget_fits_a_full_notification_batch() {
+    use prost::Message;
+    use xmtp_proto::xmtp::backend::v1 as api;
+    let request = api::UpdateSubscriptionsRequest {
+        recipient_id: vec![1; 32],
+        recipient_secret: vec![2; 32],
+        adds: (0..xmtp_configuration::NOTIFICATION_BATCH_TOPICS)
+            .map(|id| api::Subscription {
+                topic: subscription_topic(id).topic,
+                hmac_epoch_base: i64::MAX,
+                hmac_keys: vec![vec![3; 42]; xmtp_configuration::MAX_SUBSCRIPTION_HMAC_KEYS],
+                include_commits: true,
+            })
+            .collect(),
+        removes: vec![],
+    };
+    let required = request.encode_to_vec().len();
+    assert_eq!(required, 182_068);
+    let mut config: Config = toml::from_str(MINIMAL)?;
+    config.limits.max_envelope_bytes = 65_536;
+    for budget in [required, required + 1] {
+        config.limits.max_request_bytes = budget;
+        config.clone().validate()?;
+    }
+    config.limits.max_request_bytes = required - 1;
+    assert_invalid(config.clone().validate(), "limits.max_request_bytes");
+    config.limits.max_response_bytes = 65_536 + ENVELOPE_METADATA_AND_FRAMING_BYTES;
+    let error = assert_invalid(config.validate(), "limits.max_request_bytes");
+    assert!(error.to_string().contains("limits.max_response_bytes"));
+}
+
+fn assert_control_budget(adds: usize, statics: usize, required: usize) {
+    let mut config: Config = toml::from_str(MINIMAL).unwrap();
+    config.limits.max_envelope_bytes = 65_536;
+    config.limits.max_update_adds = adds;
+    config.limits.max_static_topics = statics;
+    for budget in [required, required + 1] {
+        config.limits.max_response_bytes = budget;
+        let validated = config.clone().validate().expect("complete controls fit");
+        assert_eq!(validated.limits.max_update_adds, adds);
+        assert_eq!(validated.limits.max_static_topics, statics);
+        assert_eq!(validated.limits.max_response_bytes, budget);
+    }
+    config.limits.max_response_bytes = required - 1;
+    assert_invalid(config.validate(), "limits.max_response_bytes");
+}
+
+fn catchup_targets(count: usize) -> Vec<xmtp_proto::xmtp::backend::v1::CatchupTarget> {
+    (0..count)
+        .map(|id| xmtp_proto::xmtp::backend::v1::CatchupTarget {
+            topic: Some(subscription_topic(id)),
+            through_sequence_id: i64::MAX as u64,
+        })
+        .collect()
+}
+
+// verifies: CONF-096
+#[xmtp_common::test(unwrap_try = true)]
+fn response_budget_fits_a_complete_applied() {
+    use prost::Message;
+    use xmtp_proto::xmtp::backend::v1 as api;
+    let limits = LimitsConfig::default();
+    let frame = api::SubscribeResponse {
+        response: Some(api::subscribe_response::Response::Applied(
+            api::subscribe_response::Applied {
+                id: u64::MAX,
+                added_targets: catchup_targets(limits.max_update_adds),
+            },
+        )),
+    };
+    let required = frame.encode_to_vec().len();
+    assert_eq!(required, 4_900_016);
+    assert_control_budget(limits.max_update_adds, limits.max_static_topics, required);
+}
+
+// verifies: CONF-096
+#[xmtp_common::test(unwrap_try = true)]
+fn response_budget_fits_a_complete_static_started() {
+    use prost::Message;
+    use xmtp_proto::xmtp::backend::v1 as api;
+    for (count, expected) in [
+        (LimitsConfig::default().max_static_topics, 490_010),
+        (2_000, 98_010),
+    ] {
+        let frame = api::SubscribeStaticResponse {
+            response: Some(api::subscribe_static_response::Response::Started(
+                api::subscribe_static_response::Started {
+                    keepalive_interval_ms: u32::MAX,
+                    targets: catchup_targets(count),
+                },
+            )),
+        };
+        let required = frame.encode_to_vec().len();
+        assert_eq!(required, expected);
+        assert_control_budget(1, count, required);
     }
 }
 
@@ -1053,8 +1236,10 @@ fn failing_values() -> Vec<FailingValue> {
         failing("limits.max_push_topics", MAX_INT, "2147483648"),
         failing("mls.max_group_members", "range 1..65535", "0"),
         failing("mls.max_group_members", "range 1..65535", "65536"),
-        failing("mls.max_installations_per_inbox", "range 1..65535", "0"),
-        failing("mls.max_installations_per_inbox", "range 1..65535", "65536"),
+        failing("mls.max_installations_per_inbox", "range 1..100", "0"),
+        failing("mls.max_installations_per_inbox", "range 1..100", "101"),
+        failing("limits.max_scw_signatures", "range 1..200", "0"),
+        failing("limits.max_scw_signatures", "range 1..200", "201"),
         failing_name(
             "chains.<chain id>",
             "url http, https",
@@ -1160,7 +1345,6 @@ fn failing_values() -> Vec<FailingValue> {
         "limits.max_stream_topics",
         "limits.max_static_topics",
         "limits.max_lookup_identifiers",
-        "limits.max_scw_signatures",
         "limits.max_identity_entries",
     ] {
         cases.push(failing(key, COUNT, "0"));
@@ -1201,6 +1385,7 @@ fn failing_values() -> Vec<FailingValue> {
     ] {
         cases.push(failing(key, "range 1..", "0"));
     }
+    cases.extend(rate_limit_failing_values());
     for key in [
         "application_components[].insert_policy",
         "application_components[].update_policy",
@@ -1215,6 +1400,136 @@ fn failing_values() -> Vec<FailingValue> {
             "'maybe'",
             &format!("application_components[0].{name}"),
         ));
+    }
+    cases
+}
+
+/// The values that fail each standard check of a `rate_limits` row.
+fn rate_limit_failing_values() -> Vec<FailingValue> {
+    const WINDOW: &str = "range 1..2592000";
+    let mut cases = vec![
+        failing("rate_limits.max_memory_mib", "range 1..65536", "0"),
+        failing("rate_limits.max_memory_mib", "range 1..65536", "65537"),
+        failing_name(
+            "rate_limits.categories.<category>",
+            "key one of: request, publish, identity_update, chain_verify, push, upload, stream_rent",
+            "rate_limits.categories",
+            "query",
+            "{}",
+            "rate_limits.categories.query",
+        ),
+        failing_name(
+            "rate_limits.categories.<category>.<tier>",
+            "key one of: default, ip, jwt, api_key",
+            "rate_limits.categories.request",
+            "anonymous",
+            "[]",
+            "rate_limits.categories.request.anonymous",
+        ),
+        failing_name(
+            "rate_limits.overrides[].limits.<category>",
+            "key one of: request, publish, identity_update, chain_verify, push, upload, stream_rent",
+            "rate_limits.overrides[].limits",
+            "query",
+            "[]",
+            "rate_limits.overrides[0].limits.query",
+        ),
+        failing_name(
+            "rate_limits.overrides[].api_key",
+            "pattern ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+            "rate_limits.overrides[]",
+            "api_key",
+            "'-bot'",
+            "rate_limits.overrides[0].api_key",
+        ),
+        failing_name(
+            "rate_limits.overrides[].jwt_subject",
+            "non-empty",
+            "rate_limits.overrides[]",
+            "jwt_subject",
+            "''",
+            "rate_limits.overrides[0].jwt_subject",
+        ),
+    ];
+    // An IPv4 octet or IPv6 group out of range, a leading zero, a zone, a
+    // bracket, a host name, a prefix that does not fit, and a bit set after
+    // the prefix.
+    for network in [
+        "10.0.0.0",
+        "256.0.0.0/8",
+        "010.0.0.0/8",
+        "10.0.0.0/33",
+        "10.0.0.0/+8",
+        "10.0.0.0/",
+        "10.0.0.1/8",
+        "fe80::%1/64",
+        "[fe80::]/64",
+        "fe80::/129",
+        "fe80::1/64",
+        "localhost/8",
+    ] {
+        cases.push(FailingValue {
+            field: "rate_limits.trusted_proxies[0]".into(),
+            ..failing(
+                "rate_limits.trusted_proxies",
+                "ip network",
+                &format!("['{network}']"),
+            )
+        });
+    }
+    for ip in [
+        "10.0.0.0/8",
+        "256.0.0.1",
+        "01.2.3.4",
+        "fe80::1%1",
+        "[::1]",
+        "host",
+    ] {
+        cases.push(failing_name(
+            "rate_limits.overrides[].ip",
+            "ip address",
+            "rate_limits.overrides[]",
+            "ip",
+            &format!("'{ip}'"),
+            "rate_limits.overrides[0].ip",
+        ));
+    }
+    let tier = "rate_limits.categories.request.default[]";
+    let category = "rate_limits.overrides[].limits.request[]";
+    for (key, table, field, check, texts) in [
+        (
+            "rate_limits.categories.<category>.<tier>[].count",
+            tier,
+            "rate_limits.categories.request.default[0].count",
+            COUNT,
+            ["0", "4294967296"],
+        ),
+        (
+            "rate_limits.categories.<category>.<tier>[].window_seconds",
+            tier,
+            "rate_limits.categories.request.default[0].window_seconds",
+            WINDOW,
+            ["0", "2592001"],
+        ),
+        (
+            "rate_limits.overrides[].limits.<category>[].count",
+            category,
+            "rate_limits.overrides[0].limits.request[0].count",
+            COUNT,
+            ["0", "4294967296"],
+        ),
+        (
+            "rate_limits.overrides[].limits.<category>[].window_seconds",
+            category,
+            "rate_limits.overrides[0].limits.request[0].window_seconds",
+            WINDOW,
+            ["0", "2592001"],
+        ),
+    ] {
+        let name = field.rsplit_once('.').expect("a key below its table").1;
+        for text in texts {
+            cases.push(failing_name(key, check, table, name, text, field));
+        }
     }
     cases
 }
@@ -1395,7 +1710,7 @@ fn chain_keys_must_be_eip155_chain_ids() {
 /// with a fixed reason, and never the value. A typed-decoding refusal has one
 /// of four reasons, chosen by the decoder's message, so a decoder update that
 /// changes those messages fails here.
-// verifies: CONF-065
+// verifies: CONF-065, CONF-087
 #[xmtp_common::test(unwrap_try = true)]
 fn every_refusal_names_its_key() {
     const MISSING: &str = "XMTP_CONFIG_REFUSAL_MISSING_7C2D";
@@ -1516,6 +1831,86 @@ fn every_refusal_names_its_key() {
         (
             s3_line("credentials = ['bogus']"),
             "attachments.target.S3.credentials",
+            "has the wrong type or value".into(),
+        ),
+        // A table with fixed keys refuses an array, which serde would decode
+        // by position, at every depth.
+        (
+            format!("limits = []\n{MINIMAL}"),
+            "limits",
+            "has the wrong type or value".into(),
+        ),
+        (
+            format!("limits = [7]\n{MINIMAL}"),
+            "limits",
+            "has the wrong type or value".into(),
+        ),
+        (
+            format!("database = ['postgres://localhost/xmtp']\n{REQUIRED_SERVER}"),
+            "database",
+            "has the wrong type or value".into(),
+        ),
+        (
+            format!(
+                "{MINIMAL}[attachments]\nbase_url = 'https://files.example.org'\n\
+                 [[attachments.target.S3]]\nendpoint = 'https://s3.example.org'\n\
+                 region = 'us-east-1'\nbucket = 'attachments'\n\
+                 credentials = {{ kind = 'instance' }}\n"
+            ),
+            "attachments.target.S3",
+            "has the wrong type or value".into(),
+        ),
+        (
+            auth("keys = [['a', 'ES256', 'k']]"),
+            "auth.keys[0]",
+            "has the wrong type or value".into(),
+        ),
+        (
+            format!(
+                "application_components = [[49152, 'a', 'string', 'allow', 'allow', \
+                 'allow', true, false]]\n{MINIMAL}"
+            ),
+            "application_components[0]",
+            "has the wrong type or value".into(),
+        ),
+        (
+            format!(
+                "{MINIMAL}[[rate_limits.overrides]]\napi_key = 'bot'\n\
+                 [rate_limits.overrides.limits]\nrequest = [[10, 1]]\n"
+            ),
+            "rate_limits.overrides[0].limits.request[0]",
+            "has the wrong type or value".into(),
+        ),
+        // A key that takes one of a fixed list of strings refuses a one-key
+        // table, which serde would decode as that variant.
+        (
+            format!("{MINIMAL}log_level = {{ debug = {{}} }}\n"),
+            "server.log_level",
+            "has the wrong type or value".into(),
+        ),
+        (
+            format!("{MINIMAL}log_format = {{ json = {{}} }}\n"),
+            "server.log_format",
+            "has the wrong type or value".into(),
+        ),
+        (
+            format!(
+                "{MINIMAL}{}",
+                component(0xC000, "a", true).replace(
+                    "component_type = 'string'",
+                    "component_type = { string = {} }"
+                )
+            ),
+            "application_components[0].component_type",
+            "has the wrong type or value".into(),
+        ),
+        (
+            format!(
+                "{MINIMAL}{}",
+                component(0xC000, "a", true)
+                    .replace("insert_policy = 'allow'", "insert_policy = { allow = {} }")
+            ),
+            "application_components[0].insert_policy",
             "has the wrong type or value".into(),
         ),
         // A date or a time, which no key takes.

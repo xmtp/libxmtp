@@ -8,7 +8,7 @@ pub use crate::backend_v1::{
 };
 use crate::types::{
     GroupId, GroupMessage, IncomingBatchLimits, IncomingEvent, IncomingSubscription,
-    InstallationId, TopicCursor, WelcomeMessage,
+    InstallationId, ReceivedQueryResponse, TopicCursor, WelcomeMessage,
 };
 use futures::Stream;
 use std::pin::Pin;
@@ -37,7 +37,7 @@ xmtp_common::if_native! {
     pub type BoxedGroupS<Err> = Pin<Box<dyn Stream<Item = Result<GroupMessage, Err>> + Send>>;
     pub type BoxedWelcomeS<Err> = Pin<Box<dyn Stream<Item = Result<WelcomeMessage, Err>> + Send>>;
     pub type BoxedSubscribeS<Err> =
-        Pin<Box<dyn Stream<Item = Result<crate::backend_v1::SubscribeResponse, Err>> + Send>>;
+        Pin<Box<dyn Stream<Item = Result<crate::types::ReceivedSubscribeResponse, Err>> + Send>>;
 }
 
 xmtp_common::if_wasm! {
@@ -92,6 +92,11 @@ pub trait XmtpBackendClient: MaybeSend + MaybeSync {
         request: CreateUploadRequest,
     ) -> Result<CreateUploadResponse, Self::Error>;
     async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Self::Error>;
+    /// Query and keep each `ServerEnvelope` byte-for-byte as received.
+    async fn query_raw_envelopes(
+        &self,
+        request: QueryRequest,
+    ) -> Result<ReceivedQueryResponse, Self::Error>;
     async fn query_newest(
         &self,
         request: QueryNewestRequest,
@@ -193,7 +198,8 @@ xmtp_common::if_native! {
     /// [`XmtpMlsStreams`] with a client-side watchdog.
     #[xmtp_common::async_trait]
     pub trait XmtpMlsBidiStreams: MaybeSend + MaybeSync {
-        type SubscribeStream: Stream<Item = Result<crate::backend_v1::SubscribeResponse, Self::Error>>
+        /// Server frames that keep each `ServerEnvelope` byte-for-byte as received.
+        type SubscribeStream: Stream<Item = Result<crate::types::ReceivedSubscribeResponse, Self::Error>>
             + MaybeSend;
 
         type Error: RetryableError + 'static;

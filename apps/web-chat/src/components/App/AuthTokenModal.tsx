@@ -19,10 +19,12 @@ import { ContentLayout } from "@/layouts/ContentLayout";
 
 export const AuthTokenModal: React.FC = () => {
   const { request } = useAuthToken();
-  const { authToken } = useSettings();
+  const { authTokens } = useSettings();
   // Start from the stored token so a rejected one can be corrected rather than
   // retyped, and reset between prompts.
-  const initialValue = request?.rejected ? authToken : "";
+  const initialValue = request?.rejected
+    ? (authTokens[request.origin] ?? "")
+    : "";
   return request ? (
     <AuthTokenForm
       key={JSON.stringify([request.id, request.rejected, initialValue])}
@@ -79,8 +81,13 @@ const AuthTokenForm: React.FC<{
             </Alert>
           )}
           <Text size="sm">
-            This backend requires a credential. It is sent to the backend you
-            configured and is separate from your wallet signature.
+            <strong>
+              {request.origin === ""
+                ? "This backend"
+                : new URL(request.origin).host}
+            </strong>{" "}
+            requires a credential. It is sent only to this backend and is
+            separate from your wallet signature.
           </Text>
           <PasswordInput
             aria-label="Backend auth token"

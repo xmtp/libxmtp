@@ -69,14 +69,21 @@ async fn drain_attachment_events(
     client: &Client,
     reader: &crate::EventReader,
 ) -> Result<Vec<ClientEvent>, XmtpError> {
-    emit_hmac(client);
+    // A marker no attachment flow emits: a real root-key event can occur
+    // when a send first needs a root key.
+    client.inner.context.events().emit(
+        Some(xmtp_events::ClientEvent::ArchiveRestored(
+            xmtp_events::ArchiveRestored { complete: true },
+        )),
+        None,
+    );
     let mut events = Vec::new();
     loop {
         match tokio::time::timeout(Duration::from_secs(5), reader.next())
             .await
             .map_err(XmtpError::unknown)??
         {
-            Some(ClientEvent::HmacKeysUpdated { .. }) | None => return Ok(events),
+            Some(ClientEvent::ArchiveRestored { .. }) | None => return Ok(events),
             Some(event) => events.push(event),
         }
     }
@@ -84,7 +91,7 @@ async fn drain_attachment_events(
 
 fn attachment_reader_filter() -> EventFilter {
     let mut kinds = ATTACHMENT_KINDS.to_vec();
-    kinds.push(EventKind::HmacKeysUpdated);
+    kinds.push(EventKind::ArchiveRestored);
     event_filter(kinds)
 }
 

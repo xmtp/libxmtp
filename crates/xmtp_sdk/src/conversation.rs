@@ -14,11 +14,10 @@ use xmtp_db::prelude::QueryDms;
 use xmtp_db::prelude::QueryGroup;
 use xmtp_db::prelude::QueryGroupMessage;
 use xmtp_mls::MlsContext;
-use xmtp_mls::context::{ForegroundCall, XmtpSharedContext};
 use xmtp_mls::groups::{MlsGroup, send_message_opts::SendMessageOpts};
 use xmtp_mls::messages::enrichment::EnrichedStoredMessage;
 use xmtp_mls::mls_common::group_mutable_metadata::MetadataField;
-use xmtp_mls::mls_store::MlsStore;
+use xmtp_mls::{context::ForegroundCall, prelude::*};
 use xmtp_proto::types::{ConversationType, GroupId};
 
 use crate::{
@@ -31,13 +30,13 @@ use crate::{
 
 // Keep these declarations in one module so generated binding paths stay stable.
 mod calls;
-use calls::deletion_group;
+use calls::delete_for_everyone;
 pub(crate) use calls::{enter_call, on_sdk_worker, on_settled_worker};
 include!("conversation/collection.rs");
 include!("conversation/identity.rs");
 mod content;
 pub(crate) use content::{lift_history_messages, query_content_types};
-use content::{require_content_type, send_encoded, send_standard};
+use content::{reaction_page, require_content_type, send_encoded, send_standard};
 include!("conversation/common.rs");
 include!("conversation/group.rs");
 include!("conversation/metadata.rs");

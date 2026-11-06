@@ -6,9 +6,23 @@ use xmtp_proto::xmtp::device_sync::message_backup::{
 
 impl TryFrom<GroupMessageSave> for StoredGroupMessage {
     type Error = ConversionError;
-    fn try_from(value: GroupMessageSave) -> Result<Self, Self::Error> {
+    fn try_from(mut value: GroupMessageSave) -> Result<Self, Self::Error> {
+        // implements: ARCH-028
+        // Wipe a marked element's content before any fallible conversion, so
+        // a malformed element cannot drop its plaintext into freed memory.
+        if value
+            .deleted_by_inbox_id
+            .as_ref()
+            .is_some_and(|id| !id.is_empty())
+        {
+            zeroize::Zeroize::zeroize(&mut value.decrypted_message_bytes);
+        }
         let kind = value.kind().try_into()?;
         let delivery_status = value.delivery_status().try_into()?;
+        let (expire_at_ns, expiry_unknown) = match value.expiry_known {
+            Some(true) => (value.expires_at_ns, false),
+            _ => (None, true),
+        };
 
         let legacy_type: ContentType = value.content_type_save().into();
         let type_id = if legacy_type == ContentType::Unknown {
@@ -22,10 +36,15 @@ impl TryFrom<GroupMessageSave> for StoredGroupMessage {
             u32::try_from(value.version_major).unwrap_or_default(),
         );
 
+        // implements: ARCH-028
+        // Trust the mark, never its content.
+        let deleted_by_inbox_id = value.deleted_by_inbox_id.filter(|id| !id.is_empty());
+        let decrypted_message_bytes = value.decrypted_message_bytes;
+
         Ok(Self {
             id: value.id,
             group_id: value.group_id.try_into()?,
-            decrypted_message_bytes: value.decrypted_message_bytes,
+            decrypted_message_bytes,
             sent_at_ns: value.sent_at_ns,
             kind,
             sender_installation_id: value.sender_installation_id,
@@ -39,13 +58,15 @@ impl TryFrom<GroupMessageSave> for StoredGroupMessage {
             sequence_id: value.sequence_id.unwrap_or(0),
             envelope_hash: None,
             expiry_ns: None,
-            expire_at_ns: None,
+            expire_at_ns,
+            expiry_unknown,
             inserted_at_ns: 0,  // Will be set by database
             should_push: false, // Default to false for synced messages
             // GroupMessageSave does not carry the idempotency key; fall back to
             // the historical default (the send timestamp). Restored messages are
             // already published, so this value is only informational.
             idempotency_key: value.sent_at_ns.to_string(),
+            deleted_by_inbox_id,
         })
     }
 }
@@ -116,6 +137,15 @@ impl From<StoredGroupMessage> for GroupMessageSave {
             authority_id: value.authority_id,
             reference_id: value.reference_id,
             sequence_id: Some(value.sequence_id),
+            expires_at_ns: if value.expiry_unknown {
+                None
+            } else {
+                value.expire_at_ns
+            },
+            expiry_known: Some(!value.expiry_unknown),
+            // implements: ARCH-028
+            // A marked row is already empty.
+            deleted_by_inbox_id: value.deleted_by_inbox_id,
 
             // Deprecated
             #[allow(deprecated)]
@@ -145,6 +175,46 @@ impl From<DeliveryStatus> for DeliveryStatusSave {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn group_message_save_round_trips_expiry() {
+        const DEADLINE: i64 = 123_456_789;
+        let base = GroupMessageSave {
+            group_id: vec![1; 32],
+            kind: GroupMessageKindSave::Application as i32,
+            delivery_status: DeliveryStatusSave::Published as i32,
+            ..Default::default()
+        };
+        for (deadline, unknown) in [
+            (Some(DEADLINE), false),
+            (None, false),
+            (None, true),
+            (Some(DEADLINE), true),
+        ] {
+            let mut stored = StoredGroupMessage::try_from(base.clone())?;
+            stored.expire_at_ns = deadline;
+            stored.expiry_unknown = unknown;
+            let saved = GroupMessageSave::from(stored);
+            assert_eq!(saved.expiry_known, Some(!unknown));
+            let expected = if unknown { None } else { deadline };
+            assert_eq!(saved.expires_at_ns, expected);
+            let restored = StoredGroupMessage::try_from(saved)?;
+            assert_eq!(
+                (restored.expire_at_ns, restored.expiry_unknown),
+                (expected, unknown)
+            );
+        }
+        for known in [None, Some(false)] {
+            let mut old = base.clone();
+            old.expiry_known = known;
+            old.expires_at_ns = Some(DEADLINE);
+            let restored = StoredGroupMessage::try_from(old)?;
+            assert_eq!(
+                (restored.expire_at_ns, restored.expiry_unknown),
+                (None, true)
+            );
+        }
+    }
 
     // verifies: CTYPE-001, CTYPE-018
     #[allow(deprecated)]

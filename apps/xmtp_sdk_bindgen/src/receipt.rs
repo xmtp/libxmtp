@@ -2,10 +2,10 @@
 //!
 //! Staging and the product checks read it. `files` names every generated file
 //! with its SHA-256; `artifact` describes the library that the tree binds; and
-//! `contract` digests the library's bytes and the generator identity, so a
-//! check can compare a tree with the library it came from. The generator is
-//! named by its identity, not its bytes: a cache can hold one realization of
-//! the bindgen while a tree was rendered by another.
+//! `contract` digests the bytes of the library that this render read and the
+//! generator identity. Checks compare identities, not library or bindgen
+//! bytes: another build of the same derivation can write other bytes, and a
+//! cache keeps only one of them.
 
 use std::{collections::BTreeMap, fmt::Write as _, fs};
 
@@ -76,7 +76,6 @@ fn text(value: &str) -> Json {
 pub(crate) fn write(out: &Utf8Path, artifact: &Artifact) -> Result<()> {
     let files = tree_files(out)?;
     let library = digest_file(artifact.library)?;
-    // `nix/check-sdk-products.py` recomputes this digest.
     let role = |(name, checksum): &(String, String)| {
         Json::Object(vec![
             (
@@ -265,7 +264,7 @@ mod tests {
         assert_eq!(compiled_fork_revision()?.len(), 40);
     }
 
-    // `nix/check-sdk-products.py` recomputes the contract with `json.dumps`.
+    // Published contracts digest this `json.dumps` form; keep it stable.
     #[xmtp_common::test(unwrap_try = true)]
     fn contract_text_matches_python_json() {
         let value = Json::Object(vec![

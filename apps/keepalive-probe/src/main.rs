@@ -70,8 +70,8 @@ struct Args {
     #[arg(long)]
     connect_ip: Option<String>,
 
-    /// SUBSCRIBE MODE: hex group id to open a real `SubscriptionService/Subscribe`
-    /// stream against (xdbg-style). When set, each connection holds one live
+    /// SUBSCRIBE MODE: hex group id (64 hex characters) to open a real
+    /// `SubscriptionService/Subscribe` stream against (xdbg-style). When set, each connection holds one live
     /// stream and logs received payloads + disconnects, instead of an idle conn.
     #[arg(long)]
     subscribe_group: Option<String>,
@@ -138,11 +138,17 @@ async fn main() -> Result<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
 
     let url = Url::parse(&args.endpoint).context("parsing --endpoint")?;
+    anyhow::ensure!(
+        matches!(url.scheme(), "http" | "https"),
+        "--endpoint must use http:// or https://"
+    );
     let host = url
         .host_str()
         .context("--endpoint has no host")?
         .to_string();
-    let port = url.port().unwrap_or(443);
+    let port = url
+        .port_or_known_default()
+        .context("--endpoint has no port")?;
 
     let mut roots = RootCertStore::empty();
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
@@ -383,6 +389,21 @@ async fn subscribe_once(
     Ok((end, received, connected.elapsed()))
 }
 
+/// Decode `--subscribe-group`. The backend refuses the whole subscription if a
+/// topic has the wrong length, so check here and name the cause.
+fn subscribe_group_id(group_hex: &str) -> Result<Vec<u8>> {
+    let group_id = hex::decode(group_hex.trim_start_matches("0x")).context("group id not hex")?;
+    if group_id.len() != xmtp_configuration::GROUP_ID_BYTES {
+        anyhow::bail!(
+            "group id must be {} bytes ({} hex characters), got {} bytes",
+            xmtp_configuration::GROUP_ID_BYTES,
+            xmtp_configuration::GROUP_ID_BYTES * 2,
+            group_id.len()
+        );
+    }
+    Ok(group_id)
+}
+
 /// SUBSCRIBE MODE: hold a stream to `group_hex` for the run duration. With
 /// `--reconnect` (default), every disconnect is logged with timestamp + reason
 /// and the stream is re-established — so a long run traps every black-hole event.
@@ -392,7 +413,7 @@ async fn run_subscribe(
     args: &Args,
     group_hex: &str,
 ) -> Result<(Outcome, Duration, u64, u64)> {
-    let group_id = hex::decode(group_hex.trim_start_matches("0x")).context("group id not hex")?;
+    let group_id = subscribe_group_id(group_hex)?;
     let overall = Instant::now();
     let mut received_total = 0u64;
     let mut disconnects = 0u64;
@@ -473,6 +494,10 @@ async fn establish_and_hold(
         .context("tcp connect")?;
     tcp.set_nodelay(true).ok();
 
+    if Url::parse(&args.endpoint)?.scheme() == "http" {
+        return hold_connection(args, tcp).await;
+    }
+
     let server_name = ServerName::try_from(host.to_string()).context("invalid TLS server name")?;
     let tls_stream = tokio::time::timeout(
         args.connect_timeout,
@@ -482,6 +507,13 @@ async fn establish_and_hold(
     .context("tls handshake timed out")?
     .context("tls handshake")?;
 
+    hold_connection(args, tls_stream).await
+}
+
+async fn hold_connection<T>(args: &Args, stream: T) -> Result<(Outcome, Duration)>
+where
+    T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
     let mut builder = http2::Builder::new(TokioExecutor::new());
     builder
         // hyper 1.x ships no timer; keepalive needs one.
@@ -491,7 +523,7 @@ async fn establish_and_hold(
         .keep_alive_while_idle(args.ka_while_idle);
 
     let (sender, conn) = builder
-        .handshake::<_, Empty<Bytes>>(TokioIo::new(tls_stream))
+        .handshake::<_, Empty<Bytes>>(TokioIo::new(stream))
         .await
         .context("http2 handshake")?;
 
@@ -637,6 +669,64 @@ fn fmt(d: Duration) -> String {
 mod tests {
     use super::*;
 
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn idle_connections_respect_the_endpoint_scheme() {
+        const HOLD_DURATION: Duration = Duration::from_millis(100);
+        const TEST_TIMEOUT: Duration = Duration::from_secs(5);
+
+        for scheme in ["http", "https"] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+            let address = listener.local_addr()?;
+            let mut args = Args::try_parse_from([
+                "keepalive-probe",
+                "--endpoint",
+                &format!("{scheme}://{address}"),
+            ])?;
+            args.duration = HOLD_DURATION;
+            args.connect_timeout = TEST_TIMEOUT;
+            let tls = ClientConfig::builder_with_provider(Arc::new(
+                rustls::crypto::ring::default_provider(),
+            ))
+            .with_safe_default_protocol_versions()?
+            .with_root_certificates(RootCertStore::empty())
+            .with_no_client_auth();
+            let server = async {
+                let (socket, _) = listener.accept().await.expect("accept probe connection");
+                hyper::server::conn::http2::Builder::new(TokioExecutor::new())
+                    .serve_connection(
+                        TokioIo::new(socket),
+                        hyper::service::service_fn(|_| async {
+                            Ok::<_, std::convert::Infallible>(hyper::Response::new(
+                                Empty::<Bytes>::new(),
+                            ))
+                        }),
+                    )
+                    .await
+            };
+            let (_, result) = tokio::time::timeout(TEST_TIMEOUT, async {
+                tokio::join!(
+                    server,
+                    run_connection(0, &args, "127.0.0.1", address.port(), Arc::new(tls))
+                )
+            })
+            .await?;
+
+            if scheme == "http" {
+                assert!(
+                    matches!(result.outcome, Outcome::Survived),
+                    "plaintext connection did not survive: {:?}",
+                    result.outcome
+                );
+            } else {
+                assert!(
+                    matches!(result.outcome, Outcome::SetupError(_)),
+                    "HTTPS must not fall back to plaintext: {:?}",
+                    result.outcome
+                );
+            }
+        }
+    }
+
     fn secs(v: &[u64]) -> Vec<Duration> {
         v.iter().map(|s| Duration::from_secs(*s)).collect()
     }
@@ -670,6 +760,23 @@ mod tests {
             round_secs(Duration::from_millis(1900)),
             Duration::from_secs(2)
         );
+    }
+
+    #[test]
+    fn subscribe_group_id_takes_only_32_bytes() {
+        assert_eq!(
+            subscribe_group_id(&"ab".repeat(32)).unwrap(),
+            vec![0xab; 32]
+        );
+        assert_eq!(
+            subscribe_group_id(&format!("0x{}", "ab".repeat(32))).unwrap(),
+            vec![0xab; 32]
+        );
+        for wrong in ["00".repeat(16), "00".repeat(33)] {
+            let error = subscribe_group_id(&wrong).unwrap_err().to_string();
+            assert!(error.contains("must be 32 bytes"), "{error}");
+        }
+        assert!(subscribe_group_id("zz").is_err());
     }
 
     #[test]

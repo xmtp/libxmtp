@@ -24,15 +24,34 @@ use tokio_stream::wrappers::TcpListenerStream;
 use tonic::{server::NamedService, transport::Server};
 use tonic_web::GrpcWebLayer;
 use tower_http::cors::{AllowHeaders, Any, CorsLayer};
+use xmtp_common::time::Duration;
 use xmtp_id::scw_verifier::{
     CachedSmartContractSignatureVerifier, MultiSmartContractSignatureVerifier,
 };
 
 mod auth;
+mod count_gate;
 mod lifecycle;
+pub(crate) mod rate_limit;
 pub(crate) mod telemetry;
 #[cfg(test)]
 mod tests;
+
+/// HTTP/2 PING interval; a peer that does not answer within the timeout is
+/// disconnected, which drops every stream and its queued output.
+const HTTP2_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(60);
+const HTTP2_KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// The RPC services `serve` adds beside health, by their gRPC names.
+pub(crate) const SERVICES: [&str; 7] = [
+    ConfigurationServiceServer::<Backend>::NAME,
+    AttachmentServiceServer::<Backend>::NAME,
+    QueryServiceServer::<Backend>::NAME,
+    PublishServiceServer::<Backend>::NAME,
+    IdentityServiceServer::<Backend>::NAME,
+    SubscriptionServiceServer::<Backend>::NAME,
+    NotificationServiceServer::<Backend>::NAME,
+];
 
 /// Construct storage and signature services from a validated configuration.
 ///
@@ -205,10 +224,19 @@ pub async fn serve(
             identifier: identifier.clone(),
         }
     }));
+    let rate_limit_layer =
+        tower::ServiceBuilder::new().option_layer(backend.rate_limiter.clone().map(|limiter| {
+            rate_limit::RateLimitLayer {
+                limiter,
+                identifier: identifier.clone(),
+            }
+        }));
     let (stop, stopped) = tokio::sync::oneshot::channel();
     let serving = Server::builder()
         .accept_http1(true)
         .max_concurrent_streams(limits.max_http2_streams as u32)
+        .http2_keepalive_interval(Some(HTTP2_KEEPALIVE_INTERVAL))
+        .http2_keepalive_timeout(Some(HTTP2_KEEPALIVE_TIMEOUT))
         .layer(cors)
         .layer(telemetry::GrpcTelemetryLayer {
             enabled: backend.config.server.request_logger,
@@ -218,6 +246,10 @@ pub async fn serve(
         .layer(telemetry::GrpcStatusLayer)
         .layer(auth_layer)
         .layer(lifecycle::AdmissionLayer(lifecycle.clone()))
+        .layer(rate_limit_layer)
+        .layer(count_gate::CountGateLayer {
+            limits: Arc::new(limits.clone()),
+        })
         .add_service(health)
         .add_service(configuration)
         .add_service(attachment)
@@ -275,16 +307,7 @@ async fn report_health(
     status: tonic_health::ServingStatus,
 ) {
     crate::telemetry::ready(status == tonic_health::ServingStatus::Serving);
-    for service in [
-        "",
-        ConfigurationServiceServer::<Backend>::NAME,
-        AttachmentServiceServer::<Backend>::NAME,
-        QueryServiceServer::<Backend>::NAME,
-        PublishServiceServer::<Backend>::NAME,
-        IdentityServiceServer::<Backend>::NAME,
-        SubscriptionServiceServer::<Backend>::NAME,
-        NotificationServiceServer::<Backend>::NAME,
-    ] {
+    for service in std::iter::once("").chain(SERVICES) {
         reporter.set_service_status(service, status).await;
     }
 }

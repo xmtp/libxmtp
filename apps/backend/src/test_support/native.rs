@@ -2,6 +2,7 @@ use crate::api::{
     self, subscribe_request::Request as Input, subscribe_response::Response as Frame,
 };
 use crate::test_support::{RunningServer, TestResult};
+use bytes::Bytes;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Status, Streaming};
@@ -98,4 +99,60 @@ pub fn envelope(topic: u8, value: u8) -> api::ClientEnvelope {
         welcome.data.push(value);
     }
     envelope
+}
+
+/// `message` with its gRPC prefix: flag 0 and the big-endian length.
+pub fn framed(message: &[u8]) -> Vec<u8> {
+    let mut bytes = vec![0];
+    bytes.extend_from_slice(&(message.len() as u32).to_be_bytes());
+    bytes.extend_from_slice(message);
+    bytes
+}
+
+/// Send `body` as the raw HTTP/2 body of one gRPC request with `headers`
+/// added, and return the call's status, from a trailers-only response or from
+/// the trailers. With `end_stream` false the request body stays open while
+/// the response is awaited. Waits at most five seconds for the response.
+pub async fn raw_unary(
+    server: &RunningServer,
+    path: &str,
+    headers: &[(&str, &str)],
+    body: Vec<u8>,
+    end_stream: bool,
+) -> TestResult<Status> {
+    let url = url::Url::parse(&server.url)?;
+    let socket = tokio::net::TcpStream::connect((
+        url.host_str().ok_or("no host")?,
+        url.port().ok_or("no port")?,
+    ))
+    .await?;
+    let (sender, connection) = h2::client::handshake(socket).await?;
+    let connection = tokio::spawn(connection);
+    let mut request = http::Request::builder()
+        .method("POST")
+        .uri(format!("{}{path}", server.url))
+        .header("content-type", "application/grpc");
+    for (name, value) in headers {
+        request = request.header(*name, *value);
+    }
+    let request = request.body(())?;
+    let mut sender = sender.ready().await?;
+    let (response, mut stream) = sender.send_request(request, false)?;
+    stream.send_data(Bytes::from(body), end_stream)?;
+    let status = xmtp_common::time::timeout(xmtp_common::time::Duration::from_secs(5), async {
+        let response = response.await?;
+        if let Some(status) = Status::from_header_map(response.headers()) {
+            return Ok::<_, Box<dyn std::error::Error + Send + Sync>>(status);
+        }
+        let mut body = response.into_body();
+        while let Some(data) = body.data().await {
+            let _ = body.flow_control().release_capacity(data?.len());
+        }
+        let trailers = body.trailers().await?.ok_or("no trailers")?;
+        Ok(Status::from_header_map(&trailers).ok_or("no grpc-status")?)
+    })
+    .await??;
+    drop((stream, sender));
+    connection.abort();
+    Ok(status)
 }

@@ -54,6 +54,102 @@ describe("agent backend authentication", () => {
   );
 });
 
+describe("agent startup ownership", () => {
+  const key = `0x${"01".repeat(32)}` as const;
+  const options = {
+    backend: { url: "https://backend.example.com" },
+    storage: { location: "inMemory" as const },
+  };
+  function setup() {
+    vi.stubEnv("XMTP_WALLET_KEY", key);
+    vi.stubEnv("XMTP_BACKEND_URL", options.backend.url);
+    const client = {
+      inboxId: "inbox",
+      installationId: "newest",
+      inboxStates: vi.fn().mockResolvedValue([
+        {
+          inboxId: "inbox",
+          installations: [
+            { id: "older", createdAt: { ns: 1n } },
+            { id: "newest", createdAt: { ns: 2n } },
+          ],
+        },
+      ]),
+      end: vi.fn().mockResolvedValue(undefined),
+    };
+    vi.spyOn(Client, "create").mockResolvedValue(client as unknown as Client);
+    return client;
+  }
+
+  it.each(["create", "createFromEnv"] as const)(
+    "%s returns its client when installation diagnostics fail and retains the newest warning",
+    async (method) => {
+      const client = setup();
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const open = () =>
+        method === "create"
+          ? Agent.create(createSigner(createUser(key)), options)
+          : Agent.createFromEnv(options);
+      client.inboxStates.mockRejectedValueOnce(
+        new Error("private diagnostic detail"),
+      );
+      expect((await open()).client).toBe(client);
+      expect(client.inboxStates).toHaveBeenCalledExactlyOnceWith(
+        ["inbox"],
+        true,
+      );
+      expect(warn).toHaveBeenCalledExactlyOnceWith(
+        "Unable to read installation information.",
+      );
+      expect(client.end).not.toHaveBeenCalled();
+      warn.mockClear();
+      expect((await open()).client).toBe(client);
+      expect(warn).toHaveBeenCalledExactlyOnceWith(
+        '[WARNING] You have "2" installations. Installation ID "newest" is the most recent. Make sure to persist and reload your installation data. If you exceed the installation limit, your Agent will stop working. Read more: https://docs.xmtp.org/agents/build-agents/local-database#installation-limits-and-revocation-rules',
+      );
+      expect(client.end).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([false, true])(
+    "awaits cleanup after a throwing warning (cleanup rejects: %s)",
+    async (rejects) => {
+      const client = setup();
+      const original = new Error("warning failed");
+      vi.spyOn(console, "warn").mockImplementation(() => {
+        throw original;
+      });
+      const barrier = Promise.withResolvers<void>();
+      const cleaning = Promise.withResolvers<void>();
+      client.end.mockImplementation(async () => {
+        cleaning.resolve();
+        await barrier.promise;
+        if (rejects) throw new Error("cleanup failed");
+      });
+      let settled = false;
+      const result = Agent.create(createSigner(createUser(key)), options).then(
+        () => {
+          settled = true;
+          return undefined;
+        },
+        (error: unknown) => {
+          settled = true;
+          return error;
+        },
+      );
+      try {
+        await Promise.race([cleaning.promise, result]);
+        expect(client.end).toHaveBeenCalledTimes(1);
+        expect(settled).toBe(false);
+      } finally {
+        barrier.resolve();
+      }
+      expect(await result).toBe(original);
+      expect(client.end).toHaveBeenCalledTimes(1);
+    },
+  );
+});
+
 describe("agent environment storage", () => {
   const key = `0x${"01".repeat(32)}` as const;
   const directories: string[] = [];

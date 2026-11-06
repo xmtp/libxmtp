@@ -35,6 +35,10 @@ public extension Message {
         data.`expiresAt`
     }
 
+    var `expiryUnknown`: Bool {
+        data.`expiryUnknown`
+    }
+
     var `kind`: MessageKind {
         data.`kind`
     }
@@ -65,6 +69,10 @@ public extension Message {
 
     var `reactions`: [ReactionMessage] {
         data.`reactions`
+    }
+
+    var `reactionMessageCount`: UInt64 {
+        data.`reactionMessageCount`
     }
 
     var `inReplyTo`: ReplyParent? {

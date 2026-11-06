@@ -1,6 +1,7 @@
 import { Dm, Timestamp, type Intent } from "@xmtp/browser-sdk";
 import type {
   EncodedContent,
+  Message as XmtpMessage,
   RemoteAttachment,
   SendOptions,
   ReplyContent,
@@ -17,6 +18,9 @@ import {
   usePermissions,
 } from "@/stores/inbox/hooks";
 import { inboxStore } from "@/stores/inbox/store";
+
+/** The largest page the SDK returns. */
+const MESSAGE_PAGE_LIMIT = 1000;
 
 export const useConversation = (conversationId: string) => {
   const { addMessages } = useActions();
@@ -64,14 +68,37 @@ export const useConversation = (conversationId: string) => {
       setLoading(true);
 
       try {
-        const msgs = await conversation.messages({
-          sentAfter:
-            inboxStore.getState().lastSentAt.get(conversationId) === undefined
-              ? undefined
-              : new Timestamp(
-                  inboxStore.getState().lastSentAt.get(conversationId)!,
-                ),
-        });
+        // One messages call returns one page. Read ascending pages after the
+        // last seen message until a page is empty: a page can be short while
+        // more messages follow, when the SDK drops a row it cannot convert.
+        const msgs: XmtpMessage[] = [];
+        const seen = new Set<string>();
+        let sentAfter = inboxStore.getState().lastSentAt.get(conversationId);
+        for (;;) {
+          const page = await conversation.messages({
+            sentAfter:
+              sentAfter === undefined ? undefined : new Timestamp(sentAfter),
+            direction: "ascending",
+            limit: MESSAGE_PAGE_LIMIT,
+          });
+          const last = page.at(-1);
+          if (last === undefined) break;
+          let added = false;
+          for (const message of page) {
+            if (!seen.has(message.id)) {
+              seen.add(message.id);
+              msgs.push(message);
+              added = true;
+            }
+          }
+          // Read the page's final send time again, so messages that share it
+          // are not skipped. A page with nothing new moves past that time.
+          const retry = last.sentAt.ns - 1n;
+          sentAfter =
+            added && (sentAfter === undefined || retry > sentAfter)
+              ? retry
+              : last.sentAt.ns;
+        }
         await addMessages(conversation.id, msgs);
         return msgs;
       } finally {

@@ -1,7 +1,7 @@
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::Arc;
 #[cfg(not(target_arch = "wasm32"))]
-use xmtp_mls::context::XmtpSharedContext;
+use xmtp_mls::prelude::*;
 
 use crate::XmtpError;
 #[cfg(not(target_arch = "wasm32"))]
@@ -49,6 +49,12 @@ impl Storage {
         if !self.client.context.shutdown_complete() {
             end_client(&self.client, &self.listeners, &self.event_readers).await?;
         }
-        std::fs::remove_file(path).map_err(XmtpError::storage)
+        xmtp_db::delete_database_files(&path).map_err(XmtpError::storage)?;
+        self.client
+            .context
+            .attachment_runtime()
+            .delete_local_files()
+            .await
+            .map_err(XmtpError::storage)
     }
 }

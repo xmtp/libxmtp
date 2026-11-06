@@ -1,203 +1,22 @@
-//! Test-only observations for convergence and liveness checks.
+//! Observations for convergence and liveness checks.
 //!
 //! IDs and public MLS state use hex so reports can cross a process boundary.
-//! No secret MLS state or message contents leave these observations.
+//! No secret MLS state, group key, or message contents leave these
+//! observations.
 
-use crate::{
-    context::XmtpSharedContext,
-    groups::{GroupError, MlsGroup},
-    subscriptions::barrier,
-};
-use openmls::prelude::BasicCredential;
+use crate::{context::XmtpSharedContext, subscriptions::barrier};
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::BTreeMap,
-    sync::atomic::{AtomicU64, Ordering},
-};
-use tls_codec::Serialize as _;
 use xmtp_common::{
     ErrorCode, RetryableError,
     time::{Duration, Instant},
 };
-use xmtp_db::{
-    ConnectionExt, NotFound, TransactionOutcome, XmtpMlsStorageProvider,
-    consent_record::ConsentState, group::GroupMembershipState, prelude::*,
-};
-use xmtp_mls_common::app_data::{
-    components::inbox_id_set::{AdminListComponent, SuperAdminListComponent},
-    typed_facade::MlsGroupAppData,
-};
+use xmtp_db::consent_record::ConsentState;
 use xmtp_proto::types::GroupId;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-pub struct MemberSnapshot {
-    pub inbox_id: String,
-    pub installation_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct CommitSnapshot {
-    pub sequence_id: i64,
-    pub epoch: i64,
-    pub authenticator: String,
-    pub last_authenticator: String,
-    pub result: i32,
-    pub commit_type: Option<String>,
-    pub removed_this_installation: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct GroupSnapshot {
-    pub group_id: String,
-    /// Zero with an empty authenticator when a Restored archive stub has no MLS state.
-    pub epoch: u64,
-    pub epoch_authenticator: String,
-    pub members: Vec<MemberSnapshot>,
-    /// Admin inbox IDs in the committed dictionary.
-    #[serde(default)]
-    pub admins: Vec<String>,
-    /// Super admin inbox IDs in the committed dictionary.
-    #[serde(default)]
-    pub super_admins: Vec<String>,
-    /// Serialized public context extensions, including all metadata and app data.
-    pub metadata: String,
-    pub membership_state: GroupMembershipState,
-    pub active: bool,
-    pub maybe_forked: bool,
-    pub is_commit_log_forked: Option<bool>,
-    pub cursor: u64,
-    pub commits: Vec<CommitSnapshot>,
-    /// Older local records excluded by the per-snapshot commit limit.
-    #[serde(default)]
-    pub omitted_commit_count: u64,
-}
-
-/// Maximum commit records sent in one group snapshot.
-const SNAPSHOT_COMMIT_LIMIT: i64 = 256;
-
-fn recent_commit_records(
-    db: &impl DbQuery,
-    group_id: &GroupId,
-) -> Result<(Vec<xmtp_db::local_commit_log::LocalCommitLog>, u64), xmtp_db::ConnectionError> {
-    use xmtp_db::diesel::prelude::*;
-    use xmtp_db::schema::local_commit_log::dsl;
-
-    ConnectionExt::raw_query(db, |connection| {
-        let total = dsl::local_commit_log
-            .filter(dsl::group_id.eq(group_id))
-            .count()
-            .get_result::<i64>(connection)?;
-        let mut records = dsl::local_commit_log
-            .filter(dsl::group_id.eq(group_id))
-            .order(dsl::rowid.desc())
-            .limit(SNAPSHOT_COMMIT_LIMIT)
-            .load::<xmtp_db::local_commit_log::LocalCommitLog>(connection)?;
-        // Row order preserves a re-add's sequence-zero Welcome among later commits.
-        records.reverse();
-        let omitted = total.saturating_sub(records.len() as i64) as u64;
-        Ok((records, omitted))
-    })
-}
-
-impl<C: XmtpSharedContext> MlsGroup<C> {
-    /// Read every field under one database writer, including cross-process writers.
-    pub fn diagnostic_snapshot(&self) -> Result<GroupSnapshot, GroupError> {
-        crate::state_tx::state_write(self.context.mls_storage(), |tx| {
-            let storage = tx.storage();
-            let db = storage.db();
-            let stored = db
-                .find_group(&self.group_id)?
-                .ok_or(NotFound::GroupById(self.group_id))?;
-            let (records, omitted_commit_count) = recent_commit_records(&db, &self.group_id)?;
-            let commits = records
-                .into_iter()
-                .map(|entry| CommitSnapshot {
-                    sequence_id: entry.commit_sequence_id,
-                    epoch: entry.applied_epoch_number,
-                    authenticator: hex::encode(entry.applied_epoch_authenticator),
-                    last_authenticator: hex::encode(entry.last_epoch_authenticator),
-                    result: entry.commit_result as i32,
-                    removed_this_installation: entry.commit_type.as_deref()
-                        == Some("RemovedFromGroup"),
-                    commit_type: entry.commit_type,
-                })
-                .collect();
-            let group = openmls::group::MlsGroup::load(&storage, &self.group_id.to_openmls())?;
-            // An archive stub can owe membership without having MLS state yet.
-            let Some(group) = group else {
-                if stored.membership_state != GroupMembershipState::Restored {
-                    return Err(GroupError::Storage(
-                        NotFound::MlsGroup(self.group_id).into(),
-                    ));
-                }
-                return Ok(TransactionOutcome::Continue(GroupSnapshot {
-                    group_id: hex::encode(self.group_id),
-                    epoch: 0,
-                    epoch_authenticator: String::new(),
-                    members: Vec::new(),
-                    admins: Vec::new(),
-                    super_admins: Vec::new(),
-                    metadata: String::new(),
-                    membership_state: stored.membership_state,
-                    active: false,
-                    maybe_forked: stored.maybe_forked,
-                    is_commit_log_forked: stored.is_commit_log_forked,
-                    cursor: db
-                        .topic_progress(&xmtp_db::incoming_envelope::StreamTopic::group(
-                            self.group_id,
-                        ))?
-                        .processed
-                        .0,
-                    commits,
-                    omitted_commit_count,
-                }));
-            };
-            let mut members = group
-                .members()
-                .map(|member| {
-                    let credential = BasicCredential::try_from(member.credential)?;
-                    Ok(MemberSnapshot {
-                        inbox_id: crate::identity::parse_credential(credential.identity())?,
-                        installation_id: hex::encode(member.signature_key),
-                    })
-                })
-                .collect::<Result<Vec<_>, GroupError>>()?;
-            members.sort();
-            let roles = MlsGroupAppData::new(group.extensions());
-            let admins: Vec<String> = roles
-                .get::<AdminListComponent>()?
-                .map(|set| set.iter().map(|id| id.to_hex()).collect())
-                .unwrap_or_default();
-            let super_admins: Vec<String> = roles
-                .get::<SuperAdminListComponent>()?
-                .map(|set| set.iter().map(|id| id.to_hex()).collect())
-                .unwrap_or_default();
-            Ok::<_, GroupError>(TransactionOutcome::Continue(GroupSnapshot {
-                group_id: hex::encode(self.group_id),
-                epoch: group.epoch().as_u64(),
-                epoch_authenticator: hex::encode(group.epoch_authenticator().as_slice()),
-                members,
-                admins,
-                super_admins,
-                metadata: hex::encode(group.extensions().tls_serialize_detached()?),
-                membership_state: stored.membership_state,
-                active: stored.membership_state != GroupMembershipState::Restored
-                    && group.is_active(),
-                maybe_forked: stored.maybe_forked,
-                is_commit_log_forked: stored.is_commit_log_forked,
-                cursor: db
-                    .topic_progress(&xmtp_db::incoming_envelope::StreamTopic::group(
-                        self.group_id,
-                    ))?
-                    .processed
-                    .0,
-                commits,
-                omitted_commit_count,
-            }))
-        })
-        .map(TransactionOutcome::into_continued)
-    }
-}
+pub use crate::groups::diagnostics::{
+    CommitSnapshot, ContentionSnapshot, GroupSnapshot, MemberSnapshot, WelcomeRetryCause,
+    contention_snapshot,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum BarrierCause {
@@ -307,66 +126,12 @@ impl Default for RetryBudgets {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-pub enum WelcomeRetryCause {
-    IdentityDependency,
-    GroupPrefix,
-    Pointee,
-    UnsupportedWelcome,
-    Blocked,
-    Retry,
-}
-
-static OWN_COMMIT_EPOCH_CONFLICTS: AtomicU64 = AtomicU64::new(0);
-static WELCOME_RETRIES: [AtomicU64; 6] = [const { AtomicU64::new(0) }; 6];
-const WELCOME_CAUSES: [WelcomeRetryCause; 6] = [
-    WelcomeRetryCause::IdentityDependency,
-    WelcomeRetryCause::GroupPrefix,
-    WelcomeRetryCause::Pointee,
-    WelcomeRetryCause::UnsupportedWelcome,
-    WelcomeRetryCause::Blocked,
-    WelcomeRetryCause::Retry,
-];
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ContentionSnapshot {
-    pub own_commit_epoch_conflicts: u64,
-    pub welcome_retries: BTreeMap<WelcomeRetryCause, u64>,
-}
-
-/// Cumulative observations for this process. A process restart resets them.
-pub fn contention_snapshot() -> ContentionSnapshot {
-    ContentionSnapshot {
-        own_commit_epoch_conflicts: OWN_COMMIT_EPOCH_CONFLICTS.load(Ordering::Relaxed),
-        welcome_retries: WELCOME_CAUSES
-            .into_iter()
-            .zip(&WELCOME_RETRIES)
-            .map(|(cause, counter)| (cause, counter.load(Ordering::Relaxed)))
-            .collect(),
-    }
-}
-
-pub(crate) fn record_own_commit_epoch_conflict() {
-    OWN_COMMIT_EPOCH_CONFLICTS.fetch_add(1, Ordering::Relaxed);
-}
-
-/// Called only after the retry row was stored successfully.
-pub(crate) fn record_welcome_retry(code: &str) {
-    let cause = match code {
-        "identity_dependency" => WelcomeRetryCause::IdentityDependency,
-        "group_prefix" => WelcomeRetryCause::GroupPrefix,
-        "welcome_pointee" => WelcomeRetryCause::Pointee,
-        "unsupported_welcome" => WelcomeRetryCause::UnsupportedWelcome,
-        "welcome_blocked" => WelcomeRetryCause::Blocked,
-        _ => WelcomeRetryCause::Retry,
-    };
-    WELCOME_RETRIES[cause as usize].fetch_add(1, Ordering::Relaxed);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::groups::test_support::SNAPSHOT_COMMIT_LIMIT;
     use crate::{tester, utils::test::MlsGroupExt};
+    use xmtp_db::{group::GroupMembershipState, prelude::*};
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn commit_snapshot_limit_preserves_latest_readd_boundary() {
@@ -407,6 +172,26 @@ mod tests {
         assert_eq!(snapshot.epoch_authenticator, before.epoch_authenticator);
     }
 
+    /// A snapshot can leave the process, so it never carries the group root
+    /// that the AppData dictionary holds, or a key derived from it.
+    // verifies: GMOD-042
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn snapshot_holds_no_group_root() {
+        use xmtp_mls_group_state::app_data::group_root::read_group_root;
+
+        tester!(alix, disable_workers);
+        let group = alix.create_group(None, None)?;
+        let root = group
+            .with_group_snapshot(|mls_group| Ok(read_group_root(mls_group.extensions())))???;
+        let report = serde_json::to_vec(&group.diagnostic_snapshot()?)?;
+        for (secret, encoded) in crate::utils::test::group_secret_encodings(&root) {
+            assert!(
+                !report.windows(encoded.len()).any(|w| w == encoded),
+                "the snapshot holds the {secret}"
+            );
+        }
+    }
+
     #[xmtp_common::test(unwrap_try = true)]
     async fn snapshot_preserves_leaf_membership_and_restored_state() {
         tester!(alix, disable_workers);
@@ -418,7 +203,8 @@ mod tests {
         let bo_group = xmtp_common::wait_for_ok(|| async {
             bo.sync_welcomes()
                 .await
-                .and_then(|_| bo.group(&group.group_id).map_err(GroupError::from))
+                .map_err(crate::client::ClientError::from)
+                .and_then(|_| bo.group(&group.group_id))
         })
         .await?;
         let first = group.diagnostic_snapshot()?;
@@ -455,7 +241,8 @@ mod tests {
         let bo_group = xmtp_common::wait_for_ok(|| async {
             bo.sync_welcomes()
                 .await
-                .and_then(|_| bo.group(&group.group_id).map_err(GroupError::from))
+                .map_err(crate::client::ClientError::from)
+                .and_then(|_| bo.group(&group.group_id))
         })
         .await?;
         bo_group.update_consent_state(ConsentState::Denied)?;

@@ -1,6 +1,7 @@
 pub mod actions;
 pub mod attachment;
 pub mod compression;
+pub mod decode_limits;
 pub mod delete_message;
 pub mod encryption;
 #[cfg(not(target_arch = "wasm32"))]
@@ -130,7 +131,6 @@ pub fn bytes_to_encoded_content(bytes: Vec<u8>) -> EncodedContent {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
 
     use super::*;
 
@@ -144,7 +144,7 @@ mod tests {
                 version_major: 0,
                 version_minor: 0,
             }),
-            parameters: HashMap::new(),
+            parameters: Default::default(),
             compression: None,
             content: vec![1, 2, 3, 4],
             fallback: Some("test".to_string()),

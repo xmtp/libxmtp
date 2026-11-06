@@ -18,18 +18,22 @@ pub(crate) fn key(
         .map(|key| key.as_slice())
 }
 
-/// Decode only when a subscription has a key for this envelope's epoch.
-/// Malformed or unavailable payloads never suppress a delivery.
-pub(crate) fn matches(payload: &[u8], key: &[u8], expected: &[u8]) -> bool {
-    let Ok(envelope) = crate::api::ClientEnvelope::decode(payload) else {
-        return false;
-    };
-    let Some(crate::api::client_envelope::Payload::GroupMessage(group)) = envelope.payload else {
-        return false;
-    };
+/// HMAC input one envelope may spend on sender checks, across its pages.
+pub(crate) const BUDGET_BYTES: usize = 16 * 1024 * 1024;
+
+/// The `GroupMessage.data` sender checks run over. Malformed payloads have
+/// none, so they never suppress a delivery.
+pub(crate) fn data(payload: &[u8]) -> Option<Vec<u8>> {
+    match crate::api::ClientEnvelope::decode(payload).ok()?.payload? {
+        crate::api::client_envelope::Payload::GroupMessage(group) => Some(group.data),
+        _ => None,
+    }
+}
+
+pub(crate) fn matches(data: &[u8], key: &[u8], expected: &[u8]) -> bool {
     let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(key) else {
         return false;
     };
-    mac.update(&group.data);
+    mac.update(data);
     bool::from(mac.finalize().into_bytes().as_slice().ct_eq(expected))
 }

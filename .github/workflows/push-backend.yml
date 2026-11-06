@@ -93,8 +93,6 @@ jobs:
     environment:
       name: ${{ matrix.arch == 'arm64' && github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && github.ref == 'refs/heads/main' && 'kache-s3-writer' || '' }}
     timeout-minutes: 60
-    env:
-      NIX_DEVSHELL: rust
     steps:
       - name: Check out the source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -125,9 +123,13 @@ jobs:
           cache-mode: ${{ matrix.arch == 'arm64' && github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && github.ref == 'refs/heads/main' && 'trusted' || 'read' }}
           cachix-auth-token: ${{ matrix.arch == 'arm64' && github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && github.ref == 'refs/heads/main' && secrets.CACHIX_AUTH_TOKEN || '' }}
           github-token: ${{ github.token }}
+      # The same build as `just backend image`, without a dev shell. The image
+      # closure holds no Node, but the dev shells hold the repo's source-built
+      # Node, which no cache holds for aarch64-linux; entering a shell compiled
+      # it until the 60-minute limit.
       - name: Build image
         if: steps.image.outputs.exists != 'true'
-        run: dev/nix-shell 'just backend image ${{ matrix.target }}'
+        run: nix build ".#backend-image-${{ matrix.target }}-unknown-linux-musl" --out-link result-backend-image
       - name: Publish architecture image
         id: publish-image
         if: steps.image.outputs.exists != 'true' && inputs.dry-run != true

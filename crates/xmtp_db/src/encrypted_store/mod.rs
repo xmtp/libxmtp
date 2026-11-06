@@ -42,6 +42,7 @@ mod schema_gen;
 pub mod server_configuration;
 pub mod store;
 pub mod stream_storage;
+pub mod sync_outbox;
 pub mod tasks;
 pub mod user_preferences;
 
@@ -85,6 +86,24 @@ pub(crate) fn holds_client_data(conn: &mut SqliteConnection) -> QueryResult<bool
         "SELECT EXISTS (SELECT 1 FROM identity) OR EXISTS (SELECT 1 FROM openmls_key_value) AS present",
     )
     .get_result::<ClientData>(conn)?
+    .present)
+}
+
+/// Whether the database holds a group whose id is 16 bytes and that is not a
+/// Restored placeholder. Keyed group ids are 32 bytes; only an archive import
+/// keeps a 16-byte group, and only as read-only history.
+pub(crate) fn holds_legacy_groups(conn: &mut SqliteConnection) -> QueryResult<bool> {
+    #[derive(QueryableByName)]
+    struct LegacyGroups {
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        present: bool,
+    }
+    Ok(sql_query(
+        "SELECT EXISTS (SELECT 1 FROM groups WHERE length(id) = ? AND membership_state != ?) AS present",
+    )
+    .bind::<diesel::sql_types::Integer, _>(xmtp_configuration::LEGACY_GROUP_ID_BYTES as i32)
+    .bind::<diesel::sql_types::Integer, _>(group::GroupMembershipState::Restored)
+    .get_result::<LegacyGroups>(conn)?
     .present)
 }
 
@@ -371,6 +390,13 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
                     if !has_marker && holds_client_data(conn)? {
                         return Ok(Err(StorageError::OldEncodingDatabase));
                     }
+                    // A live group with a 16-byte id predates keyed group
+                    // ids. This build cannot publish to it, so refuse the
+                    // database before any migration, and so before the
+                    // client sends any request. Its data stays as it was.
+                    if holds_legacy_groups(conn)? {
+                        return Ok(Err(StorageError::LegacyGroupDatabase));
+                    }
                 }
             }
             conn.run_pending_migrations(MIGRATIONS)
@@ -385,6 +411,9 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
                     found: db_version,
                 }.into()));
             }
+
+
+            crate::message_deletion::backfill_deletion_marks(conn)?;
 
             let sqlite_version =
                 sql_query("SELECT sqlite_version() AS version").load::<SqliteVersion>(conn)?;

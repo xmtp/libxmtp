@@ -22,9 +22,9 @@ use super::{
 };
 use crate::{
     AttachmentError, AttachmentFailureCause as Cause,
-    address::is_private,
     store::{AttachmentOptions, CHUNK_SIZE, DownloadSink, StagedFile},
 };
+use xmtp_common::address::is_private;
 
 fn validate_download_url(url: &str, options: &AttachmentOptions) -> Result<(), AttachmentError> {
     let url = url::Url::parse(url).map_err(|_| AttachmentError::new(Cause::InsecureUrl))?;

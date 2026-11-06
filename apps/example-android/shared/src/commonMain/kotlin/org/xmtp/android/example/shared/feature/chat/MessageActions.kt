@@ -26,6 +26,7 @@ internal fun MessageActions(
     enabled: Boolean,
     outboundEnabled: Boolean,
     action: (ChatAction) -> Unit,
+    attachmentActions: @Composable (MessageRow, Boolean, () -> Unit) -> Unit,
 ) {
     val clipboard = LocalClipboardManager.current
     val haptics = LocalHapticFeedback.current
@@ -61,6 +62,9 @@ internal fun MessageActions(
                 }, Modifier.size(48.dp), enabled = enabled && outboundEnabled) { Icon(AppIcons.More, "More reactions") }
             }
             HorizontalDivider(Modifier.padding(horizontal = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
+            if (row.attachment) {
+                attachmentActions(row, enabled) { action(ChatAction.DismissOverlay) }
+            }
             FlowRow(Modifier.fillMaxWidth()) {
                 TextButton({
                     clipboard.setText(AnnotatedString(row.text))

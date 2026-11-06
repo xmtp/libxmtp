@@ -290,7 +290,7 @@ impl XmtpError {
     fn with_stream_failure(mut self, error: &(dyn std::error::Error + 'static)) -> Self {
         let mut current = Some(error);
         while let Some(error) = current {
-            if let Some(failure) = wire::stream_failure_details(error) {
+            if let Some(failure) = xmtp_mls::client::stream_failure_details(error) {
                 self.details_mut().stream_failure = xmtp_common::optify!(
                     StreamFailureDetails::from_wire(failure),
                     "could not project core stream failure"

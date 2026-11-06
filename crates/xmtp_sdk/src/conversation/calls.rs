@@ -77,7 +77,7 @@ pub(crate) fn enter_call(context: &MlsContext) -> Result<ForegroundCall, XmtpErr
 /// gate refuses the call first, so an ended client stays `ClientClosed`.
 fn closed_error(context: &MlsContext) -> XmtpError {
     match context.server_configuration().blocked_connection() {
-        Some(blocked) => XmtpError::from_client(xmtp_mls::client::ClientError::from(&blocked)),
+        Some(blocked) => XmtpError::from_client(blocked.into()),
         None => XmtpError::closed(),
     }
 }
@@ -97,7 +97,36 @@ where
     })
 }
 
-pub(super) fn deletion_group(
+/// Delete `stored` for everyone and return the queued deletion's id, or the
+/// message's own id when it was cancelled unsent. The order is fixed: cancel
+/// when unsent here (no peer needed, so it works offline), otherwise repair
+/// the DM peer, then queue the deletion, so the deletion never publishes
+/// before the peer is added.
+pub(super) async fn delete_for_everyone(
+    group: MlsGroup<MlsContext>,
+    stored: &StoredGroupMessage,
+) -> Result<MessageId, XmtpError> {
+    let group = deletion_group(group, stored).await?;
+    if group
+        .cancel_unsent(&stored.id)
+        .map_err(XmtpError::from_core)?
+    {
+        return MessageId::from_bytes(&stored.id);
+    }
+    // implements: DMS-020
+    group
+        .ensure_dm_peer()
+        .await
+        .map_err(XmtpError::from_group_write)?;
+    let deletion_id = group
+        .delete_message(stored.id.clone())
+        .map_err(XmtpError::from_core)?;
+    MessageId::from_bytes(&deletion_id)
+}
+
+/// The group that holds `stored`, after the checks a delete makes before any
+/// network work.
+async fn deletion_group(
     group: MlsGroup<MlsContext>,
     stored: &StoredGroupMessage,
 ) -> Result<MlsGroup<MlsContext>, XmtpError> {
@@ -108,20 +137,20 @@ pub(super) fn deletion_group(
             "not your message",
         ));
     }
-    if stored.group_id == group.group_id {
-        return Ok(group);
-    }
-    let stitched = group
-        .context
-        .db()
-        .fetch_stitched(&stored.group_id)
-        .map_err(XmtpError::from_core)?;
-    if stitched.is_none_or(|winner| winner.id != group.group_id) {
-        return Err(XmtpError::conversation_permission_denied(
-            "message belongs to another conversation",
-        ));
-    }
-    MlsStore::new(group.context.clone())
-        .group(&stored.group_id)
-        .map_err(XmtpError::from_core)
+    let group = if stored.group_id == group.group_id {
+        group
+    } else {
+        let stitched = group
+            .context
+            .db()
+            .fetch_stitched(&stored.group_id)
+            .map_err(XmtpError::from_core)?;
+        if stitched.is_none_or(|winner| winner.id != group.group_id) {
+            return Err(XmtpError::conversation_permission_denied(
+                "message belongs to another conversation",
+            ));
+        }
+        MlsGroup::load_by_id(&group.context, &stored.group_id).map_err(XmtpError::from_core)?
+    };
+    Ok(group)
 }

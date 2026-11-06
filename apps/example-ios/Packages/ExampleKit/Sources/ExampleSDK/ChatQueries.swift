@@ -142,10 +142,12 @@ public final class SDKChatQueries: ChatQueries, Sendable {
 				consent: Self.consent(state.consentState),
 			)
 			if let peer {
-				record.peerHandle = try await limiter.withPermit { try await self.client.inboxStates(
-					ids: [peer],
-					refreshFromNetwork: false,
-				).first?.handle }
+				record = try await enrichPeerHandle(record) { [limiter, client] in
+					try await limiter.withPermit { try await client.inboxStates(
+						ids: [peer],
+						refreshFromNetwork: false,
+					).first?.handle }
+				}
 			}
 		}
 		return record

@@ -1,0 +1,77 @@
+[package]
+name = "xmtp_mls_notifications"
+description = "XMTP MLS push notifications: registration, settings and the notification sync task"
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# Hook state and dispatch points that change runtime behavior for a test.
+# Never enabled outside tests.
+test-hooks = ["xmtp_mls_core/test-hooks", "xmtp_mls_engine/test-hooks"]
+test-utils = [
+  "xmtp_api/test-utils",
+  "xmtp_api_grpc/test-utils",
+  "xmtp_common/test-utils-network",
+  "xmtp_configuration/test-utils",
+  "xmtp_db/test-utils",
+  "xmtp_mls_core/test-utils",
+  "xmtp_mls_engine/test-utils",
+  "xmtp_proto/test-utils-network",
+]
+
+[dependencies]
+async-trait.workspace = true
+parking_lot.workspace = true
+prost = { workspace = true, features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
+thiserror.workspace = true
+tokio.workspace = true
+tonic.workspace = true
+tracing.workspace = true
+xmtp-workspace-hack.workspace = true
+xmtp_api.workspace = true
+xmtp_api_grpc.workspace = true
+xmtp_common.workspace = true
+xmtp_configuration.workspace = true
+xmtp_cryptography.workspace = true
+xmtp_db.workspace = true
+xmtp_events.workspace = true
+xmtp_mls_core.workspace = true
+xmtp_mls_engine.workspace = true
+xmtp_proto.workspace = true
+
+[dev-dependencies]
+diesel = { workspace = true, features = [
+  "returning_clauses_for_sqlite_3_35",
+  "sqlite",
+  "32-column-tables",
+] }
+fdlimit.workspace = true
+futures = { workspace = true, features = ["alloc", "std"] }
+wasm-bindgen-test.workspace = true
+xmtp_api = { workspace = true, features = ["test-utils"] }
+xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
+xmtp_common = { workspace = true, features = ["test-utils-network"] }
+xmtp_configuration = { workspace = true, features = ["test-utils"] }
+xmtp_cryptography = { workspace = true, features = [
+  "exposed-keys",
+  "test-utils",
+] }
+xmtp_db = { workspace = true, features = ["test-utils"] }
+xmtp_mls_core = { workspace = true, features = ["test-hooks", "test-utils"] }
+xmtp_mls_engine = { workspace = true, features = [
+  "diagnostics",
+  "test-hooks",
+  "test-utils",
+] }
+xmtp_proto = { workspace = true, features = ["test-utils-network"] }
+
+[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dev-dependencies]
+ctor.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "test-util"] }

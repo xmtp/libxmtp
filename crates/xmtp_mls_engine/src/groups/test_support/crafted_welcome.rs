@@ -1,0 +1,298 @@
+//! Welcomes for MLS groups that a test builds by hand, so a joiner can be
+//! offered a group context that no client would create: one without a root,
+//! with a root for another id, or with a 16-byte group id. With the root of a
+//! group it was a member of, the creator can also build a second MLS group
+//! under that group's id, as any former member can.
+//!
+//! The Welcome goes straight to the joiner's welcome topic. No group message
+//! is published, so the Welcome does not depend on what the backend admits
+//! on the group's topic. Unless a helper says otherwise, its metadata names
+//! cursor 1 as the join anchor. The creator signs with its own installation
+//! key but keeps no group state.
+
+use std::collections::BTreeMap;
+
+use openmls::group::{GroupId as OpenMlsGroupId, MlsGroup as OpenMlsGroup};
+use openmls::prelude::CredentialWithKey;
+use openmls::treesync::LeafNodeParameters;
+use prost::Message;
+use tls_codec::Serialize;
+use xmtp_db::incoming_envelope::{NetworkEntityKind, StreamTopic};
+use xmtp_db::prelude::*;
+use xmtp_mls_group_keys::{group_keys::GroupRoot, mls_ext::payload_encryption::wrap_payload_hpke};
+use xmtp_mls_group_state::{
+    app_data::{
+        component_id::ComponentId,
+        component_registry::ComponentRegistry,
+        creation::{InitialGroupKind, initial_dictionary},
+        migration::encode_group_membership_dict,
+    },
+    group::GroupMetadataOptions,
+    inbox_id::InboxId,
+};
+use xmtp_proto::{
+    backend_v1::{
+        WelcomeMessage as WelcomeMessageInput,
+        welcome_message::{V1 as WelcomeMessageInputV1, Version as WelcomeMessageInputVersion},
+    },
+    types::{ConversationType, Cursor, GroupId},
+    xmtp::mls::message_contents::{
+        GroupMembershipEntry, WelcomeMetadata,
+        group_membership_entry::{V1 as MembershipV1, Version as MembershipVersion},
+    },
+};
+
+use crate::groups::test_support::EnginePeer;
+use crate::groups::{build_group_config, group_permissions::PolicySet, intents::Installation};
+use xmtp_mls_core::context::CoreContext;
+use xmtp_mls_core::mls_store::MlsStore;
+
+/// What a crafted Welcome claims besides its group id and root. The default
+/// is a group the creator could have made, at epoch 1 with join anchor 1.
+pub struct CraftedWelcome<'a, P> {
+    /// The conversation type of the group the Welcome describes.
+    pub conversation_type: ConversationType,
+    /// The `message_cursor` the Welcome names as its join anchor.
+    pub anchor: u64,
+    /// Commits the creator merges before the add; the Welcome's epoch is one more.
+    pub prior_epoch: u64,
+    /// The `CREATOR_INBOX_ID` claim. `None` names the creator's own inbox.
+    pub claimed_creator: Option<&'a str>,
+    /// The DM member other than the creator. `None` names the joiner. A peer
+    /// other than the joiner gives a DM pair that excludes the joiner.
+    pub dm_peer: Option<&'a str>,
+    /// The `COMPONENT_REGISTRY` value. `None` keeps the creator's registry.
+    pub registry: Option<&'a ComponentRegistry>,
+    /// Another client the commit adds beside the joiner, as a leaf and in
+    /// `GROUP_MEMBERSHIP`. Only the joiner receives the Welcome.
+    pub other_member: Option<&'a P>,
+}
+
+impl<P> Default for CraftedWelcome<'_, P> {
+    fn default() -> Self {
+        Self {
+            conversation_type: ConversationType::Group,
+            anchor: 1,
+            prior_epoch: 0,
+            claimed_creator: None,
+            dm_peer: None,
+            registry: None,
+            other_member: None,
+        }
+    }
+}
+
+/// `creator` builds a group named `group_id` whose dictionary holds `root`
+/// (or no root), adds `joiner`'s current key package, and publishes only the
+/// Welcome. Everything else matches a group the creator could have made, so
+/// the root is the only reason a joiner may refuse it.
+pub async fn send_crafted_welcome<P: EnginePeer>(
+    creator: &P,
+    joiner: &P,
+    group_id: &[u8],
+    root: Option<&GroupRoot>,
+) {
+    send_crafted_welcome_of_type(creator, joiner, group_id, root, ConversationType::Group).await
+}
+
+/// [`send_crafted_welcome`] for a group of `conversation_type`, such as a
+/// one-shot group with no one-shot message.
+pub(crate) async fn send_crafted_welcome_of_type<P: EnginePeer>(
+    creator: &P,
+    joiner: &P,
+    group_id: &[u8],
+    root: Option<&GroupRoot>,
+    conversation_type: ConversationType,
+) {
+    let options = CraftedWelcome {
+        conversation_type,
+        ..Default::default()
+    };
+    send_crafted_welcome_with(creator, joiner, group_id, root, options).await
+}
+
+/// `creator` builds the group `options` describes under `group_id`, with
+/// `root` (or no root) in its dictionary, adds `joiner`'s current key
+/// package, and publishes only the Welcome.
+// A test drives OpenMLS convenience commits; their GroupInfo never leaves the test.
+#[allow(clippy::disallowed_methods)]
+pub async fn send_crafted_welcome_with<P: EnginePeer>(
+    creator: &P,
+    joiner: &P,
+    group_id: &[u8],
+    root: Option<&GroupRoot>,
+    options: CraftedWelcome<'_, P>,
+) {
+    let CraftedWelcome {
+        conversation_type,
+        anchor,
+        prior_epoch,
+        claimed_creator,
+        dm_peer,
+        registry,
+        other_member,
+    } = options;
+    let (kind, policies) = match conversation_type {
+        ConversationType::Dm => (
+            InitialGroupKind::Dm {
+                target_inbox_id: dm_peer.unwrap_or(joiner.context().inbox_id()),
+            },
+            PolicySet::new_dm(),
+        ),
+        conversation_type => (
+            InitialGroupKind::Group {
+                conversation_type,
+                oneshot_message: None,
+            },
+            PolicySet::default(),
+        ),
+    };
+    let mut dictionary = initial_dictionary(
+        kind,
+        &policies.to_proto().unwrap(),
+        &GroupMetadataOptions::default(),
+        creator.context().inbox_id(),
+        root,
+        &[],
+    )
+    .unwrap();
+    if let Some(claimed_creator) = claimed_creator {
+        dictionary.insert(
+            ComponentId::CREATOR_INBOX_ID.as_u16(),
+            InboxId::from_hex(claimed_creator)
+                .unwrap()
+                .tls_serialize_detached()
+                .unwrap(),
+        );
+    }
+    if let Some(registry) = registry {
+        dictionary.insert(
+            ComponentId::COMPONENT_REGISTRY.as_u16(),
+            registry.to_bytes().unwrap(),
+        );
+    }
+    // Name each member's identity state, as an add commit would. When both
+    // are one inbox, the creator's state wins, as it would in its own commit.
+    let membership = [joiner, creator]
+        .into_iter()
+        .chain(other_member)
+        .map(|client| {
+            let sequence_id = client
+                .context()
+                .db()
+                .get_latest_sequence_id_for_inbox(client.context().inbox_id())
+                .unwrap();
+            (
+                InboxId::from_hex(client.context().inbox_id()).unwrap(),
+                GroupMembershipEntry {
+                    version: Some(MembershipVersion::V1(MembershipV1 {
+                        sequence_id: sequence_id as u64,
+                        failed_installations: vec![],
+                    })),
+                },
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    dictionary.insert(
+        ComponentId::GROUP_MEMBERSHIP.as_u16(),
+        encode_group_membership_dict(&membership).unwrap(),
+    );
+    let config = build_group_config(dictionary).unwrap();
+
+    let mut key_packages = vec![];
+    for client in [joiner].into_iter().chain(other_member) {
+        let installation_id = client.context().installation_id().to_vec();
+        let key_package = MlsStore::new(creator.context().clone())
+            .get_key_packages_for_installation_ids(vec![installation_id.clone()])
+            .await
+            .unwrap()
+            .remove(&installation_id)
+            .expect("each added client published a key package")
+            .unwrap();
+        key_packages.push(key_package);
+    }
+    let identity = creator.context().identity();
+    // The crafted group lives in a throwaway store, so the creator's own
+    // groups stay as they are and one id can be crafted more than once.
+    let provider = openmls_rust_crypto::OpenMlsRustCrypto::default();
+    let mut group = OpenMlsGroup::new_with_group_id(
+        &provider,
+        &identity.installation_keys,
+        &config,
+        OpenMlsGroupId::from_slice(group_id),
+        CredentialWithKey {
+            credential: identity.credential(),
+            signature_key: identity.installation_keys.public_slice().into(),
+        },
+    )
+    .unwrap();
+    for _ in 0..prior_epoch {
+        group
+            .self_update(
+                &provider,
+                &identity.installation_keys,
+                LeafNodeParameters::default(),
+            )
+            .unwrap();
+        group.merge_pending_commit(&provider).unwrap();
+    }
+    let (_commit, welcome, _group_info) = group
+        .add_members(
+            &provider,
+            &identity.installation_keys,
+            &key_packages
+                .iter()
+                .map(|key_package| key_package.inner.clone())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+
+    let installation = Installation::from_verified_key_package(&key_packages[0]);
+    let (data, welcome_metadata) = wrap_payload_hpke(
+        &welcome.tls_serialize_detached().unwrap(),
+        &WelcomeMetadata {
+            message_cursor: anchor,
+        }
+        .encode_to_vec(),
+        &installation.hpke_public_key,
+        installation.welcome_wrapper_algorithm,
+        xmtp_configuration::WELCOME_HPKE_LABEL,
+    )
+    .unwrap();
+    creator
+        .context()
+        .api()
+        .send_welcome_messages(&[WelcomeMessageInput {
+            version: Some(WelcomeMessageInputVersion::V1(WelcomeMessageInputV1 {
+                installation_key: installation.installation_key,
+                data,
+                hpke_public_key: installation.hpke_public_key,
+                wrapper_algorithm: installation.welcome_wrapper_algorithm.into(),
+                welcome_metadata,
+            })),
+        }])
+        .await
+        .unwrap();
+}
+
+/// Assert that `client` rejected a Welcome for `group_id` for good: no group
+/// row, a last rejection coded `invalid_welcome`, and no pending row left at
+/// its cursor. Returns that cursor.
+#[track_caller]
+pub fn assert_welcome_rejected(client: &impl EnginePeer, group_id: &GroupId) -> Cursor {
+    let db = client.context().db();
+    assert!(db.find_group(group_id).unwrap().is_none());
+    let topic = StreamTopic {
+        entity_id: client.context().installation_id().to_vec(),
+        kind: NetworkEntityKind::Welcome,
+    };
+    let rejected = db.read_last_rejection(&topic).unwrap().unwrap();
+    assert_eq!(rejected.code, "invalid_welcome");
+    assert!(
+        db.pending_envelope(&topic, rejected.sequence_id)
+            .unwrap()
+            .is_none(),
+        "the rejected Welcome must not stay pending"
+    );
+    rejected.sequence_id
+}

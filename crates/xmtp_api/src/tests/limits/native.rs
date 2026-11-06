@@ -3,6 +3,7 @@ use super::*;
 use futures::stream;
 use xmtp_common::time::timeout;
 use xmtp_proto::api_client::XmtpMlsBidiStreams;
+use xmtp_proto::types::ReceivedSubscribeFrame;
 
 /// Stream limit statuses surface after one RPC.
 #[rstest]
@@ -33,7 +34,7 @@ async fn limit_status_does_not_reopen_the_stream(#[case] code: tonic::Code) {
         .unwrap();
     assert!(matches!(
         inbound.next().await.unwrap().unwrap().response,
-        Some(wire::subscribe_response::Response::Started(_))
+        Some(ReceivedSubscribeFrame::Started(_))
     ));
     let error = inbound.next().await.unwrap().unwrap_err();
     assert_eq!(grpc_status(&error).unwrap().code(), code);
@@ -95,7 +96,7 @@ async fn update_entry_boundary(#[case] adds: bool, #[case] cap: usize) {
             .unwrap()
             .unwrap()
             .unwrap();
-        let Some(wire::subscribe_response::Response::Started(started)) = started.response else {
+        let Some(ReceivedSubscribeFrame::Started(started)) = started.response else {
             panic!("the backend must start each stream with its keepalive interval");
         };
         assert_eq!(
@@ -107,9 +108,7 @@ async fn update_entry_boundary(#[case] adds: bool, #[case] cap: usize) {
             .unwrap()
             .unwrap();
         if count == cap {
-            let Some(wire::subscribe_response::Response::Applied(applied)) =
-                result.unwrap().response
-            else {
+            let Some(ReceivedSubscribeFrame::Applied(applied)) = result.unwrap().response else {
                 panic!("a valid update must be acknowledged");
             };
             assert_eq!(applied.id, 1);
@@ -164,7 +163,7 @@ async fn token_bucket_boundary(#[case] updates: bool, #[case] burst: u32, #[case
                 .unwrap()
                 .unwrap()
                 .response,
-            Some(wire::subscribe_response::Response::Started(_))
+            Some(ReceivedSubscribeFrame::Started(_))
         ));
         let frame = |id: u32| wire::SubscribeRequest {
             request: Some(if updates {
@@ -191,10 +190,10 @@ async fn token_bucket_boundary(#[case] updates: bool, #[case] burst: u32, #[case
                     .unwrap()
                     .unwrap();
                 match response.response {
-                    Some(wire::subscribe_response::Response::Applied(applied)) if updates => {
+                    Some(ReceivedSubscribeFrame::Applied(applied)) if updates => {
                         assert_eq!(applied.id, u64::from(id))
                     }
-                    Some(wire::subscribe_response::Response::Pong(pong)) if !updates => {
+                    Some(ReceivedSubscribeFrame::Pong(pong)) if !updates => {
                         assert_eq!(pong.nonce, u64::from(id))
                     }
                     other => panic!("unexpected burst response: {other:?}"),
@@ -227,10 +226,10 @@ async fn token_bucket_boundary(#[case] updates: bool, #[case] burst: u32, #[case
                 .unwrap()
                 .unwrap();
             match response.response {
-                Some(wire::subscribe_response::Response::Applied(applied)) if updates => {
+                Some(ReceivedSubscribeFrame::Applied(applied)) if updates => {
                     assert_eq!(applied.id, u64::from(burst + 1))
                 }
-                Some(wire::subscribe_response::Response::Pong(pong)) if !updates => {
+                Some(ReceivedSubscribeFrame::Pong(pong)) if !updates => {
                     assert_eq!(pong.nonce, u64::from(burst + 1))
                 }
                 other => panic!("a refilled token must accept one more frame: {other:?}"),
@@ -263,7 +262,7 @@ async fn http2_stream_boundary(#[case] cap: usize) {
                 .unwrap()
                 .unwrap()
                 .response,
-            Some(wire::subscribe_response::Response::Started(_))
+            Some(ReceivedSubscribeFrame::Started(_))
         ));
         held.push((sender, inbound));
     }
@@ -288,6 +287,6 @@ async fn http2_stream_boundary(#[case] cap: usize) {
             .unwrap()
             .unwrap()
             .response,
-        Some(wire::subscribe_response::Response::Started(_))
+        Some(ReceivedSubscribeFrame::Started(_))
     ));
 }

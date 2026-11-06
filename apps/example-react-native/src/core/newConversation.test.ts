@@ -550,6 +550,7 @@ test("count rules: none, a DM with two, a group over the limit", async () => {
 test("Next shows the review; Back and the type picker leave it", async () => {
   const queries = new FakeQueries();
   const { store } = makeStore(queries);
+  store.setGroup(true);
   store.load();
   await settle();
   store.setInput("lena");
@@ -561,7 +562,7 @@ test("Next shows the review; Back and the type picker leave it", async () => {
   store.next();
   await settle();
   assert.equal(store.getState().reviewing, true);
-  store.setGroup(true);
+  store.setGroup(false);
   assert.equal(store.getState().reviewing, false);
 });
 
@@ -634,6 +635,7 @@ test("group details cannot change while Create sends them", async () => {
 test("a second Create while one runs creates no second conversation", async () => {
   const queries = new FakeQueries();
   const { store, finished } = makeStore(queries);
+  store.setGroup(true);
   store.load();
   await settle();
   store.setInput("theo");
@@ -651,6 +653,7 @@ test("a second Create while one runs creates no second conversation", async () =
 test("leaving the review while Create runs keeps that create and starts no second one", async () => {
   const queries = new FakeQueries();
   const { store, finished } = makeStore(queries);
+  store.setGroup(true);
   store.load();
   await settle();
   store.setInput("theo");
@@ -703,19 +706,20 @@ describe("the sheet stays open only while the create call runs", () => {
   }
 });
 
-test("Create for a DM resolves the typed entry first", async () => {
+test("continuing a DM resolves the recipient and opens it without review", async () => {
   const queries = new FakeQueries();
   const { store, finished } = makeStore(queries);
   store.load();
   await settle();
   store.setInput("@theo");
-  store.create();
+  store.next();
   await settle();
   assert.deepEqual(
     queries.created.map((request) => request.inboxIds),
     [["inbox-theo"]],
   );
   assert.equal(queries.created[0]?.group, false);
+  assert.equal(store.getState().reviewing, false);
   assert.deepEqual(finished, ["conversation-1"]);
 });
 
@@ -723,6 +727,7 @@ test("a create failure keeps the sheet open with copy", async () => {
   const queries = new FakeQueries();
   queries.createFailure = new Error("network");
   const { store, finished } = makeStore(queries);
+  store.setGroup(true);
   store.load();
   await settle();
   store.setInput("theo");

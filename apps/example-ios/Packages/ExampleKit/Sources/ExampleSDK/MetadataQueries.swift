@@ -7,7 +7,7 @@ func metadataShape(_ descriptor: MetadataFieldDescriptor) -> FieldShape {
 	case .string: return descriptor.isUserField ? .unsupported : .string
 	case .bytes: return descriptor.isUserField ? .unsupported : .bytes
 	case let .map(key, value):
-		if key == .inboxId && descriptor.isUserField {
+		if key == .inboxId, descriptor.isUserField {
 			return value == .string ? .userString : .userBytes
 		}
 		return key == .bytes && value == .bytes && !descriptor.isUserField ? .byteMap : .unsupported

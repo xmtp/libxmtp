@@ -161,6 +161,15 @@ impl Registry {
             }
         }
     }
+    /// The number of topics session `id` has registered.
+    #[cfg(test)]
+    pub(super) fn registered(&self, id: u64) -> usize {
+        self.0
+            .lock()
+            .clients
+            .get(&id)
+            .map_or(0, |client| client.topics.len())
+    }
     /// Publish a terminal error before clearing recovery registrations.
     pub fn fail_all(&self, error: Status, reason: StreamEnd) {
         let mut state = self.0.lock();

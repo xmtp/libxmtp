@@ -10,11 +10,10 @@ import {
 import {
   Client,
   latestInboxUpdatesCount,
-  type CredentialSource,
   type Installation,
   type Signer,
 } from "@xmtp/browser-sdk";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Outlet } from "react-router";
 import { useSignMessage } from "wagmi";
 
@@ -111,10 +110,12 @@ export const InboxTools: React.FC = () => {
   );
   const { createCredentialSource } = useAuthToken();
   // The inbox tools statics build their own short-lived clients, separate from
-  // the app's client, so they get their own callback and their own memo.
-  const authCallbackRef = useRef<CredentialSource | null>(null);
-  authCallbackRef.current ??= createCredentialSource();
-  const authCallback = authCallbackRef.current;
+  // the app's client, so they get their own callback and their own memo, bound
+  // to the backend they query.
+  const authCallback = useMemo(
+    () => createCredentialSource(backendUrl),
+    [createCredentialSource, backendUrl],
+  );
   const [active, setActive] = useState(1);
 
   const fetchInstallations = useCallback(async () => {

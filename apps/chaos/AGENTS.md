@@ -5,9 +5,8 @@ It is outside `default-members` and CI.
 
 ## Run gate
 
-Deliver this implementation as one PR on the approved branch. Do not start an
-actual Murmur run until the user approves that PR and small local runs pass
-without immediate failures. Plan approval does not approve a Murmur run.
+Do not start a Murmur run until the user approves the PR and small local runs
+pass without immediate failures. Plan approval does not approve a Murmur run.
 Record the PR approval and local results before the run. A 50-round baseline
 must pass before a fault run counts.
 

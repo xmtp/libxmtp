@@ -91,7 +91,10 @@ use xmtp_cryptography::secret::Zeroizing;
 
 use super::SqlKeyStoreError;
 
+// The golden groups hold no group root, so the OpenMLS convenience commits
+// that the GroupInfo bans in `.clippy.toml` cover are safe there.
 #[cfg(test)]
+#[allow(clippy::disallowed_methods)]
 mod golden_tests;
 pub mod key;
 

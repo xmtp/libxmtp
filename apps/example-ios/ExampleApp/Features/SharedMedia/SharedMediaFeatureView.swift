@@ -91,7 +91,8 @@ struct SharedMediaFeatureView: View {
 					row.date,
 					format: .dateTime.month().day().hour().minute(),
 				) }.font(.caption).foregroundStyle(.secondary)
-				AttachmentCardView(id: row.id, descriptor: descriptor, store: files, graph: graph, allowed: allowed)
+				AttachmentCardView(id: row.id, descriptor: descriptor, store: files, graph: graph, allowed: allowed,
+				                   own: row.sender == graph.active?.profile.inboxID, sender: row.sender, sentAt: row.date)
 				Button(String(localized: "View in chat", table: "SharedMedia")) { viewInChat(row) }.buttonStyle(.glass)
 			}
 		}

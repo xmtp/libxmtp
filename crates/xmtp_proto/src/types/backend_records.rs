@@ -1,15 +1,19 @@
 use crate::{
-    backend_v1::EnvelopeMeta,
-    xmtp::{
-        identity::associations::IdentityUpdate, mls::message_contents::PlaintextCommitLogEntry,
-    },
+    backend_v1::{EnvelopeMeta, SealedCommitLogEntry},
+    types::{Cursor, Topic},
+    xmtp::identity::associations::IdentityUpdate,
 };
 
+/// One envelope read from a commit-log topic, not yet opened.
 #[derive(Clone, Debug)]
 pub struct CommitLogEntry {
-    pub meta: EnvelopeMeta,
-    pub entry: PlaintextCommitLogEntry,
-    pub payload: crate::backend_v1::CommitLogEntry,
+    /// The commit-log topic the envelope was read from.
+    pub topic: Topic,
+    /// The envelope's position on that topic.
+    pub cursor: Cursor,
+    /// The sealed entry, or `None` when the envelope carries another
+    /// payload. A reader discards such an envelope and reads past it.
+    pub sealed: Option<SealedCommitLogEntry>,
 }
 #[derive(Clone, Debug)]
 pub struct IdentityUpdateLog {

@@ -18,10 +18,9 @@ const server = await createServer({
     port: 0,
     fs: { strict: false },
     proxy: {
-      "/backend": {
+      "/xmtp.": {
         target: process.env.XMTP_BACKEND_URL ?? "http://127.0.0.1:9450",
         changeOrigin: true,
-        rewrite: (path: string) => path.replace(/^\/backend/, ""),
       },
     },
   },

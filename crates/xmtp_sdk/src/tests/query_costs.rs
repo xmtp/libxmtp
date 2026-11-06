@@ -179,3 +179,35 @@ async fn conversation_list_created_filters_select_exact_ids() {
     );
     client.end().await?;
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn conversation_list_rejects_invalid_page_options() {
+    use crate::{ConversationOrder, ListConversationsOptions};
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    for options in [
+        ListConversationsOptions {
+            limit: Some(1001),
+            ..Default::default()
+        },
+        // A before id needs the before time of the list order.
+        ListConversationsOptions {
+            before_id: Some(group.id()),
+            ..Default::default()
+        },
+        ListConversationsOptions {
+            order_by: Some(ConversationOrder::CreatedAt),
+            last_activity_before: Some(group.created_at()),
+            before_id: Some(group.id()),
+            ..Default::default()
+        },
+    ] {
+        let result = client.conversations().list(Some(options.clone())).await;
+        assert!(
+            matches!(result, Err(XmtpError::InvalidArgument(_))),
+            "{options:?} was not rejected as an invalid argument"
+        );
+    }
+    client.end().await?;
+}

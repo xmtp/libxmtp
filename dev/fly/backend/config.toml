@@ -14,3 +14,15 @@ enabled = false
 metrics_listen = "0.0.0.0:9464"
 otlp_endpoint = "http://xmtp-backend-dev-tempo.internal:4317"
 sample_ratio = 1.0
+
+# Fly Proxy connects from its private network (172.16.0.0/12, which Fly does
+# not document) and appends the client's address, then this app's public
+# address, to X-Forwarded-For. The app's addresses are what
+# xmtp-backend-dev.fly.dev resolves to; `fly ips list --app xmtp-backend-dev`
+# lists them. See the Fly deploy guide.
+[rate_limits]
+trusted_proxies = [
+  "172.16.0.0/12",
+  "66.241.125.127/32",
+  "2a09:8280:1::190:8e4f:0/128",
+]

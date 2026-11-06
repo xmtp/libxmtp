@@ -484,7 +484,7 @@ async fn member_consent_is_visible_in_group_member_record() {
 /// `update_consent_state`. The creator starts allowed, the peer that joined from
 /// a Welcome starts unknown, and each update is read back from the DM state and
 /// from the conversation consent record.
-// verifies: CONS-020, CONS-041
+// verifies: CONS-056, CONS-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn dm_consent_is_read_and_updated_through_the_dm() {
     use crate::{ConsentEntity, ConsentState};
@@ -569,4 +569,44 @@ async fn group_state_reports_membership_state() {
 
     alix.end().await?;
     bo.end().await?;
+}
+
+/// Q15: an act naming a conversation the client does not hold fails with
+/// `InvalidArgument` and stores nothing; an act on an inbox the client has
+/// never seen is stored.
+// verifies: CONS-052
+#[xmtp_common::test(unwrap_try = true)]
+async fn consent_act_on_unheld_conversation_is_invalid_argument() {
+    use crate::{ConsentEntity, ConsentRecord, ConsentState, XmtpError, ids::ConversationId};
+    let alix = Client::create(crate::generate_local_signer().await, options()).await?;
+    let unheld = ConsentEntity::Conversation {
+        conversation_id: ConversationId::try_from("cd".repeat(32))?,
+    };
+    let error = alix
+        .preferences()
+        .set_consent_states(vec![ConsentRecord {
+            entity: unheld.clone(),
+            state: ConsentState::Denied,
+        }])
+        .await
+        .expect_err("an unheld conversation is refused");
+    assert!(matches!(error, XmtpError::InvalidArgument(_)), "{error:?}");
+    assert!(matches!(
+        alix.preferences().consent_state(unheld).await?,
+        ConsentState::Unknown
+    ));
+    let stranger = ConsentEntity::Inbox {
+        inbox_id: crate::ids::InboxId::try_from("ef".repeat(32))?,
+    };
+    alix.preferences()
+        .set_consent_states(vec![ConsentRecord {
+            entity: stranger.clone(),
+            state: ConsentState::Denied,
+        }])
+        .await?;
+    assert!(matches!(
+        alix.preferences().consent_state(stranger).await?,
+        ConsentState::Denied
+    ));
+    alix.end().await?;
 }

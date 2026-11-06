@@ -2,7 +2,7 @@
 
 `xmtp-sdk-bindgen` writes the Swift, Kotlin, Node, and browser bindings of
 `crates/xmtp_sdk`. Run it through `dev/nix-shell 'just sdk generate'`; see
-`crates/xmtp_sdk/AGENTS.md` for the recipes.
+[SDK generation and package checks](../../crates/xmtp_sdk/DEVELOPMENT.md) for recipes.
 
 `xmtp-sdk-bindgen render --lib <library> --target
 node|browser-worker|browser-pure|swift|kotlin --out <dir>` is the one renderer:

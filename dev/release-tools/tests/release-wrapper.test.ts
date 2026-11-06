@@ -69,20 +69,20 @@ describe("release action CLI wrapper", () => {
       "8.0.0-rc1",
     ],
     [
-      ["compute-version", "--sdk", "node-sdk", "--release-type", "final"],
-      baseVersion("node-sdk"),
+      ["compute-version", "--sdk", "libxmtp", "--release-type", "final"],
+      baseVersion("libxmtp"),
     ],
     [
       [
         "compute-version",
         "--sdk",
-        "android",
+        "libxmtp",
         "--release-type",
         "dev",
         "--source-ref",
         "self-hosted",
       ],
-      `${baseVersion("android")}-dev.${shortSha}`,
+      `${baseVersion("libxmtp")}-dev.${shortSha}`,
     ],
   ] satisfies [string[], string][])(
     "emits only the version for %j",
@@ -264,7 +264,7 @@ describe("release action CLI wrapper", () => {
     const result = run([
       "compute-version",
       "--sdk",
-      "node-sdk",
+      "libxmtp",
       "--release-type",
       "rc",
     ]);

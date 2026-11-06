@@ -46,8 +46,15 @@ macro and every helper here sit behind `xmtp_common`'s `test-utils` feature or
 
 - Beside the module they exercise. A short file keeps `#[cfg(test)] mod tests`
   inline. A small suite gets a module-local `tests.rs`. A large suite gets a
-  `tests/` directory split by behaviour (`crates/xmtp_mls/src/groups/tests/`).
+  `tests/` directory split by behaviour (`crates/xmtp_mls_engine/src/groups/tests/`).
   No crate-wide `tests/` directory of unrelated modules.
+- The `xmtp_mls_*` crates below the facade build no client: no `tester!` or
+  `ClientBuilder` under their `src/`. Unit tests that read private state stay
+  beside their code and build real-backend peers through
+  `xmtp_mls_engine::groups::test_support::EngineTestPeer`. Suites that need a
+  client go in that crate's `tests/` directory, through its `xmtp_mls`
+  dev-dependency. Contracts of `Client`, its builder, workers and task runner
+  stay in `crates/xmtp_mls/src/client/tests/` on real clients.
 - One test-support module per crate: `crates/xmtp_mls/src/utils/test/`,
   `apps/backend/src/test_support.rs`.
 - `#[cfg(test)]` for helpers only this crate uses;

@@ -45,7 +45,7 @@ xmtp_cryptography.workspace = true
 xmtp_db = { workspace = true, features = ["test-utils"] }
 xmtp_id.workspace = true
 xmtp_logging.workspace = true
-xmtp_mls = { workspace = true, features = ["test-utils"] }
+xmtp_mls = { workspace = true, features = ["diagnostics"] }
 xmtp_proto.workspace = true
 
 [dev-dependencies]

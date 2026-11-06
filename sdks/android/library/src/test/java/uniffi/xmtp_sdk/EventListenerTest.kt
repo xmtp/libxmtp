@@ -49,9 +49,12 @@ class EventListenerTest {
     }
 
     private fun sdkClient(raw: Client): SDKClient {
-        val constructor = SDKClient::class.java.getDeclaredConstructor(Client::class.java, List::class.java)
+        val registry = Class.forName("uniffi.xmtp_sdk.CodecRegistry")
+        val prepare = registry.getDeclaredConstructor(List::class.java)
+        prepare.isAccessible = true
+        val constructor = SDKClient::class.java.getDeclaredConstructor(Client::class.java, registry)
         constructor.isAccessible = true
-        return constructor.newInstance(raw, emptyList<ContentCodec<*>>())
+        return constructor.newInstance(raw, prepare.newInstance(emptyList<ContentCodec<*>>()))
     }
 
     // verifies: EVENT-053

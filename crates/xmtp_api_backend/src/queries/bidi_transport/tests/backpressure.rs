@@ -48,7 +48,7 @@ fn assert_full_lease_does_not_clone() {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct CountedMessage {
-        envelope: ServerEnvelope,
+        envelope: xmtp_proto::types::ReceivedEnvelope,
         copies: Arc<AtomicUsize>,
     }
 
@@ -75,7 +75,7 @@ fn assert_full_lease_does_not_clone() {
     let copies = Arc::new(AtomicUsize::new(0));
     let dropped = ledger.demux(
         vec![CountedMessage {
-            envelope: group_msg(1, b"g1"),
+            envelope: group_msg(1, b"g1").into(),
             copies: copies.clone(),
         }],
         DeliveryKind::Group,

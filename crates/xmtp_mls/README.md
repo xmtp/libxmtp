@@ -144,7 +144,7 @@ When validating another user's Key Package, clients must perform all the standar
 
 This validation is performed by downloading the latest identity updates for the `inbox_id` and ensuring that the installation key is present in the list of associated keys.
 
-Clients are expected to regularly rotate their key package to limit the impact if the HPKE keypair referenced in the key package is compromised. This rotation is expected to happen any time the client receives a new welcome message. Clients may batch this rotation, so that if they receive N welcome messages at once they only have to rotate one time. Clients are expected to keep at most 2 HPKE keypairs (one from the current Key Package and one from the previous Key Package).
+Clients are expected to regularly rotate their key package to limit the impact if the HPKE keypair referenced in the key package is compromised. This rotation happens within 5 seconds after the client installs a group from a welcome message. Receiving, holding, or rejecting a welcome message does not rotate the key package. Clients batch this rotation, so N welcome messages installed at once cause one rotation. Clients are expected to keep at most 2 HPKE keypairs (one from the current Key Package and one from the previous Key Package).
 
 ### Credentials
 

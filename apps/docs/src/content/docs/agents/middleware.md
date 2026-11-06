@@ -35,6 +35,6 @@ Error middleware receives the `error`, `ctx`, and a `next` function. Just like r
 
 The error context always has a `client`. Its `message` and `conversation` can be absent. Check them before use.
 
-For a message error, `next()` accepts recovery and lets processing continue. Return without `next()` to reject acceptance and stop the reader. The failed message can be delivered again when you open a new default reader. Keep external actions safe if a message is delivered more than once.
+For a message error, `next()` accepts recovery and lets processing continue. Return without `next()` to reject acceptance and stop the reader. The failed message can be delivered again when you open a new default reader. Keep external actions safe if a message is delivered more than once. If the failing middleware already called `next()`, recovery does not run the rest of the chain again.
 
 A terminal stream error closes both readers before error middleware runs. `next()` handles that error but does not open replacement readers. Call `agent.start()` explicitly when your recovery policy permits it.

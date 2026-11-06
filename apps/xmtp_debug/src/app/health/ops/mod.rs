@@ -23,7 +23,6 @@ mod remove_member;
 mod send_message;
 mod update_admin_list;
 mod update_app_data;
-mod update_commit_log_signer;
 mod update_consent_state;
 mod update_group_description;
 mod update_group_image_url;

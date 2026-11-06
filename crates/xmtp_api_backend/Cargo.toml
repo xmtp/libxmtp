@@ -40,7 +40,6 @@ xmtp_configuration.workspace = true
 xmtp_cryptography.workspace = true
 xmtp_events.workspace = true
 xmtp_id.workspace = true
-xmtp_mls_common.workspace = true
 xmtp_mls_validation.workspace = true
 xmtp_proto.workspace = true
 
@@ -64,6 +63,7 @@ xmtp_api_backend = { path = ".", features = ["test-utils"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 proptest = { workspace = true, features = [
   "std",
   "fork",

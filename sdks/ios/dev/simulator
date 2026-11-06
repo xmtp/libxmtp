@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Boot an iPhone simulator that the selected Xcode can run, and print its
+# `xcodebuild -destination`.
+#
+# xcodebuild waits about 60 s for CoreSimulator to list the destination. On a
+# fresh CI VM, CoreSimulator starts and mounts the simulator runtimes on first
+# use. When no device is listed within that wait, xcodebuild fails with "Unable
+# to find a device matching the provided destination specifier". This script
+# starts `simctl list` calls for 5 minutes until one lists a device, then gives
+# the boot up to 5 minutes, so the device is ready before xcodebuild starts. A
+# device that the last call lists is used even if the call ends after the
+# 5 minutes. Choosing the device here also keeps a runner image update or a
+# developer's simulator set from breaking a fixed device name.
+set -euo pipefail
+
+# The Nix shell puts xcbuild's xcrun first on PATH; simctl needs Apple's.
+# simctl has no timeout option, so the Nix shell's coreutils `timeout` bounds
+# each call.
+xcrun=/usr/bin/xcrun
+sdk="$("$xcrun" --sdk iphonesimulator --show-sdk-version)"
+
+# The first available iPhone on the newest available iOS runtime whose
+# major.minor version is not newer than the simulator SDK of the selected Xcode.
+iphone() {
+  timeout 120 "$xcrun" simctl list --json | jq -r --arg sdk "$sdk" '
+    def version: split(".") | map(tonumber) | .[0:2];
+    .devices as $devices
+    | [.runtimes[] | select(.isAvailable and .platform == "iOS" and (.version | version) <= ($sdk | version))]
+    | sort_by(.version | version) | reverse
+    | [.[] | $devices[.identifier][]? | select(.isAvailable and (.name | startswith("iPhone")))]
+    | first | .udid // empty'
+}
+
+deadline=$((SECONDS + 300))
+until device="$(iphone)" && [[ -n "$device" ]]; do
+  if ((SECONDS >= deadline)); then
+    echo "No available iPhone simulator for the iOS $sdk simulator SDK." >&2
+    timeout 60 "$xcrun" simctl list runtimes >&2 || true
+    exit 1
+  fi
+  echo "Waiting for CoreSimulator to list an iPhone simulator for iOS $sdk." >&2
+  sleep 10
+done
+echo "Booting simulator $device." >&2
+# bootstatus prints a status line every second; show them only on failure.
+if ! status="$(timeout 300 "$xcrun" simctl bootstatus "$device" -b 2>&1)"; then
+  printf '%s\n' "$status" >&2
+  echo "Simulator $device did not boot within 5 minutes." >&2
+  exit 1
+fi
+echo "platform=iOS Simulator,id=$device"

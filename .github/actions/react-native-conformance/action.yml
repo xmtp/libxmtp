@@ -1,7 +1,7 @@
 name: React Native installed conformance
 description: Execute fresh bare and Expo native proofs against the imported canonical package
 # The journeys read XMTP_RN_JOURNEYS from the job environment: unset or `pr` on
-# pull requests, `full` in post-merge and release runs. The variable reaches
+# pull requests, `full` in nightly, manual, and release runs. The variable reaches
 # run.py and its peer through dev/nix-shell, the emulator wrapper, and
 # `just backend ci`, the same route as XMTP_NODE_SDK_DIR.
 inputs:

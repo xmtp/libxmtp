@@ -81,7 +81,6 @@ inventory::submit! {
             "UpdateAdminList",
             "UpdatePermissionPolicy",
             "UpdateAppData",
-            "UpdateCommitLogSigner",
             "UpdateConsentStateQuiet",
             "GetMutableMetadata",
         ],

@@ -9,21 +9,18 @@ const KID: &str = "key-id-sentinel";
 
 /// An enabled section with one inline ES256 key.
 fn inline_auth() -> AuthConfig {
-    AuthConfig {
-        enabled: Some(true),
-        keys: Some(vec![es256_key(KID)]),
-        ..AuthConfig::default()
-    }
+    let mut config = AuthConfig::default();
+    config.enabled = Some(true);
+    config.keys = Some(vec![es256_key(KID)]);
+    config
 }
 
 /// An enabled section with one named API key and no JWT key source.
 fn api_key(name: &str) -> (String, AuthConfig) {
     let value = api_key_value();
-    let config = AuthConfig {
-        enabled: Some(true),
-        api_keys: [(name.to_owned(), value.clone())].into(),
-        ..AuthConfig::default()
-    };
+    let mut config = AuthConfig::default();
+    config.enabled = Some(true);
+    config.api_keys = [(name.to_owned(), value.clone())].into();
     (value, config)
 }
 
@@ -103,15 +100,12 @@ fn key_sources_and_claim_lists_are_validated_at_load() {
 #[xmtp_common::test(unwrap_try = true)]
 fn api_keys_load_alone_or_alongside_one_jwt_source() {
     let (value, config) = api_key("Team.Bot");
-    for mut auth in [
-        config,
-        inline_auth(),
-        AuthConfig {
-            enabled: Some(true),
-            jwks_url: Some("https://issuer.example/keys".into()),
-            ..AuthConfig::default()
-        },
-    ] {
+    for mut auth in [config, inline_auth(), {
+        let mut config = AuthConfig::default();
+        config.enabled = Some(true);
+        config.jwks_url = Some("https://issuer.example/keys".into());
+        config
+    }] {
         auth.api_keys.insert("Team.Bot".into(), value.clone());
         let config = loaded(&toml::to_string(&BTreeMap::from([("auth", &auth)]))?)?;
         assert_eq!(
@@ -163,11 +157,9 @@ fn api_key_names_and_values_are_validated_without_disclosing_values() {
         ("team/bot", "auth.api_keys.\"team/bot\"".to_owned()),
         ("ébot", "auth.api_keys.\"ébot\"".to_owned()),
     ] {
-        let auth = AuthConfig {
-            enabled: Some(true),
-            api_keys: [(name.to_owned(), value.clone())].into(),
-            ..AuthConfig::default()
-        };
+        let mut auth = AuthConfig::default();
+        auth.enabled = Some(true);
+        auth.api_keys = [(name.to_owned(), value.clone())].into();
         let error = loaded(&toml::to_string(&BTreeMap::from([("auth", &auth)]))?).unwrap_err();
         assert!(matches!(&error, ConfigError::Auth { .. }), "{error}");
         assert_eq!(error.field(), Some(field.as_str()), "{error}");
@@ -185,11 +177,9 @@ fn api_key_names_and_values_are_validated_without_disclosing_values() {
         format!("{value}\x7f"),
         format!("{value}é"),
     ] {
-        let auth = AuthConfig {
-            enabled: Some(true),
-            api_keys: [("test-bot".into(), value.clone())].into(),
-            ..AuthConfig::default()
-        };
+        let mut auth = AuthConfig::default();
+        auth.enabled = Some(true);
+        auth.api_keys = [("test-bot".into(), value.clone())].into();
         let error = loaded(&toml::to_string(&BTreeMap::from([("auth", &auth)]))?).unwrap_err();
         assert!(
             matches!(&error, ConfigError::Auth { field, .. } if field == "auth.api_keys.test-bot")
@@ -200,11 +190,9 @@ fn api_key_names_and_values_are_validated_without_disclosing_values() {
         }
     }
     for value in ["!".repeat(MIN_API_KEY_BYTES), "~".repeat(MAX_API_KEY_BYTES)] {
-        let auth = AuthConfig {
-            enabled: Some(true),
-            api_keys: [(format!("9._-{}", "a".repeat(60)), value)].into(),
-            ..AuthConfig::default()
-        };
+        let mut auth = AuthConfig::default();
+        auth.enabled = Some(true);
+        auth.api_keys = [(format!("9._-{}", "a".repeat(60)), value)].into();
         loaded(&toml::to_string(&BTreeMap::from([("auth", &auth)]))?)?;
     }
 }
@@ -368,12 +356,12 @@ fn environment_values_resolve_in_both_auth_key_sources() {
         "[auth]\nenabled = true\nkeys = [{ kid = 'test', alg = 'ES256', public_key = 'env:XMTP_AUTH_TEST_KEY' }]",
     )?;
     assert_eq!(
-        config.into_config().auth.unwrap().keys.unwrap()[0].public_key,
+        config.into_config().auth.unwrap().keys.take().unwrap()[0].public_key,
         std::env::var("XMTP_AUTH_TEST_KEY")?
     );
     let config = loaded("[auth]\nenabled = true\njwks_url = 'env:XMTP_AUTH_TEST_URL'")?;
     assert_eq!(
-        config.into_config().auth.unwrap().jwks_url.unwrap(),
+        config.into_config().auth.unwrap().jwks_url.take().unwrap(),
         std::env::var("XMTP_AUTH_TEST_URL")?
     );
 }
@@ -493,4 +481,20 @@ fn resolved_key_values_are_absent_from_validation_errors() {
     ))?;
     let debug = format!("{config:?}");
     assert!(!debug.contains(SENTINEL), "{debug}");
+}
+
+#[cfg(unix)]
+xmtp_cryptography::install_heap_canary!();
+
+#[cfg(unix)]
+#[xmtp_common::test(unwrap_try = true)]
+fn auth_config_drop_wipes_each_api_key_clone() {
+    use xmtp_cryptography::secret::heap_canary::{Canary, scan};
+    const KEY: &str = "config-key-unique-sentinel-123456789";
+    let ((), hits) = scan(&[Canary::new(KEY.as_bytes())], || {
+        let mut config = AuthConfig::default();
+        config.api_keys.insert("operator".into(), KEY.into());
+        drop((config.clone(), config));
+    });
+    assert_eq!(hits, [0], "AuthConfig freed an unwiped API key");
 }

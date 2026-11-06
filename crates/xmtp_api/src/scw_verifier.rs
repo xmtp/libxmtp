@@ -1,11 +1,21 @@
 use crate::ApiClientWrapper;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::scw_verifier::VerifierError;
-use xmtp_id::{BlockNumber, Bytes, associations::AccountId, scw_verifier::ValidationResponse};
+use xmtp_id::scw_verifier::{ScwInput, ValidationResponse};
+use xmtp_id::{BlockNumber, Bytes, associations::AccountId};
 use xmtp_proto::backend_v1::VerifySmartContractWalletSignaturesRequest;
 use xmtp_proto::backend_v1::VerifySmartContractWalletSignaturesResponse;
 use xmtp_proto::backend_v1::verify_smart_contract_wallet_signatures_request::Signature as VerifySmartContractWalletSignatureRequestSignature;
+use xmtp_proto::backend_v1::verify_smart_contract_wallet_signatures_response::Response as VerifySmartContractWalletSignatureResponse;
 use xmtp_proto::prelude::XmtpBackendClient;
+
+fn verdict(response: VerifySmartContractWalletSignatureResponse) -> ValidationResponse {
+    ValidationResponse {
+        is_valid: response.is_valid,
+        block_number: response.block_number,
+        error: response.error,
+    }
+}
 
 #[xmtp_common::async_trait]
 impl<C> SmartContractSignatureVerifier for ApiClientWrapper<C>
@@ -48,10 +58,33 @@ where
                     std::io::ErrorKind::InvalidData,
                     "API returned empty response for signature verification request",
                 )))?;
-        Ok(ValidationResponse {
-            is_valid: response.is_valid,
-            block_number: response.block_number,
-            error: response.error,
-        })
+        Ok(verdict(response))
+    }
+
+    /// Verify the inputs in as few backend requests as the published limits
+    /// allow, and return the verdicts in input order. The split and the
+    /// verdict-count check are those of
+    /// [`ApiClientWrapper::verify_smart_contract_wallet_signatures`]; its
+    /// error keeps its retryability.
+    async fn verify_many(
+        &self,
+        inputs: &[ScwInput],
+    ) -> Result<Vec<ValidationResponse>, VerifierError> {
+        let signatures = inputs
+            .iter()
+            .map(|input| VerifySmartContractWalletSignatureRequestSignature {
+                account_id: input.account_id().clone().into(),
+                block_number: input.block_number(),
+                signature: input.signature().to_vec(),
+                hash: input.hash().to_vec(),
+            })
+            .collect();
+        let VerifySmartContractWalletSignaturesResponse { responses } = self
+            .verify_smart_contract_wallet_signatures(VerifySmartContractWalletSignaturesRequest {
+                signatures,
+            })
+            .await
+            .map_err(|e| VerifierError::Other(Box::new(e) as Box<_>))?;
+        Ok(responses.into_iter().map(verdict).collect())
     }
 }

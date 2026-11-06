@@ -35,6 +35,7 @@ class GeneratedConverterTest {
                 limit = 5u,
                 orderBy = ConversationOrder.LAST_ACTIVITY,
                 includeDuplicateDms = true,
+                beforeId = "c7".repeat(16),
             )
         assertEquals(conversations, FfiConverterTypeListConversationsOptions.roundTrip(conversations))
 
@@ -274,6 +275,7 @@ class GeneratedConverterTest {
                 content = MessageContent.Text("text"),
                 replyCount = 27uL,
                 reactions = reactions,
+                reactionMessageCount = 28uL,
                 inReplyTo = null,
             )
         assertEquals(message, FfiConverterTypeMessageData.roundTrip(message))

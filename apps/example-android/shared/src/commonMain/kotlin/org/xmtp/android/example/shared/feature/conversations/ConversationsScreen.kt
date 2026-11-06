@@ -109,7 +109,7 @@ fun ConversationsScreen(
                     TextButton(onClick = {
                         action(ConversationsAction.SelectTab(false))
                     }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Back to chats") }
-                } else {
+                } else if ((state.requestCount ?: state.requests.size) > 0) {
                     Surface(onClick = {
                         action(ConversationsAction.OpenRequests)
                     }, color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(18.dp)) {

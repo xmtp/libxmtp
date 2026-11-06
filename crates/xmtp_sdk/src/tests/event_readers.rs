@@ -324,57 +324,8 @@ async fn event_filter_selects_before_queueing() {
 
 // verifies: EVENT-020
 #[xmtp_common::test(unwrap_try = true)]
-async fn event_filter_matches_stitched_dm_identifier() {
-    let client = Client::create(crate::generate_local_signer().await, options()).await?;
-    let other = Client::create(crate::generate_local_signer().await, options()).await?;
-    let dm = client
-        .inner
-        .find_or_create_dm(other.inbox_id().into_checked()?, None)
-        .await?;
-    let dm_identifier = dm.dm_id.clone().expect("DM ID");
-    let reader = client
-        .events(EventFilter {
-            group_ids: Some(vec![dm.group_id.as_slice().to_vec()]),
-            ..event_filter(vec![EventKind::ConversationJoined])
-        })
-        .await?;
-    let event = xmtp_events::ClientEvent::ConversationJoined(xmtp_events::ConversationJoined {
-        group_id: vec![8; 16],
-        conversation_type: xmtp_events::ConversationType::Dm,
-        origin: xmtp_events::JoinOrigin::Welcomed,
-        adder_inbox_id: None,
-    });
-    client
-        .inner
-        .context
-        .events()
-        .emit(Some(event.clone()), None);
-    client.inner.context.events().emit_with_context(
-        Some(event),
-        None,
-        xmtp_events::EventContext {
-            dm_identifier: Some(dm_identifier.into_bytes()),
-            ..Default::default()
-        },
-    );
-    assert!(matches!(
-        tokio::time::timeout(Duration::from_secs(2), reader.next()).await??,
-        Some(ClientEvent::ConversationJoined { .. })
-    ));
-    assert!(
-        tokio::time::timeout(Duration::from_millis(20), reader.next())
-            .await
-            .is_err()
-    );
-    reader.end().await?;
-    other.end().await?;
-    client.end().await?;
-}
-
-// verifies: EVENT-020
-#[xmtp_common::test(unwrap_try = true)]
-async fn consent_event_for_stitched_dm_reaches_group_filter() {
-    use xmtp_db::consent_record::{ConsentState, ConsentType, StoredConsentRecord};
+async fn stitched_dm_events_reach_group_filter() {
+    use xmtp_db::consent_record::{ConsentState, ConsentType};
 
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let other = Client::create(crate::generate_local_signer().await, options()).await?;
@@ -387,29 +338,58 @@ async fn consent_event_for_stitched_dm_reaches_group_filter() {
         .find_or_create_dm(client.inbox_id().into_checked()?, None)
         .await?;
     assert_ne!(dm_a.group_id, dm_b.group_id);
-    client.inner.sync_welcomes().await?;
-    let stitched = client.inner.group(&dm_b.group_id)?;
-    assert_eq!(dm_a.dm_id, stitched.dm_id);
-
     let reader = client
         .events(EventFilter {
             group_ids: Some(vec![dm_a.group_id.as_slice().to_vec()]),
-            ..event_filter(vec![EventKind::ConsentChanged])
+            ..event_filter(vec![
+                EventKind::ConversationJoined,
+                EventKind::ConsentChanged,
+            ])
         })
         .await?;
-    let entity = hex::encode(dm_b.group_id);
+    client.inner.sync_welcomes().await?;
+    let stitched = client.inner.group(&dm_b.group_id)?;
+    assert_eq!(dm_a.dm_id, stitched.dm_id);
+    assert!(
+        xmtp_common::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let event = reader.next().await?.expect("event reader is open");
+                if matches!(event, ClientEvent::ConversationJoined { conversation_joined }
+                    if conversation_joined.group_id == dm_b.group_id.as_slice())
+                {
+                    break;
+                }
+            }
+        })
+        .await
+        .is_ok(),
+        "stitched DM Welcome must reach the group-filtered reader"
+    );
+    // The DM's change is reported under the group the app lists.
+    let pair = [hex::encode(dm_a.group_id), hex::encode(dm_b.group_id)];
     client
         .inner
-        .set_consent_states(&[StoredConsentRecord::new(
+        .set_consent_states(&[xmtp_mls::client::ConsentAct::new(
             ConsentType::ConversationId,
             ConsentState::Denied,
-            entity.clone(),
+            pair[1].clone(),
         )])
         .await?;
-    assert!(matches!(
-        tokio::time::timeout(Duration::from_secs(5), reader.next()).await??,
-        Some(ClientEvent::ConsentChanged { consent_changed }) if consent_changed.entity == entity
-    ));
+    assert!(
+        xmtp_common::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let event = reader.next().await?.expect("event reader is open");
+                if matches!(event, ClientEvent::ConsentChanged { consent_changed }
+                    if pair.contains(&consent_changed.entity) && consent_changed.state == crate::events::EventConsentState::Denied)
+                {
+                    break;
+                }
+            }
+        })
+        .await
+        .is_ok(),
+        "Denied consent must reach the stitched DM reader"
+    );
     reader.end().await?;
     other.end().await?;
     client.end().await?;
@@ -460,11 +440,10 @@ async fn event_filter_reports_storage_error_when_resolving_dm() {
 }
 
 // The device-sync path of the first installation. A second installation of
-// the inbox creates its sync group, which welcomes the first. The first
-// installation's worker cycles the HMAC root key into that group and stores
-// the key when it reads its own sync message. The second installation runs
-// no worker, so it does not cycle a second key when the first adds it to
-// the first's sync group.
+// the inbox creates its sync group, which welcomes the first, and makes its
+// own root key for the commits that need one. Its key is the newest, so its
+// worker publishes it and the first installation stores it: one
+// stored change, one event.
 // verifies: EVENT-001
 #[xmtp_common::test(unwrap_try = true)]
 async fn new_installation_hmac_root_key_emits_one_event() {
@@ -491,7 +470,9 @@ async fn new_installation_hmac_root_key_emits_one_event() {
         ]))
         .await?;
 
-    let second = Client::create(signer, options()).await?;
+    let mut second_settings = options();
+    second_settings.device_sync = true;
+    let second = Client::create(signer, second_settings).await?;
     second.inner.device_sync_client().get_sync_group().await?;
     let stored = xmtp_common::wait_for_some(|| async {
         first.conversations().sync_all(None).await.ok()?;

@@ -149,7 +149,7 @@ pub(super) struct Frame {
 }
 
 pub(super) struct SessionOutput {
-    pub(super) receiver: mpsc::Receiver<Frame>,
+    pub(super) receiver: Arc<Mutex<mpsc::Receiver<Frame>>>,
     pub(super) terminal: Arc<Terminal>,
     ended: bool,
     task: tokio::task::JoinHandle<()>,
@@ -157,7 +157,7 @@ pub(super) struct SessionOutput {
 
 impl SessionOutput {
     pub(super) fn new(
-        receiver: mpsc::Receiver<Frame>,
+        receiver: Arc<Mutex<mpsc::Receiver<Frame>>>,
         terminal: Arc<Terminal>,
         task: tokio::task::JoinHandle<()>,
     ) -> Self {
@@ -183,7 +183,8 @@ impl Stream for SessionOutput {
             self.ended = true;
             return Poll::Ready(Some(Err(error)));
         }
-        match self.receiver.poll_recv(cx) {
+        let next = self.receiver.lock().poll_recv(cx);
+        match next {
             Poll::Ready(Some(frame)) => {
                 if let Some(sent) = frame.challenge {
                     let _ = sent.send(xmtp_common::time::Instant::now());
@@ -244,7 +245,7 @@ mod tests {
         ));
         assert_eq!(budget.available(), OUTBOUND_QUEUE_BYTES - 100);
         let task = tokio::spawn(std::future::pending());
-        let mut output = SessionOutput::new(receiver, terminal, task);
+        let mut output = SessionOutput::new(Arc::new(Mutex::new(receiver)), terminal, task);
         let before_poll = xmtp_common::time::Instant::now();
         assert!(output.next().await.unwrap().is_ok());
         assert!(handed.await? >= before_poll);

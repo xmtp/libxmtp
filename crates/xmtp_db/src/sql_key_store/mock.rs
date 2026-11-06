@@ -62,6 +62,14 @@ impl XmtpMlsStorageProvider for MockSqlKeyStore {
         f(&mut store)
     }
 
+    fn durable_transaction<T, E, F>(&self, f: F) -> Result<TransactionOutcome<T>, E>
+    where
+        F: FnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,
+        E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
+    {
+        self.transaction(f)
+    }
+
     fn savepoint<T, E, F>(&self, f: F) -> Result<TransactionOutcome<T>, E>
     where
         F: FnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,

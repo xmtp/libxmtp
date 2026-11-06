@@ -53,17 +53,20 @@ export class MemoryPreferences implements DraftPreferences {
 
 /** The SDK's attachment calls, in memory. */
 export class FakeGateway implements AttachmentGateway {
+  readonly #downloads = new Set<(file: RemoteAttachment) => void>();
   limit: bigint | undefined = 1_000_000n;
   /** SDK-held uploads that are not complete. */
   pendingFiles: RemoteAttachment[] = [];
   created: { path: string; filename: string; mimeType: string }[] = [];
   uploads: RemoteAttachment[] = [];
   downloads: RemoteAttachment[] = [];
+  localFiles: RemoteAttachment[] = [];
   discarded: RemoteAttachment[] = [];
   createError: Error | undefined;
   uploadError: Error | undefined;
   uploadPhase: FilePhase = "complete";
   downloadError: Error | undefined;
+  localError: Error | undefined;
   /** Holds downloads until released. */
   downloadGate: Promise<void> | undefined;
 
@@ -80,6 +83,7 @@ export class FakeGateway implements AttachmentGateway {
     if (this.createError !== undefined) return Promise.reject(this.createError);
     const file = remoteFile(filename);
     this.pendingFiles.push(file);
+    this.localFiles.push(file);
     return Promise.resolve(file);
   }
 
@@ -102,10 +106,26 @@ export class FakeGateway implements AttachmentGateway {
     return Promise.resolve(this.uploadPhase);
   }
 
+  local(file: RemoteAttachment): Promise<VerifiedFile | undefined> {
+    if (this.localError !== undefined) return Promise.reject(this.localError);
+    return Promise.resolve(
+      this.localFiles.some((entry) => sameFile(entry, file))
+        ? {
+            path: `/sdk/attachments/${file.filename ?? "file"}`,
+            mimeType: "text/plain",
+            filename: file.filename ?? "File",
+          }
+        : undefined,
+    );
+  }
+
   async download(file: RemoteAttachment): Promise<VerifiedFile> {
     this.downloads.push(file);
     if (this.downloadGate !== undefined) await this.downloadGate;
     if (this.downloadError !== undefined) throw this.downloadError;
+    if (!this.localFiles.some((entry) => sameFile(entry, file)))
+      this.localFiles.push(file);
+    for (const listener of this.#downloads) listener(file);
     return {
       path: `/sdk/attachments/${file.filename ?? "file"}`,
       mimeType: "text/plain",
@@ -113,8 +133,16 @@ export class FakeGateway implements AttachmentGateway {
     };
   }
 
+  watchDownloads(listener: (file: RemoteAttachment) => void): () => void {
+    this.#downloads.add(listener);
+    return () => {
+      this.#downloads.delete(listener);
+    };
+  }
+
   discard(file: RemoteAttachment): Promise<void> {
     this.discarded.push(file);
+    this.localFiles = this.localFiles.filter((entry) => !sameFile(entry, file));
     this.pendingFiles = this.pendingFiles.filter(
       (entry) => !sameFile(entry, file),
     );

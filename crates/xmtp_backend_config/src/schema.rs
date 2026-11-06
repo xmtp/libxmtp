@@ -62,11 +62,18 @@ fn decimal_range(maximum: u64) -> String {
     format!("({})", alternatives.join("|"))
 }
 
-/// Encode the standard library socket grammar with portable JSON Schema patterns.
-/// IPv6 compression omits at least one group. An embedded IPv4 address uses two groups.
-pub(super) fn socket_address(_: &mut SchemaGenerator) -> Schema {
+/// An IPv4 address in dotted decimal with no leading zero, as the standard
+/// library parses it.
+fn ipv4() -> String {
     let octet = "(0|[1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|25[0-5])";
-    let ipv4 = [octet; 4].join("\\.");
+    [octet; 4].join("\\.")
+}
+
+/// An IPv6 address as the standard library parses it, without brackets or a
+/// zone index. Compression omits at least one group. An embedded IPv4
+/// address uses two groups.
+fn ipv6() -> String {
+    let ipv4 = ipv4();
     let hex = "[0-9a-fA-F]{1,4}";
     let mut ipv6 = vec![[hex; 8].join(":"), format!("{}:{ipv4}", [hex; 6].join(":"))];
     for embedded in [false, true] {
@@ -85,11 +92,39 @@ pub(super) fn socket_address(_: &mut SchemaGenerator) -> Schema {
             }
         }
     }
+    ipv6.join("|")
+}
+
+/// Encode the standard library socket grammar with portable JSON Schema patterns.
+pub(super) fn socket_address(_: &mut SchemaGenerator) -> Schema {
     let scope = decimal_range(u32::MAX as u64);
     let port = decimal_range(u16::MAX as u64);
     with_environment(json_schema!({
         "type": "string",
-        "pattern": format!("^({ipv4}|\\[({})(%0*{scope})?\\]):0*{port}$(?![\\s\\S])", ipv6.join("|"))
+        "pattern": format!("^({}|\\[({})(%0*{scope})?\\]):0*{port}$(?![\\s\\S])", ipv4(), ipv6())
+    }))
+}
+
+/// The `ip address` standard check.
+pub(super) fn ip_address(_: &mut SchemaGenerator) -> Schema {
+    with_environment(json_schema!({
+        "type": "string",
+        "pattern": format!("^({}|{})$(?![\\s\\S])", ipv4(), ipv6())
+    }))
+}
+
+/// The `ip network` standard check, except that a bit set after the prefix
+/// is refused only at startup.
+pub(super) fn ip_network(_: &mut SchemaGenerator) -> Schema {
+    with_environment(json_schema!({
+        "type": "string",
+        "pattern": format!(
+            "^(({})/0*{}|({})/0*{})$(?![\\s\\S])",
+            ipv4(),
+            decimal_range(32),
+            ipv6(),
+            decimal_range(128)
+        )
     }))
 }
 

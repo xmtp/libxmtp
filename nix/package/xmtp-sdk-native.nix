@@ -27,6 +27,17 @@ let
     # Darwin setup replaces this variable before the Cargo build.
     preBuild = "export MACOSX_DEPLOYMENT_TARGET=11.0";
   }
+  # The library embeds its build directory. The Linux sandbox makes it
+  # /build on every machine; outside it, it is a random host path, and the
+  # cache would mix differing builds of one path. Fail those builds.
+  // lib.optionalAttrs stdenv.buildPlatform.isLinux {
+    preBuild = ''
+      if [ "$NIX_BUILD_TOP" != /build ]; then
+        echo "xmtp-sdk-native: the build directory is $NIX_BUILD_TOP, not /build; build in the Nix sandbox" >&2
+        exit 1
+      fi
+    '';
+  }
   # rustc's release default `strip = "debuginfo"` passes `--strip-debug`, and
   # zig's linker strips the whole static symbol table for it. UniFFI reads its
   # metadata from that table, so the renders of this host library need it.
@@ -34,6 +45,11 @@ let
   // lib.optionalAttrs isGnu { CARGO_PROFILE_RELEASE_STRIP = "none"; }
   // lib.optionalAttrs android { buildInputs = [ ]; }
   // lib.optionalAttrs stdenv.hostPlatform.isMusl { RUSTFLAGS = "-C target-feature=-crt-static"; };
+  # As on Apple, Diesel's generated SQL include paths can change xmtp_db's
+  # promoted LLVM symbols with the build-root length. The GNU host library
+  # retains those symbols for UniFFI, so independently built renders must use
+  # the same codegen profile in both the dependency layer and final build.
+  gnuCargoArgs = "--config profile.release.package.xmtp_db.codegen-units=1";
   command =
     lib.optionalString stdenv.hostPlatform.isDarwin (
       xmtp.iosEnv.nativeBuildEnv {
@@ -44,7 +60,7 @@ let
     + lib.optionalString isGnu "CARGO_ZIGBUILD_CACHE_DIR=$TMPDIR/cargo-zigbuild ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-global "
     + "cargo ${
       if isGnu then "zigbuild" else "build"
-    } --release --locked${lib.optionalString stdenv.hostPlatform.isDarwin " ${xmtp.iosEnv.nativeCargoArgs}"} -p xmtp_sdk --lib --target ${buildTarget}";
+    } --release --locked${lib.optionalString stdenv.hostPlatform.isDarwin " ${xmtp.iosEnv.nativeCargoArgs}"}${lib.optionalString isGnu " ${gnuCargoArgs}"} -p xmtp_sdk --lib --target ${buildTarget}";
   compilation = rust.buildPackage (
     xmtp.base.commonArgs
     // special

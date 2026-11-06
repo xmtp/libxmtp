@@ -161,20 +161,22 @@ content, inbox ID, or recipient secret.
 
 ```json
 {
-  "topic": "AAECAwQFBgcICQoLDA0ODxA=",
+  "topic": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8g",
   "sequence_id": "9007199254740993"
 }
 ```
 
-`topic` is standard base64 of the backend wire topic. Decode it before routing.
-A group topic starts with `0x00` and contains a 16-byte group ID. A welcome topic
-starts with `0x01` and contains a 32-byte installation key. The group ID is the
-hex encoding of the bytes after the kind byte. Do not pass the base64 text to a
-legacy string-topic lookup.
+`topic` is standard base64 of the backend wire topic. Pass `topic` and
+`sequence_id` to the SDK's `parsePushHint`. It rejects a malformed payload with
+`InvalidArgument` and returns the topic kind and identifier: a
+`groupMessages` topic carries the conversation ID, and a `welcomeMessages` topic
+carries the installation ID. Push subscriptions carry only these two kinds, so
+ignore any other. [Topics](/protocol/topics/) describes the byte layout. Do not
+pass the base64 text to a legacy string-topic lookup.
 
-`sequence_id` is decimal text. Keep it as text or an exact integer such as
-JavaScript `bigint`. Do not convert it to a JavaScript `number` or use it alone
-as a message-delivery cursor.
+`sequence_id` is decimal text. `parsePushHint` returns it as an exact integer,
+a `bigint` in JavaScript. Do not convert it to a JavaScript `number` or use it
+alone as a message-delivery cursor.
 
 APNs adds `"aps": { "content-available": 1 }`. FCM puts `topic` and
 `sequence_id` in the message's `data` object. HTTPS adds `recipient_id` as hex.
@@ -193,10 +195,10 @@ a data message. A notification does not contain encrypted envelope bytes.
 Use the SDK sync methods to fetch and process the envelopes.
 
 1. Open the correct XMTP installation and its local database in the handler.
-2. Validate the payload and decode the topic. A webhook receiver first verifies
+2. Validate the payload with `parsePushHint`. A webhook receiver first verifies
    the signature. Treat a push as a sync hint, not as proof of a message.
 3. Fetch and process pending welcomes. For a group topic, find the group by its
-   decoded ID, then sync it to fetch and decrypt the envelopes. Kotlin uses
+   conversation ID, then sync it to fetch and decrypt the envelopes. Kotlin uses
    `client.catchUpToLive(timeoutMs = 5_000uL)` for a bounded sync. Swift uses
    `try await client.catchUpToLive(timeoutMs: 5_000)`. Check the returned
    summary's `completed` and `failed` fields. Node also exposes
@@ -221,9 +223,8 @@ the source of message state.
 ### React Native foreground or permitted background JavaScript
 
 When an OS integration has started a live JavaScript runtime, use the same
-sync APIs as other native clients. Supply a strict standard-base64 decoder
-from your app; the SDK does not require Node `Buffer` in React Native. This
-example validates the decoded topic and keeps the sequence as a `bigint`:
+sync APIs as other native clients. `parsePushHint` validates the payload
+without a base64 decoder from your app, and returns the sequence as a `bigint`:
 
 ```ts source="push-notifications-react-native.ts" region="receive"
 

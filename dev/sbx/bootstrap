@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# Run inside a fresh Ubuntu sbx VM as its default, non-root agent user.
+set -euo pipefail
+
+if [[ $# -ne 0 || $(uname -s) != Linux || $EUID -eq 0 ]]; then
+  echo 'Run bootstrap without arguments as the non-root agent inside the Linux sbx VM.' >&2
+  exit 1
+fi
+if ! command -v apt-get >/dev/null || ! command -v sudo >/dev/null; then
+  echo 'This bootstrap requires the Ubuntu sbx template with sudo and apt-get.' >&2
+  exit 1
+fi
+
+# A fresh template can still be finishing its own apt initialization.
+# apt's dpkg timeout does not cover the lists lock used by update.
+apt_log="$(mktemp)"
+trap 'rm -f "$apt_log"' EXIT
+apt_deadline=$((SECONDS + 120))
+# shellcheck disable=SC2024 # The log is owned by the unprivileged agent.
+until sudo apt-get -o DPkg::Lock::Timeout=120 update >"$apt_log" 2>&1; do
+  if ! grep -q 'Could not get lock' "$apt_log" || (( SECONDS >= apt_deadline )); then
+    cat "$apt_log" >&2
+    exit 1
+  fi
+  echo 'Waiting for the sandbox package manager to finish...' >&2
+  sleep 2
+done
+cat "$apt_log"
+rm -f "$apt_log"
+trap - EXIT
+sudo apt-get -o DPkg::Lock::Timeout=120 install -y \
+  ca-certificates curl xz-utils git build-essential python3
+
+# sbx adds its proxy CA to the guest trust bundle. Keep that trust for Nix
+# instead of letting the installer select a separate bundled certificate set.
+cert_file="${NIX_SSL_CERT_FILE:-${SSL_CERT_FILE:-/etc/ssl/certs/ca-certificates.crt}}"
+if [[ ! -r $cert_file ]]; then
+  echo "Certificate bundle is not readable: $cert_file" >&2
+  exit 1
+fi
+export NIX_SSL_CERT_FILE="$cert_file"
+export SSL_CERT_FILE="$cert_file"
+export USER="${USER:-$(id -un)}"
+
+if [[ ! -x $HOME/.nix-profile/bin/nix ]]; then
+  if command -v nix >/dev/null; then
+    echo 'An existing Nix installation was found. Use a fresh sbx VM for this bootstrap.' >&2
+    exit 1
+  fi
+  installer="$(mktemp)"
+  trap 'rm -f "$installer"' EXIT
+  curl --proto '=https' --tlsv1.2 --fail --show-error --location \
+    --cacert "$cert_file" https://nixos.org/nix/install --output "$installer"
+  # Single-user Nix owns its local store and needs no systemd or daemon.
+  sh "$installer" --no-daemon --yes --no-channel-add --no-modify-profile
+  rm -f "$installer"
+  trap - EXIT
+fi
+
+# shellcheck disable=SC1091
+. "$HOME/.nix-profile/etc/profile.d/nix.sh"
+export NIX_SSL_CERT_FILE="$cert_file"
+
+config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/nix"
+mkdir -p "$config_dir"
+cat > "$config_dir/libxmtp-sbx.conf" <<EOF_CONFIG
+experimental-features = nix-command flakes
+# The outer sbx VM provides isolation; this non-root Nix has no build sandbox.
+sandbox = false
+build-users-group =
+ssl-cert-file = $cert_file
+extra-substituters = https://xmtp.cachix.org
+extra-trusted-public-keys = xmtp.cachix.org-1:nFPFrqLQ9kjYQKiWL7gKq6llcNEeaV4iI+Ka1F+Tmq0=
+EOF_CONFIG
+include_line="include $config_dir/libxmtp-sbx.conf"
+touch "$config_dir/nix.conf"
+if ! grep -qxF "$include_line" "$config_dir/nix.conf"; then
+  printf '\n%s\n' "$include_line" >> "$config_dir/nix.conf"
+fi
+
+# SSH login shells and Orca's interactive Bash terminals both need Nix.
+# Put the block before Ubuntu's noninteractive early return in .bashrc.
+for profile in "$HOME/.profile" "$HOME/.bashrc"; do
+  touch "$profile"
+  if ! grep -qxF '# libxmtp sbx Nix' "$profile"; then
+    profile_tmp="$(mktemp "$profile.sbx.XXXXXX")"
+    {
+      printf '%s\n' '# libxmtp sbx Nix'
+      # shellcheck disable=SC2016 # Expand variables when the later shell starts.
+      printf '%s\n' 'export USER="${USER:-$(id -un)}"' \
+        '[ ! -f "$HOME/.nix-profile/etc/profile.d/nix.sh" ] || . "$HOME/.nix-profile/etc/profile.d/nix.sh"'
+      printf 'export NIX_SSL_CERT_FILE=%q\n' "$cert_file"
+      printf '\n'
+      cat "$profile"
+    } > "$profile_tmp"
+    chmod --reference="$profile" "$profile_tmp"
+    mv "$profile_tmp" "$profile"
+  fi
+done
+
+repo_dir="$HOME/libxmtp"
+if [[ ! -e $repo_dir ]]; then
+  git -c credential.helper= clone --branch main --single-branch \
+    https://github.com/xmtp/libxmtp.git "$repo_dir"
+elif [[ ! -d $repo_dir/.git ]] ||
+  [[ $(git -C "$repo_dir" remote get-url origin) != https://github.com/xmtp/libxmtp.git ]]; then
+  echo "$repo_dir already exists and is not the expected standalone public clone." >&2
+  exit 1
+fi
+
+nix --version
+printf '\nReady: cd %q\n' "$repo_dir"
+printf '%s\n' "Then run: dev/nix-shell --shell rust 'just check crate xmtp_common'"

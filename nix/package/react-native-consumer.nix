@@ -5,7 +5,6 @@
   python311,
   zstd,
   sqlite,
-  nodejs_26,
   xmtp-pnpm,
   jsTools,
   cocoapods,
@@ -64,7 +63,7 @@ stdenvNoCC.mkDerivation (
       python311
       zstd
       sqlite
-      nodejs_26
+      xmtp.nodejs_26
       xmtp-pnpm
       jsTools
     ]

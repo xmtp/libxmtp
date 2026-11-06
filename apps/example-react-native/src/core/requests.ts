@@ -4,6 +4,8 @@
 export const REQUEST_COUNT_LIMIT = 501;
 /** Conversation list pages. */
 export const CONVERSATION_PAGE_SIZE = 50;
+/** The SDK rejects a conversation list limit above this. */
+export const CONVERSATION_LIST_MAX_LIMIT = 1000;
 /** Rows below the visible ones whose details are read too. */
 export const DETAIL_WINDOW_EXTRA = 50;
 /** The next page loads when the last visible row is this close to the end. */

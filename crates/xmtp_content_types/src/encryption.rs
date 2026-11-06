@@ -2,6 +2,7 @@ use aes_gcm::{Aes256Gcm, KeyInit, aead::Aead};
 use hkdf::Hkdf;
 use prost::Message;
 use sha2::Sha256;
+use xmtp_configuration::MAX_IN_MEMORY_DECRYPT_BYTES;
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
 use crate::CodecError;
@@ -77,8 +78,14 @@ pub fn encrypt_bytes(bytes: &[u8]) -> Result<EncryptedEncodedContent, CodecError
     })
 }
 
-/// Checks the length and digest before decrypting arbitrary bytes.
+/// Checks the size limit, length, and digest before decrypting arbitrary bytes.
+// implements: CTYPE-032
 pub fn decrypt_bytes(ciphertext: &[u8], keys: &EncryptionKeys) -> Result<Vec<u8>, CodecError> {
+    if ciphertext.len() as u64 > MAX_IN_MEMORY_DECRYPT_BYTES {
+        return Err(CodecError::Decode(format!(
+            "ciphertext exceeds the {MAX_IN_MEMORY_DECRYPT_BYTES}-byte in-memory decryption limit"
+        )));
+    }
     if ciphertext.len() as u64 != keys.length {
         return Err(CodecError::Decode(
             "encrypted content length mismatch".into(),
@@ -208,6 +215,30 @@ mod tests {
         attachment::{Attachment, AttachmentCodec},
         remote_attachment::{RemoteAttachment, decrypt_attachment},
     };
+
+    #[cfg(not(target_arch = "wasm32"))]
+    // verifies: CTYPE-032
+    #[xmtp_common::test(unwrap_try = true)]
+    fn in_memory_decryption_refuses_ciphertext_over_limit() {
+        let ciphertext = vec![0; MAX_IN_MEMORY_DECRYPT_BYTES as usize + 1];
+        let keys = EncryptionKeys {
+            secret: vec![0; SECRET_SIZE],
+            salt: vec![0; HKDF_SALT_SIZE],
+            nonce: vec![0; AES_GCM_NONCE_SIZE],
+            digest: "wrong digest".into(),
+            length: ciphertext.len() as u64,
+        };
+        let error = decrypt_bytes(&ciphertext, &keys).unwrap_err();
+        assert!(
+            matches!(
+                &error,
+                CodecError::Decode(message) if message == &format!(
+                    "ciphertext exceeds the {MAX_IN_MEMORY_DECRYPT_BYTES}-byte in-memory decryption limit"
+                )
+            ),
+            "{error}"
+        );
+    }
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn encoded_content_encryption_matches_attachment_scheme() {

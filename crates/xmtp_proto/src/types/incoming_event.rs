@@ -1,5 +1,4 @@
-use super::{Cursor, Topic, TopicCursor};
-use crate::backend_v1::ServerEnvelope;
+use super::{Cursor, ReceivedEnvelope, Topic, TopicCursor};
 use futures::StreamExt;
 use xmtp_common::{BoxDynStream, MaybeSend, MaybeSync};
 
@@ -8,8 +7,17 @@ use xmtp_common::{BoxDynStream, MaybeSend, MaybeSync};
 pub struct IncomingBatchLimits {
     /// Maximum number of envelopes across all topics in the delivery.
     pub max_rows: usize,
-    /// Maximum sum of encoded `ServerEnvelope` sizes in the delivery.
+    /// Maximum sum of received `ServerEnvelope` sizes in the delivery.
     pub max_bytes: usize,
+}
+
+impl IncomingBatchLimits {
+    /// One fetched page of the default client stream policy, for a reader
+    /// that holds no client policy.
+    pub const STREAM_BATCH: Self = Self {
+        max_rows: xmtp_configuration::STREAM_BATCH_ROWS as usize,
+        max_bytes: xmtp_configuration::STREAM_BATCH_BYTES as usize,
+    };
 }
 
 trait ReceiptSink: MaybeSend + MaybeSync {
@@ -98,7 +106,7 @@ pub struct OrderedEnvelopeBatch {
     /// Read position before this batch, not a durable receipt acknowledgement.
     pub after: Cursor,
     /// Envelopes in strictly increasing sequence order. Sequence gaps are valid.
-    pub envelopes: Vec<ServerEnvelope>,
+    pub envelopes: Vec<ReceivedEnvelope>,
 }
 
 /// Transport events do not mean that an envelope is stored or processed.

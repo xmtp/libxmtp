@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use prost::Message;
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
@@ -15,7 +15,7 @@ pub fn new_message(msg: String) -> Vec<u8> {
         r#type: Some(id),
         parameters: vec![("encoding".to_string(), "UTF-8".to_string())]
             .into_iter()
-            .collect::<HashMap<_, _>>(),
+            .collect::<BTreeMap<_, _>>(),
         fallback: None,
         compression: None,
         content: msg.as_bytes().to_vec(),

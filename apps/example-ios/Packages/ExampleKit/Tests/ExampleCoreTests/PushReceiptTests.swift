@@ -4,10 +4,7 @@ import Testing
 
 @MainActor struct PushReceiptTests {
 	private func envelope(_ sequence: UInt64) throws -> PushEnvelope {
-		try #require(PushEnvelope(
-			topic: Data([0] + Array(repeating: UInt8(1), count: 16)).base64EncodedString(),
-			sequence: String(sequence),
-		))
+		PushEnvelope.fixture(.group, 1, sequence: sequence)
 	}
 
 	@Test func pendingPostDoesNotConsumeReceipt() async throws {

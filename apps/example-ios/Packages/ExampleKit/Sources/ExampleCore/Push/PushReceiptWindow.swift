@@ -23,10 +23,11 @@ public struct PushReceiptWindow: Codable, Sendable {
 		}
 	}
 
+	/// Tags come from envelopes the SDK already parsed, so only the decimal suffix is read.
 	private static func sequence(_ tag: String) -> UInt64? {
 		guard let separator = tag.lastIndex(of: ":") else { return nil }
-		let topic = String(tag[..<separator])
-		let value = String(tag[tag.index(after: separator)...])
-		return PushEnvelope(topic: topic, sequence: value)?.sequence
+		let value = tag[tag.index(after: separator)...]
+		guard !value.isEmpty, value.utf8.allSatisfy({ (48 ... 57).contains($0) }) else { return nil }
+		return UInt64(value)
 	}
 }

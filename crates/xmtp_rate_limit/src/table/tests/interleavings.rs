@@ -1,0 +1,166 @@
+//! Concurrent spends under every thread schedule shuttle can produce. These run
+//! in the default test build, with no feature or `cfg`.
+
+use std::sync::Arc;
+
+use super::*;
+
+type ShuttleTable = Table<shuttle::sync::Mutex<Box<[Set]>>>;
+
+impl ShardLock for shuttle::sync::Mutex<Box<[Set]>> {
+    fn new(sets: Box<[Set]>) -> Self {
+        shuttle::sync::Mutex::new(sets)
+    }
+
+    fn with<R>(&self, f: impl FnOnce(&mut [Set]) -> R) -> R {
+        f(&mut self
+            .lock()
+            .expect("no thread panics while it holds a shard"))
+    }
+}
+
+const THREADS: usize = 3;
+const NOW: u64 = 0;
+const CALLER: &[u8] = b"caller";
+const CATEGORY: u8 = 3;
+/// The minute limit denies the third spend.
+const MINUTE_DENIES: [Limit; 2] = [
+    Limit {
+        count: 2,
+        window: Duration::from_secs(60),
+    },
+    Limit {
+        count: 10,
+        window: Duration::from_secs(3600),
+    },
+];
+/// The hour limit denies the third spend, after the minute limit admitted it.
+const HOUR_DENIES: [Limit; 2] = [
+    Limit {
+        count: 3,
+        window: Duration::from_secs(60),
+    },
+    Limit {
+        count: 2,
+        window: Duration::from_secs(3600),
+    },
+];
+
+fn spend_once<L: ShardLock>(table: &Table<L>, limits: &[Limit]) -> bool {
+    let spend = Spend {
+        key: CALLER,
+        category: CATEGORY,
+        limits: &Limits::new(limits).expect("valid limits"),
+        cost: 1,
+    };
+    table.spend(|| NOW, &spend) == Decision::Allowed
+}
+
+/// What one thread spending `THREADS` times admits and leaves recorded.
+fn serial(limits: &'static [Limit]) -> (usize, Option<Tats>) {
+    let table = ParkingTable::with_layout(1, 1);
+    let admitted = (0..THREADS).filter(|_| spend_once(&table, limits)).count();
+    (admitted, table.tats(CATEGORY, CALLER))
+}
+
+#[xmtp_common::test]
+fn concurrent_spends_admit_what_a_serial_run_admits() {
+    // Two spends of 1 at 0: the minute limit is 2 × 30 s on, the hour 2 × 360 s;
+    // or 2 × 20 s and 2 × 1800 s.
+    let charged = [
+        Some([60 * SECOND, 720 * SECOND, 0]),
+        Some([40 * SECOND, 3600 * SECOND, 0]),
+    ];
+    for (limits, charged) in [&MINUTE_DENIES, &HOUR_DENIES].into_iter().zip(charged) {
+        let (admitted, recorded) = serial(limits);
+        assert_eq!(admitted, 2);
+        // The denied third spend charged neither limit.
+        assert_eq!(recorded, charged);
+        shuttle::check_dfs(
+            move || {
+                let table = Arc::new(ShuttleTable::with_layout(1, 1));
+                let threads: Vec<_> = (0..THREADS)
+                    .map(|_| {
+                        let table = Arc::clone(&table);
+                        shuttle::thread::spawn(move || spend_once(&table, limits))
+                    })
+                    .collect();
+                let concurrent = threads
+                    .into_iter()
+                    .map(|thread| thread.join().expect("no spend panics"))
+                    .filter(|&allowed| allowed)
+                    .count();
+                assert_eq!(concurrent, admitted);
+                assert_eq!(table.tats(CATEGORY, CALLER), recorded);
+            },
+            None,
+        );
+    }
+}
+
+/// A spend's retry delay counts from its decision. One thread advances the
+/// clock to 10 s and spends; the other spends at whatever time it reads. In
+/// every schedule the spend denied is decided at 10 s, after the other was
+/// admitted, so it must be denied 1 ms before its delay from 10 s and
+/// admitted at it.
+#[xmtp_common::test]
+fn a_retry_delay_counts_from_the_decision() {
+    use shuttle::sync::atomic::{AtomicU64, Ordering};
+    const LATER: u64 = 10 * SECOND;
+    const MILLI: u64 = 1_000_000;
+    const ONE_PER_MINUTE: Limits = match Limits::new(&[Limit {
+        count: 1,
+        window: Duration::from_secs(60),
+    }]) {
+        Ok(limits) => limits,
+        Err(_) => panic!("valid limits"),
+    };
+    const SPEND: Spend<'static> = Spend {
+        key: CALLER,
+        category: CATEGORY,
+        limits: &ONE_PER_MINUTE,
+        cost: 1,
+    };
+    shuttle::check_dfs(
+        || {
+            let table = Arc::new(ShuttleTable::with_layout(1, 1));
+            let clock = Arc::new(AtomicU64::new(0));
+            let spend_at_clock = |table: Arc<ShuttleTable>, clock: Arc<AtomicU64>| {
+                table.spend(|| clock.load(Ordering::SeqCst), &SPEND)
+            };
+            let first = {
+                let (table, clock) = (Arc::clone(&table), Arc::clone(&clock));
+                shuttle::thread::spawn(move || spend_at_clock(table, clock))
+            };
+            let second = {
+                let (table, clock) = (Arc::clone(&table), Arc::clone(&clock));
+                shuttle::thread::spawn(move || {
+                    clock.store(LATER, Ordering::SeqCst);
+                    spend_at_clock(table, clock)
+                })
+            };
+            let decisions = [first, second].map(|thread| thread.join().expect("no spend panics"));
+            assert_eq!(
+                decisions
+                    .iter()
+                    .filter(|d| **d == Decision::Allowed)
+                    .count(),
+                1
+            );
+            let retry_after = decisions
+                .iter()
+                .find_map(|decision| match decision {
+                    Decision::Denied { retry_after } => Some(retry_after.as_nanos() as u64),
+                    Decision::Allowed => None,
+                })
+                .expect("one spend is denied");
+            let due = LATER + retry_after;
+            assert!(matches!(
+                table.spend(|| due - MILLI, &SPEND),
+                Decision::Denied { .. }
+            ));
+            assert_eq!(table.spend(|| due, &SPEND), Decision::Allowed);
+        },
+        None,
+    );
+}

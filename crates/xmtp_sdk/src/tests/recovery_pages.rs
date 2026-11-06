@@ -141,8 +141,9 @@ async fn recovery_page_sdk_pending_retry_keeps_actual_reader_and_delivery_state(
     let before_cursor = db.current_delivery_cursor()?;
     let anchor_id = first.messages.last().unwrap().0.id.clone();
     group.publish_message(anchor_id.clone()).await?;
-    // Publication can drain other queued intents in this group. Queue a new
-    // retained row, then reuse the old boundary without an anchor lookup.
+    // Publishing the anchor waits only for that message. Drain the older
+    // queued messages before testing a new row against the saved boundary.
+    group.publish_messages().await?;
     let newer = group
         .send_text(
             "pending after publication".into(),

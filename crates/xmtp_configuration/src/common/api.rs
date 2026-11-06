@@ -6,6 +6,11 @@ pub const LOCALHOST: &str = "http://localhost";
 /// response budget above it.
 pub const MAX_TRANSPORT_BYTES: usize = 25 * 1024 * 1024;
 
+/// The `google.rpc.ErrorInfo` reason on a rate-limit rejection (RATE-040).
+pub const RATE_LIMITED_REASON: &str = "RATE_LIMITED";
+/// The `google.rpc.ErrorInfo` domain on a rate-limit rejection (RATE-040).
+pub const RATE_LIMITED_DOMAIN: &str = "xmtp.org";
+
 /// Local backend URL when no worktree environment is loaded.
 pub const BACKEND_TEST_URL_DEFAULT: &str = "http://localhost:5050";
 /// Local backend proxy URL when no worktree environment is loaded.

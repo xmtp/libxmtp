@@ -17,8 +17,8 @@ instructions to their code. For TypeScript or JavaScript changes, use
 
 Look for an existing helper before accepting new logic. Name the helper and
 its location when a change repeats it. Check whether duplicated behavior
-belongs in `xmtp_common`, `xmtp_proto`, `xmtp_configuration`, or
-`xmtp_mls_common`; keep bindings as translation layers. Flag repeated tests
+belongs in `xmtp_common`, `xmtp_proto`, `xmtp_configuration`,
+`xmtp_mls_group_state`, `xmtp_mls_group_keys` or `xmtp_mls_tls_collections`; keep bindings as translation layers. Flag repeated tests
 only when they prove the same property at the same boundary. Do not demand a
 shared abstraction for two short operations with different behavior.
 

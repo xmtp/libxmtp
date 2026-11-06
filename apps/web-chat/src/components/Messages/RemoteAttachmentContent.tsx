@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { AttachmentDetails } from "@/components/Messages/AttachmentDetails";
 import type { MessageContentAlign } from "@/components/Messages/MessageContentWrapper";
+import { useConversationContext } from "@/contexts/ConversationContext";
 import { useClient } from "@/contexts/XMTPContext";
 import {
   downloadRemoteAttachment,
@@ -34,6 +35,9 @@ const loadAttachment = (
   return download;
 };
 
+const isCached = (client: Client, key: string) =>
+  attachmentCaches.get(client)?.has(key) ?? false;
+
 type AttachmentState =
   | { status: "loading" }
   | { status: "error" }
@@ -63,6 +67,12 @@ const AttachmentContent: React.FC<
   RemoteAttachmentContentProps & { attachmentKey: string }
 > = ({ content, align, attachmentKey }) => {
   const client = useClient();
+  const { consentState } = useConversationContext();
+  const [clicked, setClicked] = useState(false);
+  // The URL is the sender's: fetch in an allowed conversation or
+  // after a click. A download this tab already made needs neither.
+  const requested =
+    clicked || consentState === "allowed" || isCached(client, attachmentKey);
   // The key replaces this snapshot when the attachment changes.
   const [source] = useState(content);
   const [attempt, setAttempt] = useState(0);
@@ -74,6 +84,7 @@ const AttachmentContent: React.FC<
   };
 
   useEffect(() => {
+    if (!requested) return;
     let active = true;
     let objectUrl: string | undefined;
 
@@ -96,9 +107,28 @@ const AttachmentContent: React.FC<
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [client, source, attachmentKey, attempt]);
+  }, [client, source, attachmentKey, attempt, requested]);
 
   const fileSize = formatFileSize(content.contentLength);
+
+  if (!requested) {
+    return (
+      <Paper p="sm" radius="md" withBorder>
+        <Button
+          size="xs"
+          variant="light"
+          mb="xs"
+          onClick={() => setClicked(true)}>
+          Load attachment
+        </Button>
+        <AttachmentDetails
+          filename={content.filename ?? ""}
+          fileSize={fileSize}
+          align={align}
+        />
+      </Paper>
+    );
+  }
 
   if (state.status === "loading") {
     return (

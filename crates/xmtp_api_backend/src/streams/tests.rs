@@ -307,6 +307,7 @@ async fn raw_subscription_keeps_registration_targets_and_receipt_starts() {
         Box::pin(stream::iter(
             [registration, messages(21), messages(40)]
                 .into_iter()
+                .map(view)
                 .map(Ok),
         )),
         [(topic.clone(), Cursor(20))].into(),
@@ -344,7 +345,7 @@ async fn raw_subscription_rejects_missing_targets_and_messages_before_started() 
         messages(1),
     ] {
         let mut raw = normalize_static_stream(
-            Box::pin(stream::iter([Ok(frame)])),
+            Box::pin(stream::iter([Ok(view(frame))])),
             [(topic.clone(), Cursor(0))].into(),
             IncomingBatchLimits {
                 max_rows: 10,
@@ -354,6 +355,11 @@ async fn raw_subscription_rejects_missing_targets_and_messages_before_started() 
         assert!(!raw.next().await?.unwrap_err().is_retryable());
         assert!(raw.next().await.is_none());
     }
+}
+
+/// Decode a wire frame through the client's receive-only static view.
+fn view(frame: wire::SubscribeStaticResponse) -> ReceivedStaticResponse {
+    ReceivedStaticResponse::decode(frame.encode_to_vec().as_slice()).unwrap()
 }
 
 fn envelope(sequence: u64) -> wire::ServerEnvelope {
@@ -381,7 +387,9 @@ fn raw_frame(
     limits: IncomingBatchLimits,
 ) -> BoxDynStream<'static, Result<IncomingEvent, ApiClientError>> {
     normalize_static_stream(
-        Box::pin(stream::iter([started(0), frame].into_iter().map(Ok))),
+        Box::pin(stream::iter(
+            [started(0), frame].into_iter().map(view).map(Ok),
+        )),
         [(
             Topic::new_welcome_message(INSTALLATION_ID.into()),
             Cursor(0),
@@ -419,6 +427,66 @@ async fn raw_subscription_splits_a_frame_above_the_receive_limits() {
         assert_eq!(batches, [(Cursor(0), 2), (Cursor(2), 2), (Cursor(4), 1)]);
         assert!(raw.next().await.is_none());
     }
+}
+
+/// The static decoder keeps unknown fields, and splitting charges received bytes.
+// verifies: PROC-002, PROC-020
+#[xmtp_common::test(unwrap_try = true)]
+async fn raw_subscription_keeps_unknown_fields_and_charges_their_size() {
+    use xmtp_proto::types::{ReceivedMessages, future_welcome_envelope};
+    let raw: Vec<Bytes> = (1..=3)
+        .map(|sequence| {
+            future_welcome_envelope(envelope(sequence).meta.as_ref().unwrap(), &[9; 40])
+        })
+        .collect();
+    let decoded = wire::ServerEnvelope::decode(raw[0].clone())?.encoded_len();
+    // Two decoded envelopes fit `2 * decoded` bytes; two received envelopes do not.
+    assert!(decoded < raw[0].len() && raw[0].len() <= 2 * decoded);
+    let frame = ReceivedStaticResponse {
+        response: Some(ReceivedStaticFrame::Messages(ReceivedMessages {
+            envelopes: raw.clone(),
+        })),
+    };
+    // Each read decodes the scripted wire bytes through the SubscribeStatic endpoint.
+    let read = async |max_bytes| {
+        let frames = [started(0).encode_to_vec(), frame.encode_to_vec()];
+        let mut mock = MockNetworkClient::new();
+        mock.expect_stream().return_once(move |_, _, _| {
+            let frames = frames.map(|frame| Ok(Bytes::from(frame)));
+            Ok(http::Response::new(BytesStream::new(stream::iter(frames))))
+        });
+        let topic = Topic::new_welcome_message(INSTALLATION_ID.into());
+        let limits = IncomingBatchLimits {
+            max_rows: usize::MAX,
+            max_bytes,
+        };
+        BackendClient::new(mock)
+            .subscribe_envelopes_with_cursors(&[(topic, Cursor(0))].into(), limits)
+            .await
+            .unwrap()
+            .events
+    };
+    let mut events = read(2 * decoded).await;
+    assert!(matches!(
+        events.next().await??,
+        IncomingEvent::Registered { .. }
+    ));
+    for (sequence, raw) in (1..).zip(&raw) {
+        let IncomingEvent::OrderedBatch(batch) = events.next().await?? else {
+            panic!("one received envelope per batch");
+        };
+        assert_eq!(batch.envelopes.len(), 1);
+        assert_eq!(batch.envelopes[0].raw(), raw);
+        assert_eq!(batch.envelopes[0].meta(), envelope(sequence).meta.as_ref());
+    }
+    // One received envelope above the limit fails even though its decoded form fits.
+    let mut events = read(decoded).await;
+    assert!(matches!(
+        events.next().await??,
+        IncomingEvent::Registered { .. }
+    ));
+    assert!(!events.next().await?.unwrap_err().is_retryable());
+    assert!(events.next().await.is_none());
 }
 
 /// Splitting never skips an envelope that cannot fit one delivery alone.

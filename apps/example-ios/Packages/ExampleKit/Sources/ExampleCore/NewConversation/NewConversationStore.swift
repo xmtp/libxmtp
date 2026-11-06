@@ -157,11 +157,11 @@ public enum NewConversationAction: Sendable {
 			try self.validate(resolved)
 			self.apply(revision) {
 				$0.recipients = resolved; $0.input = ""
-				if proceed {
+				if proceed, $0.group {
 					$0.reviewing = true
 				}
 			}
-			if create {
+			if create || (proceed && !self.state.group) {
 				try await self.create(resolved, revision: revision)
 			}
 		}

@@ -1,4 +1,8 @@
 use super::*;
+use crate::prelude::*;
+
+mod paged_load;
+mod refresh_events;
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn register_with_owner_returns_errors() {
@@ -149,9 +153,22 @@ async fn test_find_inbox_id() {
     tester!(client);
     assert_eq!(
         client
-            .find_inbox_id_from_identifier(&client.context.db(), client.identifier())
+            .find_inbox_id_from_identifier(client.identifier())
             .await
             .unwrap(),
+        Some(client.inbox_id().to_string())
+    );
+    // An Ethereum address matches its inbox's state in any letter case.
+    use xmtp_id::associations::{Identifier, ident};
+    let Identifier::Ethereum(ident::Ethereum(address)) = client.identifier() else {
+        panic!("the tester's identifier is an Ethereum address");
+    };
+    let upper = Identifier::Ethereum(ident::Ethereum(format!(
+        "0x{}",
+        address[2..].to_uppercase()
+    )));
+    assert_eq!(
+        client.find_inbox_id_from_identifier(upper).await.unwrap(),
         Some(client.inbox_id().to_string())
     );
 }
@@ -311,4 +328,47 @@ async fn test_find_or_create_dm_by_inbox_id() {
     let conversations = client1.find_groups(GroupQueryArgs::default()).unwrap();
     assert_eq!(conversations.len(), 1);
     assert_eq!(conversations[0].group_id, dm1.group_id);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+fn identity_and_query_futures_are_send() {
+    use crate::identity_updates::dependencies::{
+        IdentityRequirement, resolve_identity_requirements,
+    };
+    use std::collections::BTreeSet;
+
+    fn assert_send<T: Send>(_: T) {}
+    let context = crate::test::mock::context();
+    let requirement = IdentityRequirement {
+        inbox_id: "inbox".into(),
+        sequence_id: 1,
+    };
+    assert_send(resolve_identity_requirements(
+        &context,
+        &BTreeSet::from([requirement.clone()]),
+    ));
+    assert_send(context.api().newest_topic_cursors(vec![]));
+    assert_send(context.api().query_ordered_page(
+        Default::default(),
+        1,
+        xmtp_proto::types::IncomingBatchLimits {
+            max_rows: 1,
+            max_bytes: 1024,
+        },
+    ));
+    // Check the production transport type as well as the mock type.
+    let _: fn(&crate::Client<crate::MlsContext>) = |client| {
+        assert_send(async move { client.inbox_state(true).await });
+        assert_send(xmtp_common::bind_task_hub(async move {
+            client.inbox_state(true).await
+        }));
+        assert_send(async move {
+            client
+                .wait_for_registration_visible(Default::default())
+                .await
+        });
+        assert_send(async move { client.context.api().get_inbox_ids(vec![]).await });
+        assert_send(async move { client.context.api().newest_topic_cursors(vec![]).await });
+    };
 }

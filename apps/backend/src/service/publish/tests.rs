@@ -1,20 +1,27 @@
 use crate::test_support as support;
 
+mod charges;
+mod identity_history_cost;
+mod signatures;
+mod transport;
+
 use crate::api::{self, publish_error::Reason};
 use prost::Message;
 use support::TestServer;
 use tonic::Code;
+use xmtp_mls_group_keys::group_keys::sign_group_message;
 use xmtp_mls_validation::test_utils::{
-    GroupMessageKind, TestChain, expired_key_package_envelope, group_message_envelope,
+    CountingChain, GroupMessageKind, TestChain, expired_key_package_envelope, group_keys,
     identity_envelope, identity_history_with_passkey, inline_welcome_envelope,
-    malformed_signature_create_inbox_update, scw_change_recovery_update_at,
-    scw_create_inbox_update_at,
+    keyed_group_message_envelope, malformed_signature_create_inbox_update,
+    scw_change_recovery_update_at, scw_create_inbox_update_at, scw_create_nonce_inbox_update_at,
+    sealed_commit_log_envelope,
 };
 
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: API-211
 async fn push_columns_follow_payload_kind_and_keep_the_original_envelope() {
-    use xmtp_mls_validation::test_utils::{commit_log_envelope, key_package_envelope};
+    use xmtp_mls_validation::test_utils::key_package_envelope;
     let server = TestServer::new(|_| {}).await?;
     let mut envelopes = Vec::new();
     let mut expected = Vec::new();
@@ -29,10 +36,12 @@ async fn push_columns_follow_payload_kind_and_keep_the_original_envelope() {
     .into_iter()
     .enumerate()
     {
-        let mut envelope = group_message_envelope([index as u8; 16], kind, []);
+        let keys = group_keys(index as u8);
+        let mut envelope = keyed_group_message_envelope(&keys, kind, []);
         if let Some(api::client_envelope::Payload::GroupMessage(group)) = &mut envelope.payload {
             group.should_push = should_push;
             group.sender_hmac = vec![88; hmac_length];
+            sign_group_message(&keys, group)?;
         }
         envelopes.push(envelope);
         expected.push((eligible, (hmac_length == 32).then(|| vec![88; 32])));
@@ -40,7 +49,7 @@ async fn push_columns_follow_payload_kind_and_keep_the_original_envelope() {
     envelopes.extend([
         inline_welcome_envelope([77; 32]),
         key_package_envelope("", Default::default()).envelope,
-        commit_log_envelope([66; 16]),
+        sealed_commit_log_envelope(&group_keys(66), 7),
     ]);
     expected.extend([(true, None), (false, None), (false, None)]);
     let identity = identity_history_with_passkey().await;
@@ -70,7 +79,7 @@ async fn push_columns_follow_payload_kind_and_keep_the_original_envelope() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn application_envelope_limit_accepts_exact_size_and_rejects_one_past() {
-    let envelope = group_message_envelope([1; 16], GroupMessageKind::Application, []);
+    let envelope = keyed_group_message_envelope(&group_keys(1), GroupMessageKind::Application, []);
     let size = envelope.encoded_len();
     let mut oversized = envelope.clone();
     if let Some(api::client_envelope::Payload::GroupMessage(message)) = &mut oversized.payload {
@@ -195,11 +204,12 @@ async fn failed_batch_leaves_new_topics_empty_and_reports_first_original_error()
     let server = TestServer::new(|_| {}).await?;
     let retained = inline_welcome_envelope([3; 32]);
     server.publish(vec![retained.clone()]).await?;
+    // Two envelopes fail validation; the lower one is reported.
     let request = api::PublishRequest {
         envelopes: vec![
             retained,
             expired_key_package_envelope().envelope,
-            api::ClientEnvelope::default(),
+            expired_key_package_envelope().envelope,
             inline_welcome_envelope([4; 32]),
         ],
     };
@@ -266,10 +276,18 @@ async fn publish_errors_keep_the_original_index_for_each_validation_reason() {
     ];
     for (bad, reason) in cases {
         let good = inline_welcome_envelope([70; 32]);
+        // The envelope after the bad one fails validation. The bad one is
+        // reported either way: as a parse failure, which is found first, or
+        // as the lower of two validation failures.
         let error = server
             .publisher()
             .publish(api::PublishRequest {
-                envelopes: vec![good.clone(), good, bad, api::ClientEnvelope::default()],
+                envelopes: vec![
+                    good.clone(),
+                    good,
+                    bad,
+                    expired_key_package_envelope().envelope,
+                ],
             })
             .await
             .unwrap_err();
@@ -392,13 +410,13 @@ async fn watermark_guard_failure_rolls_back_every_new_envelope() {
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: API-212, OPS-002
 async fn permanent_payloads_and_expired_metadata_remain_readable() {
-    use xmtp_mls_validation::test_utils::{commit_log_envelope, group_message_envelope};
     let server = TestServer::new(|_| {}).await?;
+    let keys = group_keys(10);
     let envelopes = vec![
-        group_message_envelope([10; 16], GroupMessageKind::Application, [0xff]),
-        group_message_envelope([10; 16], GroupMessageKind::Proposal, []),
-        group_message_envelope([10; 16], GroupMessageKind::Commit, []),
-        commit_log_envelope([10; 16]),
+        keyed_group_message_envelope(&keys, GroupMessageKind::Application, [0xff]),
+        keyed_group_message_envelope(&keys, GroupMessageKind::Proposal, []),
+        keyed_group_message_envelope(&keys, GroupMessageKind::Commit, []),
+        sealed_commit_log_envelope(&keys, 7),
     ];
     let metas = server.publish(envelopes.clone()).await?;
     assert!(metas[0].expiry_ns > metas[0].server_ns);
@@ -520,14 +538,17 @@ impl xmtp_id::scw_verifier::SmartContractSignatureVerifier for ChainVerifier {
 /// at a block it has not produced. The rule binds admission alone: a stored update
 /// whose block has since aged stays valid when its log is replayed to admit
 /// the next update, and a chain outage stays retryable rather than reading as
-/// a bad signature.
+/// a bad signature. Each update reads its chain's head, while one publish
+/// reads each block's timestamp once for all its updates and the next
+/// publish reads it again.
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: IDENT-062
 async fn scw_admission_freshness() {
     const HEAD: u64 = 10_000;
     let chain = TestChain::at(HEAD);
+    let counting = CountingChain::new(chain.clone());
     let server =
-        TestServer::with_verifier(|_| {}, ChainVerifier(chain.clone()), chain.clone()).await?;
+        TestServer::with_verifier(|_| {}, ChainVerifier(chain.clone()), counting.clone()).await?;
     let stale = Err((Code::InvalidArgument, Some(Reason::InvalidSignature)));
 
     let future = publish_identity(&server, scw_create_inbox_update_at(HEAD + 1)).await?;
@@ -552,6 +573,22 @@ async fn scw_admission_freshness() {
         replayed,
         (Ok(()), 2),
         "an update after an aged stored block"
+    );
+
+    let (heads, timestamps) = counting.reads();
+    server
+        .publish(vec![
+            identity_envelope(scw_create_nonce_inbox_update_at(1, later)),
+            identity_envelope(scw_create_nonce_inbox_update_at(2, later)),
+        ])
+        .await?;
+    assert_eq!(counting.reads(), (heads + 2, timestamps + 1), "one publish");
+    let next = publish_identity(&server, scw_create_nonce_inbox_update_at(3, later)).await?;
+    assert_eq!(next, (Ok(()), 5));
+    assert_eq!(
+        counting.reads(),
+        (heads + 3, timestamps + 2),
+        "the next publish"
     );
     server.stop().await?;
 }

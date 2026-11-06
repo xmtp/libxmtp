@@ -1,42 +1,16 @@
 # XMTP Browser SDK
 
-The public SDK is staged by `dev/js/sdk-package browser`. Its generated product
-is copied to `sdks/browser/dist` for local workspace imports. Releases pack
-`target/sdk-packages/browser` directly.
-
-```bash
+```sh
 dev/nix-shell 'just js test-browser-sdk-ci'
+dev/nix-shell 'just sdk test-browser' # platform proofs, omitted by pnpm test
 ```
 
-The browser tests use Playwright and gRPC-Web on the backend listener.
-Close each client after its test. Do not share a client between tests.
-Await `client.end()` before a database restore or storage replacement.
-The generated package owns the worker and OPFS pool. Do not add another worker
-or storage dispatcher here. Pure synchronous codecs use the `/pure` entry.
-`test/recovery-proxy.ts` is a TCP proxy that Vitest browser commands run in the
-Node process. Stream recovery tests point one client at it and drop its
-connections. `test/download-host.ts` is an HTTP host that Vitest browser commands
-run in the Node process. It answers attachment downloads with a redirect,
-failure statuses, and an object with a changed tag. `test/worker-failure.test.ts`
-wraps the `Worker` constructor to stop the package worker; it does not start a
-worker of its own.
-
-`test/platform` holds the browser platform proofs that need a fixture build,
-a held worker, or real OPFS: Chromium, real WASM worker, storage, package,
-logging, attachment lifetime, decode-once, stream opening, pure codec, and
-panic proofs, with the loopback object store in `test/platform/object-store`.
-`pnpm test` does not run them, and the package lint and typecheck skip them.
-Run them with `dev/nix-shell 'just sdk test-browser'`; `just sdk lint`
-type-checks the shared helpers. See `crates/xmtp_sdk/AGENTS.md`.
-
-Migration platform tests are in `test/platform/migration`. Run only them with
-`dev/nix-shell 'just sdk test-browser migration'`. The normal platform runner
-copies their private legacy fixture host from Nix
-(`.#xmtp-legacy-migration-fixture-host`, the `fixture_host` example of
-`xmtp_legacy_migration`) and runs every migration assertion. Rust tests own
-the row-size cases; the browser keeps only the 64 MiB boundary row.
-
-Migration archive byte reads have an inclusive 100 MB (100,000,000 byte) limit.
-Check the completed object size before arrayBuffer allocation. The Browser
-platform runner includes archive-read-limit.mjs with a real OPFS boundary and
-an oversized read that must fail before allocation.
+- Each test owns a client; await `client.end()` before restore/storage replacement.
+- The generated package owns the worker and OPFS pool. Do not add another worker
+  or storage dispatcher. Synchronous codecs use `/pure`.
+- Stage with `dev/js/sdk-package browser`; publish `target/sdk-packages/browser`.
+- Platform proofs require generated fixtures; see
+  [SDK test setup](../../crates/xmtp_sdk/DEVELOPMENT.md). Use
+  `just sdk test-browser migration` through Nix for migration-only proofs.
+- Migration archive reads have an inclusive 100 MB limit; check size before
+  `arrayBuffer` allocation. Keep the real OPFS boundary proof.

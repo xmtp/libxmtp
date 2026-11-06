@@ -25,6 +25,7 @@ pub struct StoredNotification {
     pub push_repairing: bool,
     pub push_generation: i64,
     pub push_suppressed: Option<Vec<u8>>,
+    pub push_unregister_owed: bool,
 }
 
 /// One confirmed topic upload. Stale rows belong to an active repair pass.
@@ -44,11 +45,9 @@ impl_store!(UploadedTopic, push_uploaded_topic);
 pub trait QueryNotifications {
     fn notification_record(&self) -> Result<StoredNotification, StorageError>;
     fn save_notification_record(&self, record: &StoredNotification) -> Result<(), StorageError>;
-    /// Atomically disable notifications and return the cleared uploads.
+    /// Atomically disable notifications and record the owed recipient reset.
     /// Keep the recipient identity, conversation overrides, and task retry state.
-    fn disable_notifications(
-        &self,
-    ) -> Result<(StoredNotification, Vec<UploadedTopic>), StorageError>;
+    fn disable_notifications(&self) -> Result<StoredNotification, StorageError>;
     fn uploaded_topics(&self) -> Result<Vec<UploadedTopic>, StorageError>;
     fn confirm_uploaded_topics(
         &self,
@@ -75,9 +74,7 @@ impl<T: QueryNotifications + ?Sized> QueryNotifications for &T {
     fn uploaded_topics(&self) -> Result<Vec<UploadedTopic>, StorageError> {
         (**self).uploaded_topics()
     }
-    fn disable_notifications(
-        &self,
-    ) -> Result<(StoredNotification, Vec<UploadedTopic>), StorageError> {
+    fn disable_notifications(&self) -> Result<StoredNotification, StorageError> {
         (**self).disable_notifications()
     }
     fn confirm_uploaded_topics(
@@ -135,9 +132,7 @@ impl<C: ConnectionExt> QueryNotifications for DbConnection<C> {
     }
 
     #[xmtp_common::db_span]
-    fn disable_notifications(
-        &self,
-    ) -> Result<(StoredNotification, Vec<UploadedTopic>), StorageError> {
+    fn disable_notifications(&self) -> Result<StoredNotification, StorageError> {
         self.raw_query(|conn| {
             Ok(conn.transaction::<_, StorageError, _>(|conn| {
                 let mut record = user_preferences::table
@@ -148,20 +143,18 @@ impl<C: ConnectionExt> QueryNotifications for DbConnection<C> {
                     .checked_add(1)
                     .ok_or(StorageError::DbSerialize)?;
                 record.push_state = 0;
+                record.push_unregister_owed = record.push_recipient_id.is_some();
                 record.push_config = None;
                 record.push_failed_error = None;
                 record.push_deadlines = None;
                 record.push_last_state = None;
                 record.push_repairing = false;
                 record.push_suppressed = None;
-                let cleared = push_uploaded_topic::table
-                    .order(push_uploaded_topic::topic.asc())
-                    .load(conn)?;
                 diesel::delete(push_uploaded_topic::table).execute(conn)?;
                 diesel::update(user_preferences::table)
                     .set(&record)
                     .execute(conn)?;
-                Ok((record, cleared))
+                Ok(record)
             }))
         })?
     }
@@ -252,6 +245,7 @@ mod tests {
             push_repairing: true,
             push_generation: 9,
             push_suppressed: Some(vec![7]),
+            push_unregister_owed: false,
         };
         db.save_notification_record(&before)?;
         let uploaded = UploadedTopic {
@@ -262,13 +256,13 @@ mod tests {
             stale: true,
         };
         db.confirm_uploaded_topics(std::slice::from_ref(&uploaded), &[])?;
-        let (disabled, cleared) = db.disable_notifications()?;
-        assert_eq!(cleared, vec![uploaded]);
+        let disabled = db.disable_notifications()?;
         assert!(db.uploaded_topics()?.is_empty());
         assert_eq!(disabled.push_generation, 10);
         let disabled = db.notification_record()?;
         assert_eq!(disabled.push_generation, 10);
         assert_eq!(disabled.push_state, 0);
+        assert!(disabled.push_unregister_owed);
         assert_eq!(disabled.push_recipient_id, before.push_recipient_id);
         assert_eq!(disabled.push_recipient_secret, before.push_recipient_secret);
         assert!(disabled.push_config.is_none());
@@ -321,6 +315,7 @@ mod tests {
         let store = TestDb::create_persistent_store(None).await;
         let db = store.db();
         let before = StoredNotification {
+            push_recipient_id: Some(vec![7; 32]),
             push_state: 1,
             push_config: Some(vec![1].into()),
             push_generation: 9,
@@ -347,5 +342,6 @@ mod tests {
         assert_eq!(after.push_state, before.push_state);
         assert_eq!(after.push_config, before.push_config);
         assert_eq!(after.push_generation, before.push_generation);
+        assert!(!after.push_unregister_owed);
     }
 }

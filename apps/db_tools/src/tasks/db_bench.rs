@@ -3,7 +3,9 @@ use std::{cmp::Ordering, collections::HashMap};
 use xmtp_db::{
     ConnectionError, ConnectionExt, XmtpDb,
     association_state::QueryAssociationStateCache,
-    consent_record::{ConsentState, ConsentType, QueryConsentRecord, StoredConsentRecord},
+    consent_record::{
+        ConsentKey, ConsentState, ConsentWrite, Decision, Owed, QueryConsentRecord, write_consent,
+    },
     conversation_list::QueryConversationList,
     diesel::Connection,
     group::{ConversationType, GroupQueryArgs, QueryGroup, StoredGroup},
@@ -13,7 +15,6 @@ use xmtp_db::{
     identity_update::QueryIdentityUpdates,
     key_package_history::QueryKeyPackageHistory,
     local_commit_log::{LocalCommitLogOrder, QueryLocalCommitLog},
-    message_deletion::QueryMessageDeletion,
     pending_remove::QueryPendingRemove,
     prelude::{QueryDms, QueryGroupVersion},
     processed_device_sync_messages::QueryDeviceSyncMessages,
@@ -120,7 +121,6 @@ where
                 results.push(self.bench_conversation_list_queries());
                 results.push(self.bench_commit_log_queries());
                 results.push(self.bench_dm_queries());
-                results.push(self.bench_message_deletion_queries());
                 results.push(self.bench_device_sync_queries());
                 results.push(self.bench_task_queries());
                 results.push(self.bench_readd_status_queries());
@@ -285,7 +285,7 @@ where
         bench!(self, get_latest_message_times_by_sender(&group.id, &[]))?;
 
         // Cleanup operations
-        bench!(self, delete_expired_messages())?;
+        bench!(self, delete_expired_messages(xmtp_common::time::now_ns()))?;
 
         // Messages newer than (with empty hashmap for baseline)
         let empty_cursors: HashMap<Vec<u8>, Cursor> = HashMap::new();
@@ -340,35 +340,15 @@ where
         let Some(group) = self.group_or_dm() else {
             bail!("No group to lookup DMs on");
         };
-        let group_id = hex::encode(group.id);
+        let key = ConsentKey::group(group.id.as_ref());
 
-        let new_consent = StoredConsentRecord {
-            consented_at_ns: 0,
-            entity: group_id.clone(),
-            entity_type: ConsentType::ConversationId,
-            state: ConsentState::Allowed,
-        };
-
-        bench!(
-            self,
-            get_consent_record(group_id.clone(), ConsentType::ConversationId)
-        )?;
+        bench!(self, consent_row(&key))?;
         bench!(self, consent_records())?;
-        bench!(self, consent_records_paged(100, 0))?;
-        bench!(self, insert_newer_consent_record(new_consent.clone()))?;
-        bench!(
-            self,
-            insert_or_replace_consent_records(std::slice::from_ref(&new_consent))
-        )?;
-        bench!(
-            self,
-            maybe_insert_consent_record_return_existing(&new_consent.clone())
-        )?;
-        if let Some(dm) = &self.rand_dm
-            && let Some(dm_id) = dm.dm_id.clone()
-        {
-            bench!(self, find_consent_by_dm_id(&dm_id))?;
-        }
+        let store = self.store.clone();
+        let decide = ConsentWrite::Decide(Decision::Set(ConsentState::Allowed));
+        self.bench_with_key("write_consent(decide)", || {
+            write_consent(&store.db(), &key, decide, Owed::Mark)
+        })?;
 
         Ok(())
     }
@@ -573,43 +553,9 @@ where
         Ok(())
     }
 
-    fn bench_message_deletion_queries(&mut self) -> Result<()> {
-        let Some(group) = self.rand_group.clone() else {
-            bail!("No group to run message deletion queries on.");
-        };
-
-        // Get group deletions
-        bench!(self, get_group_deletions(&group.id))?;
-
-        // Try to get a message ID for deletion queries
-        let messages = self
-            .store
-            .db()
-            .get_group_messages(&group.id, &MsgQueryArgs::default())?;
-
-        if let Some(message) = messages.first() {
-            let message_id = message.id.clone();
-
-            // Get message deletion by ID
-            bench!(self, get_message_deletion(&message_id))?;
-
-            // Get deletion by deleted message ID
-            bench!(self, get_deletion_by_deleted_message_id(&message_id))?;
-
-            // Check if message is deleted
-            bench!(self, is_message_deleted(&message_id))?;
-
-            // Get deletions for multiple messages
-            let message_ids = vec![message_id.clone()];
-            bench!(self, get_deletions_for_messages(message_ids.clone()))?;
-        }
-
-        Ok(())
-    }
-
     fn bench_device_sync_queries(&mut self) -> Result<()> {
         // Unprocessed sync group messages
-        bench!(self, unprocessed_sync_group_messages())?;
+        bench!(self, unprocessed_sync_group_messages(None))?;
 
         // Sync group messages paged (already covered but adding here for completeness)
         bench!(self, sync_group_messages_paged(0, 100))?;

@@ -7,7 +7,8 @@ use prost::bytes::Bytes;
 use xmtp_proto::ApiEndpoint;
 use xmtp_proto::api::{ApiClientError, Client, XmtpStream};
 use xmtp_proto::api_client::XmtpMlsBidiStreams;
-use xmtp_proto::backend_v1::{SubscribeRequest, SubscribeResponse};
+use xmtp_proto::backend_v1::SubscribeRequest;
+use xmtp_proto::types::ReceivedSubscribeResponse;
 
 const SUBSCRIBE_PATH: &str = "/xmtp.backend.v1.SubscriptionService/Subscribe";
 
@@ -16,7 +17,7 @@ impl<C> XmtpMlsBidiStreams for BackendClient<C>
 where
     C: Client,
 {
-    type SubscribeStream = XmtpStream<SubscribeResponse>;
+    type SubscribeStream = XmtpStream<ReceivedSubscribeResponse>;
 
     type Error = ApiClientError;
 
@@ -64,7 +65,9 @@ mod tests {
     use xmtp_proto::api::BytesStream;
     use xmtp_proto::api::mock::MockNetworkClient;
     use xmtp_proto::backend_v1::subscribe_request::Update;
-    use xmtp_proto::backend_v1::{Ping, Pong, subscribe_request, subscribe_response};
+    use xmtp_proto::backend_v1::{
+        Ping, Pong, SubscribeResponse, subscribe_request, subscribe_response,
+    };
 
     fn req(request: subscribe_request::Request) -> SubscribeRequest {
         SubscribeRequest {
@@ -76,6 +79,10 @@ mod tests {
         SubscribeResponse {
             response: Some(response),
         }
+    }
+
+    fn received(response: subscribe_response::Response) -> ReceivedSubscribeResponse {
+        resp(response).into()
     }
 
     fn ping_req(nonce: u64) -> SubscribeRequest {
@@ -121,12 +128,12 @@ mod tests {
         .boxed();
 
         let inbound = client.subscribe_bidi(outbound).await?;
-        let decoded: Vec<SubscribeResponse> = inbound.map(|r| r.unwrap()).collect().await;
+        let decoded: Vec<ReceivedSubscribeResponse> = inbound.map(|r| r.unwrap()).collect().await;
         assert_eq!(
             decoded,
             vec![
-                resp(subscribe_response::Response::Ping(Ping { nonce: 7 })),
-                resp(subscribe_response::Response::Pong(Pong { nonce: 9 })),
+                received(subscribe_response::Response::Ping(Ping { nonce: 7 })),
+                received(subscribe_response::Response::Pong(Pong { nonce: 9 })),
             ],
         );
 

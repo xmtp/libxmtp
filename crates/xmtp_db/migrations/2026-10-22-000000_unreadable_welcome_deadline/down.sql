@@ -1,0 +1,1 @@
+ALTER TABLE incoming_envelopes DROP COLUMN unreadable_expires_at_ns;

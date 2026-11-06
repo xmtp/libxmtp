@@ -28,6 +28,8 @@ public enum ConversationsAction: Sendable { case load, loadMore, search(String),
 	private let ownInboxID: String
 	private let consent: ConversationConsent
 	private var limit = 50
+	/// The SDK rejects a conversation list limit above this.
+	private static let maxListLimit = 1000
 	private var visibleStart = 0
 	private var visibleCount = 10
 	private var windowRevision: UInt64 = 0
@@ -54,7 +56,10 @@ public enum ConversationsAction: Sendable { case load, loadMore, search(String),
 	public func send(_ action: ConversationsAction) {
 		switch action {
 		case .load: limit = 50; load()
-		case .loadMore: guard state.search.isEmpty, !state.loading, state.hasMore else { return }; limit += 50; load()
+		case .loadMore:
+			guard state.search.isEmpty, !state.loading, state.hasMore else { return }
+			limit = min(limit + 50, Self.maxListLimit)
+			load()
 		case let .search(text):
 			state.search = text
 			visibleStart = 0
@@ -101,7 +106,10 @@ public enum ConversationsAction: Sendable { case load, loadMore, search(String),
 		job?.cancel(); resetHydration(); state.loading = true; state.error = nil
 		let origin = DestinationOrigin(session: session, token: routes.token)
 		// Dismissed requests still occupy the SDK prefix. Fetch enough for the visible page.
-		let requested = limit + (consent == .unknown ? preferences.dismissedRequests.count : 0)
+		let requested = min(
+			limit + (consent == .unknown ? preferences.dismissedRequests.count : 0),
+			Self.maxListLimit,
+		)
 		let taskID = UUID()
 		job = Task { [weak self] in
 			guard let self else { return }
@@ -124,10 +132,12 @@ public enum ConversationsAction: Sendable { case load, loadMore, search(String),
 							return row(enriched)
 						}
 					hydratedDetailIDs.formIntersection(state.rows.map(\.id))
-					state.hasMore = records.count == requested || visibleRecords.count > limit; state.loading = false
+					state.hasMore = limit < Self.maxListLimit
+						&& (records.count == requested || visibleRecords.count > limit)
+					state.loading = false
 					state.requestCount = requests.flatMap { records in
 						records.count >= 501 ? nil : ListRules
-							.requestCount(records.filter { !preferences.dismissedRequests.contains($0.id) }.count)
+							.requestCount(records.count(where: { !preferences.dismissedRequests.contains($0.id) }))
 					}
 				}
 				scheduleHydration(origin: origin, retaining: pendingVisibleIDs)

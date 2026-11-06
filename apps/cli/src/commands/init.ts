@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { access, mkdir, writeFile } from "node:fs/promises";
+import { access, mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 import { Command, Errors, Flags } from "@oclif/core";
@@ -100,7 +100,7 @@ XMTP_ENV=${flags.env}
     const outputPath = resolve(flags.output ?? DEFAULT_ENV_PATH);
 
     // Ensure parent directory exists
-    await mkdir(dirname(outputPath), { recursive: true });
+    await mkdir(dirname(outputPath), { recursive: true, mode: 0o700 });
 
     // Check if file exists
     let fileExists = false;
@@ -117,7 +117,13 @@ XMTP_ENV=${flags.env}
       );
     }
 
-    await writeFile(outputPath, envContent, "utf-8");
+    // A new file: an old file's mode or open handle must not expose the keys.
+    if (fileExists) await rm(outputPath);
+    await writeFile(outputPath, envContent, {
+      encoding: "utf-8",
+      mode: 0o600,
+      flag: "wx",
+    });
     this.log(`Configuration written to ${outputPath}`);
   }
 }

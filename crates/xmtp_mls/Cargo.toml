@@ -20,8 +20,24 @@ targets = [
 ]
 
 [features]
-conformance = []
+conformance = ["xmtp_mls_messages/conformance"]
+# Read-only observations for convergence and liveness checks (apps/chaos).
+diagnostics = ["xmtp_mls_engine/diagnostics"]
+# Hook state and dispatch points that change runtime behavior for a test.
+# A test outside this crate registers a hook through the test_support path
+# added with its first such caller. Never enabled outside tests.
+test-hooks = [
+  "xmtp_mls_attachments/test-hooks",
+  "xmtp_mls_core/test-hooks",
+  "xmtp_mls_engine/test-hooks",
+  "xmtp_mls_identity/test-hooks",
+  "xmtp_mls_server_config/test-hooks",
+  "xmtp_mls_device_sync/test-hooks",
+  "xmtp_mls_notifications/test-hooks",
+  "xmtp_mls_streams/test-hooks",
+]
 test-utils = [
+  "diagnostics",
   "tracing-subscriber",
   "xmtp_id/test-utils-anvil",
   "xmtp_db/test-utils",
@@ -32,10 +48,19 @@ test-utils = [
   "xmtp_common/test-utils-network",
   "xmtp_api_backend/test-utils",
   "xmtp_content_types/test-utils",
+  "xmtp_mls_attachments/test-utils",
+  "xmtp_mls_core/test-utils",
+  "xmtp_mls_engine/test-utils",
+  "xmtp_mls_identity/test-utils",
+  "xmtp_mls_messages/test-utils",
+  "xmtp_mls_server_config/test-utils",
   "dep:alloy",
   "dep:futures-executor",
   "dep:mockall",
   "dep:rstest",
+  "xmtp_mls_device_sync/test-utils",
+  "xmtp_mls_notifications/test-utils",
+  "xmtp_mls_streams/test-utils",
 ]
 bench = [
   "test-utils",
@@ -102,7 +127,18 @@ xmtp_db.workspace = true
 xmtp_events.workspace = true
 xmtp_id.workspace = true
 xmtp_macro.workspace = true
-xmtp_mls_common.workspace = true
+xmtp_mls_attachments.workspace = true
+xmtp_mls_core.workspace = true
+xmtp_mls_device_sync.workspace = true
+xmtp_mls_engine.workspace = true
+xmtp_mls_group_keys.workspace = true
+xmtp_mls_group_state.workspace = true
+xmtp_mls_identity.workspace = true
+xmtp_mls_messages.workspace = true
+xmtp_mls_notifications.workspace = true
+xmtp_mls_server_config.workspace = true
+xmtp_mls_streams.workspace = true
+xmtp_mls_tls_collections.workspace = true
 xmtp_mls_validation.workspace = true
 xmtp_proto.workspace = true
 xmtp_push_types.workspace = true
@@ -159,6 +195,7 @@ openmls_basic_credential.workspace = true
 proptest.workspace = true
 rstest = { workspace = true, features = ["async-timeout"] }
 rstest_reuse.workspace = true
+tracing-log = "0.2"
 wasm-bindgen-test.workspace = true
 xmtp_api = { workspace = true, features = ["test-utils"] }
 xmtp_api_backend = { workspace = true, features = ["test-utils"] }
@@ -175,6 +212,34 @@ xmtp_cryptography = { workspace = true, features = [
 xmtp_db = { workspace = true, features = ["test-utils"] }
 xmtp_id = { workspace = true, features = ["test-utils-anvil"] }
 xmtp_logging = { workspace = true, features = ["test-utils"] }
+xmtp_mls_attachments = { workspace = true, features = [
+  "test-hooks",
+  "test-utils",
+] }
+xmtp_mls_core = { workspace = true, features = ["test-hooks", "test-utils"] }
+xmtp_mls_device_sync = { workspace = true, features = [
+  "test-hooks",
+  "test-utils",
+] }
+xmtp_mls_engine = { workspace = true, features = [
+  "diagnostics",
+  "test-hooks",
+  "test-utils",
+] }
+xmtp_mls_identity = { workspace = true, features = [
+  "test-hooks",
+  "test-utils",
+] }
+xmtp_mls_messages = { workspace = true, features = ["test-utils"] }
+xmtp_mls_notifications = { workspace = true, features = [
+  "test-hooks",
+  "test-utils",
+] }
+xmtp_mls_server_config = { workspace = true, features = [
+  "test-hooks",
+  "test-utils",
+] }
+xmtp_mls_streams = { workspace = true, features = ["test-hooks", "test-utils"] }
 xmtp_mls_validation = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils-network"] }
 # Required for traced_test! macro
@@ -187,22 +252,18 @@ xmtp_backend = { path = "../../apps/backend", features = ["test-utils"] }
 ctor.workspace = true
 mockito = "1.7.2"
 tempfile = "3.27.0"
-tokio = { workspace = true, features = ["rt-multi-thread"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "test-util"] }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 wasm-bindgen-test.workspace = true
 
 [[test]]
-name = "attachment_memory"
-required-features = ["test-utils"]
-
-[[test]]
-name = "attachment_opfs"
-required-features = ["test-utils"]
-
-[[test]]
 name = "zeroize"
+required-features = ["test-utils"]
+
+[[test]]
+name = "openmls_host_logging"
 required-features = ["test-utils"]
 
 [[bench]]

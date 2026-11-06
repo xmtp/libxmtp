@@ -10,7 +10,8 @@ fun MessengerScreens(
     extraScreen: @Composable (Screen) -> Unit = {},
     composerExtra: @Composable () -> Unit = {},
     messageExtra: @Composable (MessageRow) -> Unit = {},
-) = MessengerShell(state, actions, extraScreen, composerExtra, messageExtra)
+    attachmentActions: @Composable (MessageRow, Boolean, () -> Unit) -> Unit = { _, _, _ -> },
+) = MessengerShell(state, actions, extraScreen, composerExtra, messageExtra, attachmentActions)
 
 // The current Activity uses this adapter until it accepts feature states directly.
 @Composable
@@ -20,6 +21,7 @@ fun MessengerScreens(
     extraScreen: @Composable (Screen) -> Unit = {},
     composerExtra: @Composable () -> Unit = {},
     messageExtra: @Composable (MessageRow) -> Unit = {},
+    attachmentActions: @Composable (MessageRow, Boolean, () -> Unit) -> Unit = { _, _, _ -> },
 ) = MessengerScreens(
     state.toUiState(),
     MessengerCallbacks(
@@ -36,4 +38,5 @@ fun MessengerScreens(
     extraScreen,
     composerExtra,
     messageExtra,
+    attachmentActions,
 )

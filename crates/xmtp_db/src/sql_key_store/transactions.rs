@@ -2,6 +2,8 @@ use super::*;
 use crate::DbConnection;
 use crate::TransactionOutcome;
 use crate::TransactionOutcome::{Continue, Rollback};
+#[cfg(not(target_arch = "wasm32"))]
+use diesel::connection::SimpleConnection;
 
 /// wrapper around a mutable connection (&mut SqliteConnection)
 /// Requires that all execution/transaction happens in one thread on one connection.
@@ -42,26 +44,24 @@ impl<'a> ConnectionExt for MutableTransactionConnection<'a> {
     }
 }
 
-impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
-    type Connection = C;
+#[cfg(not(target_arch = "wasm32"))]
+const DURABLE_ON_OFF: (&str, &str) = if cfg!(target_vendor = "apple") {
+    (
+        "PRAGMA synchronous = FULL; PRAGMA fullfsync = ON;",
+        "PRAGMA synchronous = NORMAL; PRAGMA fullfsync = OFF;",
+    )
+} else {
+    ("PRAGMA synchronous = FULL;", "PRAGMA synchronous = NORMAL;")
+};
 
-    type TxQuery = SqliteConnection;
-
-    type DbQuery<'a>
-        = DbConnection<&'a C>
+impl<C: ConnectionExt> SqlKeyStore<C> {
+    fn transact<T, E, F>(&self, f: F, durable: bool) -> Result<TransactionOutcome<T>, E>
     where
-        Self::Connection: 'a;
-
-    fn db<'a>(&'a self) -> Self::DbQuery<'a> {
-        DbConnection::new(&self.conn)
-    }
-
-    #[xmtp_common::db_span(redact_error)]
-    fn transaction<T, E, F>(&self, f: F) -> Result<TransactionOutcome<T>, E>
-    where
-        F: FnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,
+        F: FnOnce(&mut SqliteConnection) -> Result<TransactionOutcome<T>, E>,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
     {
+        #[cfg(target_arch = "wasm32")]
+        let _ = durable;
         let conn = &self.conn;
 
         // immediate transactions force SQLite to respect BUSY_TIMEOUT
@@ -86,14 +86,23 @@ impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
         let mut rolled_back = false;
         let inner_result: Result<TransactionOutcome<T>, E> = conn
             .raw_query(|c| {
-                Ok(c.immediate_transaction(|sqlite_c| match f(sqlite_c) {
+                #[cfg(not(target_arch = "wasm32"))]
+                if durable {
+                    c.batch_execute(DURABLE_ON_OFF.0)?;
+                }
+                let result = c.immediate_transaction(|sqlite_c| match f(sqlite_c) {
                     Ok(Continue(v)) => Ok(Continue(v)),
                     Ok(Rollback) => {
                         rolled_back = true;
                         Err(E::from(diesel::result::Error::RollbackTransaction))
                     }
                     Err(e) => Err(e),
-                }))
+                });
+                #[cfg(not(target_arch = "wasm32"))]
+                if durable && let Err(error) = c.batch_execute(DURABLE_ON_OFF.1) {
+                    tracing::warn!(%error, "sync level not restored");
+                }
+                Ok(result)
             })
             .map_err(E::from)?;
 
@@ -105,8 +114,41 @@ impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
             Err(e) => Err(e),
         }
     }
+}
 
-    // Same Rollback-sentinel handling as `transaction`; see there for the rationale.
+impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
+    type Connection = C;
+
+    type TxQuery = SqliteConnection;
+
+    type DbQuery<'a>
+        = DbConnection<&'a C>
+    where
+        Self::Connection: 'a;
+
+    fn db<'a>(&'a self) -> Self::DbQuery<'a> {
+        DbConnection::new(&self.conn)
+    }
+
+    #[xmtp_common::db_span(redact_error)]
+    fn transaction<T, E, F>(&self, f: F) -> Result<TransactionOutcome<T>, E>
+    where
+        F: FnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,
+        E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
+    {
+        self.transact(f, false)
+    }
+
+    #[xmtp_common::db_span(redact_error)]
+    fn durable_transaction<T, E, F>(&self, f: F) -> Result<TransactionOutcome<T>, E>
+    where
+        F: FnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,
+        E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
+    {
+        self.transact(f, true)
+    }
+
+    // Same Rollback-sentinel handling as `transact`; see there for the rationale.
     fn savepoint<T, E, F>(&self, f: F) -> Result<TransactionOutcome<T>, E>
     where
         F: FnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,
@@ -188,6 +230,55 @@ mod tests {
     use xmtp_proto::types::GroupId;
 
     use super::*;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[rstest::rstest]
+    #[case::commit(0)]
+    #[case::rollback(1)]
+    #[case::error(2)]
+    #[xmtp_common::test(unwrap_try = true)]
+    fn durable_transaction_syncs_and_restores(#[case] exit: u8) -> Result<(), crate::StorageError> {
+        use crate::{NativeDb, StorageError, XmtpDb};
+        #[derive(diesel::QueryableByName)]
+        struct Pragma {
+            #[diesel(sql_type = diesel::sql_types::Integer)]
+            synchronous: i32,
+        }
+        let db = NativeDb::builder()
+            .persistent(xmtp_common::tmp_path())
+            .max_pool_size(1)
+            .min_pool_size(1)
+            .build_unencrypted()?;
+        let storage = SqlKeyStore::new(db.conn());
+        let read = |conn: &mut SqliteConnection| {
+            diesel::sql_query("PRAGMA synchronous")
+                .get_result::<Pragma>(conn)
+                .unwrap()
+                .synchronous
+        };
+        let result: Result<TransactionOutcome<()>, StorageError> =
+            storage.durable_transaction(|conn| {
+                assert_eq!(read(conn), 2, "durable transaction must use FULL");
+                #[cfg(target_vendor = "apple")]
+                assert_eq!(
+                    diesel::sql_query("SELECT fullfsync AS synchronous FROM pragma_fullfsync")
+                        .get_result::<Pragma>(conn)?
+                        .synchronous,
+                    1
+                );
+                match exit {
+                    0 => Ok(Continue(())),
+                    1 => Ok(Rollback),
+                    _ => Err(diesel::result::Error::RollbackTransaction.into()),
+                }
+            });
+        assert!(matches!(
+            (&result, exit),
+            (Ok(Continue(())), 0) | (Ok(Rollback), 1) | (Err(_), 2)
+        ));
+        assert_eq!(storage.db().raw_query(|conn| Ok(read(conn)))?, 1);
+        Ok(())
+    }
 
     // Test to ensure that we can use the transaction() callback without requiring a 'static
     // lifetimes

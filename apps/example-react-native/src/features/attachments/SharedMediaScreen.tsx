@@ -142,6 +142,7 @@ function SharedMediaList({
       row={row}
       store={files}
       allowed={state.allowed}
+      outgoing={row.sender === session.inboxId}
       handle={identities.get(row.sender)?.handle}
       onViewInChat={() => {
         viewInChat(row);
@@ -216,12 +217,14 @@ function MediaCard({
   row,
   store,
   allowed,
+  outgoing,
   handle,
   onViewInChat,
 }: {
   readonly row: ChatMessage;
   readonly store: AttachmentStore;
   readonly allowed: boolean;
+  readonly outgoing: boolean;
   readonly handle: string | undefined;
   readonly onViewInChat: () => void;
 }) {
@@ -240,6 +243,8 @@ function MediaCard({
         file={row.content.file}
         allowed={allowed}
         appearance="list"
+        outgoing={outgoing}
+        metadata={`${handle ?? row.sender.slice(0, 12)} · ${messageDateTime(messageDate(row))}`}
       />
       <GlassButton
         title={sharedMediaCopy.viewInChat}
