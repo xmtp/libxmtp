@@ -72,7 +72,7 @@ use xmtp_db::{
 use xmtp_db::{group::GroupQueryOrderBy, prelude::*};
 use xmtp_events::DeletionCause;
 use xmtp_id::associations::handle::Handle;
-use xmtp_id::key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2};
+use xmtp_id::key_package::KeyPackageVerificationError;
 use xmtp_id::{
     AsIdRef, InboxId, InboxIdRef, InboxOwner,
     associations::{

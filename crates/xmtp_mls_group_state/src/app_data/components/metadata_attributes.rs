@@ -590,7 +590,9 @@ mod tests {
                             Err(ComponentTypedError::MalformedValue { component_id, .. }) => {
                                 assert_eq!(component_id, $component_id);
                             }
-                            other => panic!("expected MalformedValue for {len} bytes, got {other:?}"),
+                            other => {
+                                panic!("expected MalformedValue for {len} bytes, got {other:?}")
+                            }
                         }
                     }
                 }
