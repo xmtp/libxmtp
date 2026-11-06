@@ -40,6 +40,13 @@ pub fn verify_served_key_package(
     Some(verified)
 }
 
+/// The verified key package served for each requested installation, keyed by
+/// installation public key. An installation with no usable package addressed
+/// to it has no entry; an entry is `Err` when its served package failed
+/// verification. A failed fetch is the outer error, not an entry.
+pub type KeyPackageResultsByInstallation =
+    HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>;
+
 #[derive(Error, Debug)]
 pub enum MlsStoreError {
     #[error(transparent)]
@@ -238,10 +245,7 @@ where
     pub async fn get_key_packages_for_installation_ids(
         &self,
         installation_ids: Vec<Vec<u8>>,
-    ) -> Result<
-        HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>,
-        MlsStoreError,
-    > {
+    ) -> Result<KeyPackageResultsByInstallation, MlsStoreError> {
         let installation_ids = installation_ids
             .into_iter()
             .map(InstallationId::try_from)
@@ -255,14 +259,13 @@ where
 
         let crypto_provider = XmtpOpenMlsProvider::<()>::new_crypto();
 
-        let results: HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>> =
-            key_package_results
-                .iter()
-                .filter_map(|(id, package)| {
-                    verify_served_key_package(&crypto_provider, id, package.as_ref()?)
-                        .map(|result| (id.to_vec(), result))
-                })
-                .collect();
+        let results: KeyPackageResultsByInstallation = key_package_results
+            .iter()
+            .filter_map(|(id, package)| {
+                verify_served_key_package(&crypto_provider, id, package.as_ref()?)
+                    .map(|result| (id.to_vec(), result))
+            })
+            .collect();
 
         Ok(results)
     }

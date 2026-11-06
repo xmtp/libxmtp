@@ -249,10 +249,7 @@ where
     pub async fn get_key_packages_for_installation_ids(
         &self,
         installation_ids: Vec<Vec<u8>>,
-    ) -> Result<
-        HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>,
-        ClientError,
-    > {
+    ) -> Result<KeyPackageResultsByInstallation, ClientError> {
         MlsStore::new(self.context.clone())
             .get_key_packages_for_installation_ids(installation_ids)
             .await

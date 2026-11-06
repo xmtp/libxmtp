@@ -160,13 +160,7 @@ pub(in crate::groups) async fn calculate_membership_changes_with_keypackages<'a>
 /// and put each configured unchecked package in place of its installation's.
 #[cfg(any(test, feature = "test-hooks"))]
 pub(super) fn inject_test_key_packages(
-    key_packages: &mut HashMap<
-        Vec<u8>,
-        Result<
-            xmtp_id::key_package::VerifiedKeyPackageV2,
-            xmtp_id::key_package::KeyPackageVerificationError,
-        >,
-    >,
+    key_packages: &mut xmtp_mls_core::mls_store::KeyPackageResultsByInstallation,
 ) {
     use xmtp_mls_identity::identity_lifecycle::test_mocks::{
         get_test_mode_malformed_installations, record_injected_key_package,

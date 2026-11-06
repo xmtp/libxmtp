@@ -2,15 +2,13 @@
 
 use super::*;
 use crate::groups::welcome_sync::GroupSyncSummary;
-use std::collections::HashMap;
 use xmtp_configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION;
 use xmtp_db::consent_record::ConsentState;
 use xmtp_id::InboxOwner;
 use xmtp_id::associations::AssociationState;
 use xmtp_id::associations::Identifier;
-use xmtp_id::key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use xmtp_mls_core::identity::Identity;
-use xmtp_mls_core::mls_store::MlsStore;
+use xmtp_mls_core::mls_store::{KeyPackageResultsByInstallation, MlsStore};
 use xmtp_mls_core::version::VersionInfo;
 use xmtp_mls_identity::identity_updates::IdentityUpdates;
 use xmtp_mls_identity::identity_updates::load_identity_updates_for_client;
@@ -56,10 +54,7 @@ pub(crate) trait EngineSuiteOps: EngineTestPeerOps {
     async fn get_key_packages_for_installation_ids(
         &self,
         installation_ids: Vec<Vec<u8>>,
-    ) -> Result<
-        HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>,
-        GroupError,
-    >;
+    ) -> Result<KeyPackageResultsByInstallation, GroupError>;
 
     /// A group stored with its first add of the inboxes that hold
     /// `identifiers`, as `Client::create_group_with_identifiers` makes it.
@@ -149,10 +144,7 @@ impl<A: XmtpApi + 'static> EngineSuiteOps for TestPeer<EngineTestFeatures, A> {
     async fn get_key_packages_for_installation_ids(
         &self,
         installation_ids: Vec<Vec<u8>>,
-    ) -> Result<
-        HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>,
-        GroupError,
-    > {
+    ) -> Result<KeyPackageResultsByInstallation, GroupError> {
         Ok(self
             .mls_store()
             .get_key_packages_for_installation_ids(installation_ids)

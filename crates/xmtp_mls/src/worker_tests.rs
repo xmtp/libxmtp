@@ -649,7 +649,7 @@ mod restart_tests {
             WorkerKind::CommitLog
         }
 
-        async fn run_tasks(&mut self) -> Result<(), Box<dyn NeedsDbReconnect>> {
+        async fn run_tasks(&mut self) -> WorkerResult<()> {
             self.runs.fetch_add(1, Ordering::SeqCst);
             let refused = xmtp_api::ApiError::Api(xmtp_proto::api::NetworkError::new(
                 xmtp_api_grpc::error::GrpcError::Status(self.status.clone()),

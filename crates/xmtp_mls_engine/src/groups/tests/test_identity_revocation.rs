@@ -1,9 +1,7 @@
 //! A group with a malformed key package left out, then a revocation of an
 //! installation of the same inbox.
 
-#[cfg(not(target_arch = "wasm32"))]
 use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer};
-#[cfg(not(target_arch = "wasm32"))]
 use {
     crate::groups::test_support::get_association_state,
     xmtp_id::associations::test_utils::add_wallet_signature,
@@ -11,7 +9,6 @@ use {
 
 /// Creates a group of `client`'s inbox alone, so it adds the inbox's other
 /// installations, and returns its failed installations and leaf keys.
-#[cfg(not(target_arch = "wasm32"))]
 async fn own_installation_group(client: &EngineTestPeer) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
     let group = client.create_group(None, None).unwrap();
     group.add_missing_installations().await.unwrap();
@@ -27,7 +24,6 @@ async fn own_installation_group(client: &EngineTestPeer) -> (Vec<Vec<u8>>, Vec<V
         .unwrap()
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 #[tokio::test(flavor = "multi_thread")]
 pub async fn revoke_installation_with_malformed_keypackage() {
     use xmtp_mls_identity::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage;
@@ -66,7 +62,6 @@ pub async fn revoke_installation_with_malformed_keypackage() {
     assert_eq!(association_state.installation_ids().len(), 1);
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 #[tokio::test(flavor = "multi_thread")]
 pub async fn revoke_good_installation_with_other_malformed_keypackage() {
     use xmtp_mls_identity::identity_lifecycle::test_mocks::set_test_mode_upload_malformed_keypackage;

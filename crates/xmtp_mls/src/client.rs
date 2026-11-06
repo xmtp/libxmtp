@@ -17,7 +17,7 @@ use crate::{
         load_identity_updates_for_client,
     },
     inbox_handles::{self, HandleError, IdentityTarget, account_targets, resolve_verified_in},
-    mls_store::{MlsStore, MlsStoreError},
+    mls_store::{KeyPackageResultsByInstallation, MlsStore, MlsStoreError},
     server_configuration::{BlockedConnection, ServerConfigError},
     subscriptions::{
         LocalEventError,

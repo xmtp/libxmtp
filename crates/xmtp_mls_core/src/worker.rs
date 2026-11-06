@@ -348,7 +348,7 @@ pub trait Worker: MaybeSend + MaybeSync + 'static {
 
     fn set_subscription(&mut self, _subscription: Arc<Subscription<InternalEvent>>) {}
 
-    async fn run_tasks(&mut self) -> Result<(), Box<dyn NeedsDbReconnect>>;
+    async fn run_tasks(&mut self) -> WorkerResult<()>;
 
     /// The metrics of the device-sync worker; no other worker has any.
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
