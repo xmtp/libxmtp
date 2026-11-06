@@ -357,6 +357,7 @@ async fn check_false_failure_claim(selection: bool) -> Result<(), Box<dyn std::e
                             provider,
                             &signer,
                             &[],
+                            &xmtp_configuration::LimitsConfiguration::default(),
                             vec![],
                         )
                         .map_err(GroupError::from)

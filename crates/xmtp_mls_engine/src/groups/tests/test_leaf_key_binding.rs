@@ -264,7 +264,12 @@ async fn publish_path_credential(
                 .unwrap();
             messages.push(proposal);
         }
-        let (upkeep, updates) = membership_upkeep(mls, &[]).unwrap();
+        let (upkeep, updates) = membership_upkeep(
+            mls,
+            &[],
+            &xmtp_configuration::LimitsConfiguration::default(),
+        )
+        .unwrap();
         let mut stage = commit_without_group_info(mls, provider.storage(), |builder| {
             builder
                 .consume_proposal_store(true)

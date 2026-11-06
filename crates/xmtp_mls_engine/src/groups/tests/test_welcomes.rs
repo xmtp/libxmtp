@@ -147,6 +147,7 @@ async fn ordinary_welcome_rejects_peer_admin_combinator() {
                 intent,
                 changes,
                 &[],
+                &xmtp_configuration::LimitsConfiguration::default(),
                 signer,
             )?
             .unwrap();
@@ -269,6 +270,7 @@ async fn test_spoofed_inbox_id() {
                 intent,
                 changes,
                 &[],
+                &xmtp_configuration::LimitsConfiguration::default(),
                 signer,
             )?
             .unwrap();

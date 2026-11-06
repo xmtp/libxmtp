@@ -118,7 +118,12 @@ async fn update_proposal_must_keep_its_leaf_key(
     let alix = &alix.client;
     let signer = alix.context.identity().installation_keys.clone();
     publish_raw!(alix, alix_group, |mls, provider| {
-        let (upkeep, updates) = membership_upkeep(mls, &[]).unwrap();
+        let (upkeep, updates) = membership_upkeep(
+            mls,
+            &[],
+            &xmtp_configuration::LimitsConfiguration::default(),
+        )
+        .unwrap();
         let mut stage = commit_without_group_info(mls, provider.storage(), |builder| {
             builder.consume_proposal_store(true).add_proposals(upkeep)
         })

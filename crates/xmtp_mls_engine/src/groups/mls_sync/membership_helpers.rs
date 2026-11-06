@@ -292,6 +292,7 @@ pub(super) fn build_commit_with_pending_app_data_updates<P, F>(
     provider: &P,
     signer: &impl openmls_traits::signatures::Signer,
     catalogue: &[xmtp_configuration::ApplicationComponentDefinition],
+    limits: &xmtp_configuration::LimitsConfiguration,
     proposal_filter: F,
 ) -> Result<openmls::prelude::CommitMessageBundle, GroupError>
 where
@@ -301,7 +302,7 @@ where
     F: FnMut(&openmls::group::QueuedProposal) -> bool,
 {
     let (upkeep, app_data_updates) =
-        crate::groups::app_data::membership_upkeep::membership_upkeep(group, catalogue)?;
+        crate::groups::app_data::membership_upkeep::membership_upkeep(group, catalogue, limits)?;
 
     let mut stage =
         crate::groups::mls_ext::commit_without_group_info(group, provider.storage(), |builder| {

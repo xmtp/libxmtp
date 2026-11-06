@@ -151,13 +151,14 @@ where
         self.sync().await?;
         let own = InboxId::from_hex(self.context.inbox_id())
             .map_err(|e| GroupError::ComponentSource(e.into()))?;
+        let limits = self.context.api().limits();
         let writes = self.with_group_snapshot(|group: &OpenMlsGroup| {
             let committed = group
                 .extensions()
                 .app_data_dictionary()
                 .map(|extension| extension.dictionary());
             let writes = plan(&FieldSnapshot::new(committed, &[])?)?;
-            Ok(field_writes_commit(group, own, &writes)?.map(|_| writes))
+            Ok(field_writes_commit(group, own, &writes, limits)?.map(|_| writes))
         })?;
         let Some(writes) = writes else {
             return Ok(());
@@ -187,6 +188,7 @@ where
         let Err(error) = self.sync_until_intent_resolved(intent_id).await else {
             return Ok(());
         };
+        let limits = self.context.api().limits();
         let failed = matches!(
             self.context.db().fetch(&intent_id),
             Ok(Some(StoredGroupIntent {
@@ -196,7 +198,7 @@ where
         );
         if failed
             && let Err(field @ GroupError::MetadataField(_)) =
-                self.with_group_snapshot(|group| field_writes_commit(group, own, writes))
+                self.with_group_snapshot(|group| field_writes_commit(group, own, writes, limits))
         {
             return Err(field);
         }

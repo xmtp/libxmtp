@@ -37,7 +37,6 @@ use xmtp_mls_tls_collections::{
     tls_map::{TlsMap, TlsMapDelta},
     tls_set::TlsSet,
 };
-use xmtp_mls_validation::commit::MAX_DICTIONARY_BYTES;
 use xmtp_proto::xmtp::mls::message_contents::{ComponentType, metadata_policy::MetadataBasePolicy};
 
 use super::test_dictionary_creation::{definition, value};

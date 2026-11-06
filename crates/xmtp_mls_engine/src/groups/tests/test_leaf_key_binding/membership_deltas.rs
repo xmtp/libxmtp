@@ -67,6 +67,7 @@ async fn receiver_rejects_misattributed_failed_installation() {
             provider,
             &signer,
             &[],
+            &xmtp_configuration::LimitsConfiguration::default(),
             vec![(
                 ComponentId::GROUP_MEMBERSHIP,
                 AppDataUpdateOperation::Update(payload.into()),
@@ -116,6 +117,7 @@ async fn dictionary_delete_cannot_hide_a_live_leaf() {
             provider,
             &signer,
             &[],
+            &xmtp_configuration::LimitsConfiguration::default(),
             vec![(
                 ComponentId::GROUP_MEMBERSHIP,
                 AppDataUpdateOperation::Update(payload.into()),

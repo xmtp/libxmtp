@@ -518,7 +518,26 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     // Receivers still judge the rest on read-back, so no
                     // pre-publish check runs for an omission alone.
                     dependencies.omitted_uncommittable = selection::commits_proposals(intent.kind)
-                        && selection::omit_uncommittable_proposals(group, storage)?;
+                        && selection::omit_uncommittable_proposals(
+                            group,
+                            storage,
+                            crate::groups::app_data::proposal_cap(self.context.api().limits()),
+                            crate::groups::app_data::sender_dictionary_max(
+                                self.context.api().limits(),
+                            ),
+                        )?;
+                    // implements: SEND-027
+                    // An intent that adds installations of its own checks its
+                    // Welcomes before the commit. A commit that only carries
+                    // another member's pending Add publishes, and its Welcomes
+                    // end as unsendable if they cannot fit.
+                    let adds_installations = matches!(
+                        intent.kind,
+                        IntentKind::UpdateGroupMembership | IntentKind::ReaddInstallations
+                    ) && dependencies
+                        .changes
+                        .as_ref()
+                        .is_some_and(|changes| !changes.new_key_packages.is_empty());
                     let Some(mut data) =
                         self.get_publish_intent_data(storage, group, &intent, dependencies)?
                     else {
@@ -612,6 +631,13 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     };
                     // Validate size and shape before any ratchet writes can commit.
                     attempt.publish_unit(self.context.api().limits())?;
+                    if adds_installations && let Some(action) = &data.post_commit_action {
+                        let PostCommitAction::SendWelcomes(action) =
+                            PostCommitAction::from_bytes(action)?;
+                        if !self.welcomes_fit(action, self.context.api().limits())? {
+                            return Err(xmtp_api::ApiError::EnvelopeTooLarge.into());
+                        }
+                    }
                     if requirements.partial_membership_update {
                         // Leave the original desired target pending. Its next
                         // diff against the advanced group contains only the

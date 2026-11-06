@@ -30,6 +30,7 @@ async fn test_denied_writes_fail_when_published() {
                 AppDataUpdateIntentData::Fields(writes),
                 own,
                 &[],
+                bo_group.context.api().limits(),
                 &bo_group.context.identity().installation_keys,
                 false,
             )

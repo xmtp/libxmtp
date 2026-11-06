@@ -44,7 +44,10 @@ use xmtp_proto::xmtp::mls::message_contents::{
     metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
 };
 
-use super::{pending_dictionary, stage_app_data_proposals_and_commit};
+use super::{
+    AppDataBatch, pending_dictionary, proposal_cap, sender_dictionary_max,
+    stage_app_data_proposals_and_commit,
+};
 use crate::groups::{
     AdminListActionType, GroupError,
     error::MetadataPermissionsError,
@@ -73,6 +76,7 @@ pub(crate) fn apply_update_admin_list_app_data_intent(
     openmls_group: &mut OpenMlsGroup,
     intent_data: UpdateAdminListIntentData,
     catalogue: &[ApplicationComponentDefinition],
+    limits: &xmtp_configuration::LimitsConfiguration,
     signer: impl Signer,
     should_send_push_notification: bool,
 ) -> Result<PublishIntentData, GroupError> {
@@ -108,6 +112,7 @@ pub(crate) fn apply_update_admin_list_app_data_intent(
         openmls_group,
         vec![(component_id, AppDataUpdateOperation::Update(payload.into()))],
         catalogue,
+        limits,
         signer,
         should_send_push_notification,
     )
@@ -121,6 +126,7 @@ pub(crate) fn apply_update_permission_app_data_intent(
     openmls_group: &mut OpenMlsGroup,
     intent_data: UpdatePermissionIntentData,
     catalogue: &[ApplicationComponentDefinition],
+    limits: &xmtp_configuration::LimitsConfiguration,
     signer: impl Signer,
     should_send_push_notification: bool,
 ) -> Result<PublishIntentData, GroupError> {
@@ -166,7 +172,11 @@ pub(crate) fn apply_update_permission_app_data_intent(
     // The commit includes pending proposals from all members. Read their
     // accumulated state before replacing a whole registry entry, so an edit
     // to one policy field cannot undo a pending edit to another field.
-    let pending = pending_dictionary(openmls_group)?;
+    let pending = pending_dictionary(
+        openmls_group,
+        proposal_cap(limits),
+        sender_dictionary_max(limits),
+    )?;
     let read = |id: ComponentId| {
         pending
             .get(&id.as_u16())
@@ -226,6 +236,7 @@ pub(crate) fn apply_update_permission_app_data_intent(
             AppDataUpdateOperation::Update(payload.into()),
         )],
         catalogue,
+        limits,
         signer,
         should_send_push_notification,
     )
@@ -241,12 +252,14 @@ pub(crate) fn apply_update_permission_app_data_intent(
 /// update. A field that is gone or changed type since the write was
 /// encoded fails the intent.
 // implements: META-071, META-073
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_app_data_update_intent(
     storage: &impl XmtpMlsStorageProvider,
     openmls_group: &mut OpenMlsGroup,
     intent_data: AppDataUpdateIntentData,
     own: InboxId,
     catalogue: &[ApplicationComponentDefinition],
+    limits: &xmtp_configuration::LimitsConfiguration,
     signer: impl Signer,
     should_send_push_notification: bool,
 ) -> Result<Option<PublishIntentData>, GroupError> {
@@ -254,12 +267,25 @@ pub(crate) fn apply_app_data_update_intent(
         AppDataUpdateIntentData::Payload {
             component_id,
             payload,
-        } => vec![(
-            ComponentId::new(component_id),
-            AppDataUpdateOperation::Update(payload.into()),
-        )],
+        } => {
+            let id = ComponentId::new(component_id);
+            let operation = AppDataUpdateOperation::Update(payload.into());
+            // implements: META-078
+            // Receivers judge everything else about a verbatim payload; the
+            // builder keeps only its dictionary bound. A payload that does
+            // not apply is left to them.
+            let mut batch = AppDataBatch::pending(openmls_group)?;
+            if batch.apply(id.as_u16(), &operation).is_ok()
+                && batch
+                    .fits(&AppDataPostStates::new(), sender_dictionary_max(limits))
+                    .is_err()
+            {
+                return Err(FieldError::Denied(id).into());
+            }
+            vec![(id, operation)]
+        }
         AppDataUpdateIntentData::Fields(writes) => {
-            let Some(updates) = field_writes_commit(openmls_group, own, &writes)? else {
+            let Some(updates) = field_writes_commit(openmls_group, own, &writes, limits)? else {
                 return Ok(None);
             };
             updates
@@ -270,6 +296,7 @@ pub(crate) fn apply_app_data_update_intent(
         openmls_group,
         updates,
         catalogue,
+        limits,
         signer,
         should_send_push_notification,
     )
@@ -308,15 +335,24 @@ pub(crate) fn field_writes_commit(
     openmls_group: &OpenMlsGroup,
     own: InboxId,
     writes: &[FieldWrite],
+    limits: &xmtp_configuration::LimitsConfiguration,
 ) -> Result<Option<Vec<(ComponentId, AppDataUpdateOperation)>>, GroupError> {
+    let dictionary_max = sender_dictionary_max(limits);
     let committed = openmls_group
         .extensions()
         .app_data_dictionary()
         .map(|extension| extension.dictionary());
     let snapshot = FieldSnapshot::new(committed, &[])?;
-    let values = pending_dictionary(openmls_group)?;
+    let values = pending_dictionary(openmls_group, proposal_cap(limits), dictionary_max)?;
     let updates = snapshot.resolve_writes(Some(&*values), own, writes)?;
-    authorize_updates(openmls_group, snapshot.registry(), &values, &updates)?;
+    authorize_updates(
+        openmls_group,
+        snapshot.registry(),
+        committed,
+        &values,
+        &updates,
+        dictionary_max,
+    )?;
     let empty = AppDataDictionary::default();
     let mut carried = false;
     for write in writes.iter().map(std::slice::from_ref) {
@@ -337,14 +373,18 @@ pub(crate) fn field_writes_commit(
             Ok(changes) => authorize_updates(
                 openmls_group,
                 snapshot.registry(),
+                committed,
                 committed.unwrap_or(&empty),
                 &changes,
+                dictionary_max,
             )?,
             Err(_) => authorize_updates(
                 openmls_group,
                 snapshot.registry(),
+                committed,
                 &values,
                 &snapshot.write_operations(Some(&*values), own, write)?,
+                dictionary_max,
             )?,
         }
         carried = true;
@@ -359,12 +399,18 @@ pub(crate) fn field_writes_commit(
 /// membership upkeep only cleans up after removals already pending, never
 /// changing membership. With the committed values, it is the membership
 /// before the commit.
-// implements: META-071, META-073, META-077
+///
+/// The commit, which carries the pending proposals that turned `committed`
+/// into `values` and then `updates`, may not grow the dictionary total past
+/// `dictionary_max` and past the `committed` total.
+// implements: META-071, META-073, META-077, META-078
 fn authorize_updates(
     openmls_group: &OpenMlsGroup,
     registry: &ComponentRegistry,
+    committed: Option<&AppDataDictionary>,
     values: &AppDataDictionary,
     updates: &[(ComponentId, AppDataUpdateOperation)],
+    dictionary_max: usize,
 ) -> Result<(), GroupError> {
     let (immutable, mutable) = read_committed_metadata(openmls_group)?;
     let own = extract_commit_participant(
@@ -400,12 +446,30 @@ fn authorize_updates(
         .map_err(|_| FieldError::Denied(*id))?;
         states.extend(post);
     }
-    // Receivers judge the total the whole commit leaves.
-    match updates.last() {
-        Some((id, _)) => validate_post_dictionary_size(Some(values), &states)
-            .map_err(|_| FieldError::Denied(*id).into()),
-        None => Ok(()),
+    let Some((id, _)) = updates.last() else {
+        return Ok(());
+    };
+    // implements: META-078
+    // The pending proposals and these updates make one commit, so judge the
+    // total it leaves against the committed total: a pending shrink leaves
+    // room. Only the components the pending proposals changed are copied.
+    let committed_value = |id: u16| committed.and_then(|dictionary| dictionary.get(&id));
+    let mut post = AppDataPostStates::new();
+    for data in values.entries() {
+        let component = ComponentId::from(data.id());
+        if !states.contains_key(&component) && committed_value(data.id()) != Some(data.data()) {
+            post.insert(component, Some(data.data().to_vec().into()));
+        }
     }
+    for data in committed.into_iter().flat_map(AppDataDictionary::entries) {
+        let component = ComponentId::from(data.id());
+        if !states.contains_key(&component) && values.get(&data.id()).is_none() {
+            post.insert(component, None);
+        }
+    }
+    post.extend(states);
+    validate_post_dictionary_size(committed, &post, dictionary_max)
+        .map_err(|_| FieldError::Denied(*id).into())
 }
 
 /// Propose `updates` and stage one commit of them, publishing the
@@ -415,6 +479,7 @@ fn stage_updates(
     openmls_group: &mut OpenMlsGroup,
     updates: Vec<(ComponentId, AppDataUpdateOperation)>,
     catalogue: &[ApplicationComponentDefinition],
+    limits: &xmtp_configuration::LimitsConfiguration,
     signer: impl Signer,
     should_send_push_notification: bool,
 ) -> Result<PublishIntentData, GroupError> {
@@ -423,7 +488,7 @@ fn stage_updates(
         openmls_group,
         move |group, provider| -> Result<_, GroupError> {
             Ok(stage_app_data_proposals_and_commit(
-                group, provider, &signer, catalogue, updates,
+                group, provider, &signer, catalogue, limits, updates,
             )?)
         },
     )?;

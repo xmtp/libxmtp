@@ -512,6 +512,24 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         Ok(())
     }
 
+    /// Whether every envelope of the Welcome batch for `action` fits
+    /// `limits` at any commit cursor: `u64::MAX` has the longest cursor
+    /// encoding.
+    // implements: SEND-027
+    pub(super) fn welcomes_fit(
+        &self,
+        action: SendWelcomesAction,
+        limits: &xmtp_configuration::LimitsConfiguration,
+    ) -> Result<bool, GroupError> {
+        let envelopes = self.prepare_welcome_envelopes(action, u64::MAX)?;
+        let welcomes = PreparedWelcomes {
+            commit_sequence_id: 0,
+            envelopes: envelopes.iter().map(Message::encode_to_vec).collect(),
+            receipts: None,
+        };
+        Ok(welcomes.units(limits)?.iter().all(Option::is_some))
+    }
+
     /// Build all direct, pointer, and pointee bytes under the caller's writer.
     pub(in crate::groups::mls_sync) fn prepare_welcome_envelopes(
         &self,
