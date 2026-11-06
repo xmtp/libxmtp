@@ -48,7 +48,7 @@ use crate::groups::GroupError;
 /// of a commit that carries both, in the order OpenMLS applies them. An
 /// upkeep proposal that would grow the dictionary past the builder's bound
 /// under `limits` is left out. Fails when the whole commit would grow the
-/// dictionary past the receivers' total.
+/// dictionary past that bound, which is never above the receivers' total.
 // implements: META-067, GMOD-039, META-077, META-078
 pub(crate) fn membership_upkeep(
     group: &OpenMlsGroup,
@@ -159,10 +159,13 @@ pub(crate) fn membership_upkeep(
             }
         }
     }
+    // implements: META-078
     // An intent's own proposals are pending too, so check the whole commit.
+    // Other proposals and the upkeep above already keep to this bound, so
+    // only an own update that grows the dictionary past it fails here.
     batch.fits(
         &AppDataPostStates::new(),
-        xmtp_mls_validation::commit::MAX_DICTIONARY_BYTES,
+        super::sender_dictionary_max(limits),
     )?;
     Ok((proposals, batch.updates()))
 }

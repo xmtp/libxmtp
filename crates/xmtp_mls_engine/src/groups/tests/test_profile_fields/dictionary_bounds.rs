@@ -416,3 +416,104 @@ async fn upkeep_leaves_out_a_registry_insert_past_the_bound() {
     assert_eq!(bo_group.epoch().await?, group.epoch().await?);
     assert_eq!(last_rejection(&group)?, None);
 }
+
+/// An intent's own metadata update keeps to the builder's bound too. With
+/// the dictionary just under half the envelope, a group name that would
+/// cross it is refused and publishes nothing, and the next message still
+/// sends.
+// verifies: META-078
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_metadata_update_past_the_bound_is_refused() {
+    use xmtp_mls_group_state::app_data::components::metadata_attributes::MAX_GROUP_NAME_LENGTH;
+    const ENVELOPE_LIMIT: usize = 256 * 1024;
+    const BOUND: usize = ENVELOPE_LIMIT / 2;
+    let map = |n: u16| {
+        definition(
+            0xC110 + n,
+            ComponentType::TlsMapBytesBytes,
+            MetadataBasePolicy::Allow,
+            true,
+            true,
+        )
+    };
+    let alix = EngineTestPeer::new_with(|o| {
+        o.configure(|c| {
+            c.application_components = vec![map(0), map(1), map(2)];
+            c.limits.max_envelope_bytes = ENVELOPE_LIMIT;
+        })
+    })
+    .await;
+    let bo = EngineTestPeer::new().await;
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
+    let total = |dictionary: AppDataDictionary| -> usize {
+        let entries = dictionary.entries();
+        let counted = entries.filter(|c| c.id() != ComponentId::GROUP_MEMBERSHIP.as_u16());
+        counted.map(|c| c.data().len()).sum()
+    };
+    let write = |n: u16, keys: std::ops::Range<u8>, len: usize| {
+        let insert = ComponentMutation::MapDelta(
+            keys.map(|key| {
+                MapMutation::Insert(
+                    FieldKey::Bytes(vec![key]),
+                    FieldValue::Bytes(vec![key; len]),
+                )
+            })
+            .collect(),
+        );
+        let group = &group;
+        async move {
+            group
+                .write_fields(|snapshot| {
+                    Ok(vec![snapshot.field_write(
+                        &MetadataFieldRef::new(ComponentId::new(0xC110 + n)),
+                        &insert,
+                    )?])
+                })
+                .await
+        }
+    };
+    // Fill the dictionary to a few bytes under the bound, as above.
+    write(0, 0..8, 8000).await?;
+    write(1, 0..7, 8000).await?;
+    let before = total(dictionary(&group)?);
+    write(2, 0..1, 1).await?;
+    let overhead = total(dictionary(&group)?) - before - 1;
+    let mut key = 1;
+    loop {
+        let room = BOUND - total(dictionary(&group)?) - overhead;
+        if room <= 4000 {
+            write(2, key..key + 1, room - 4).await?;
+            break;
+        }
+        write(2, key..key + 1, 4000).await?;
+        key += 1;
+    }
+    let filled = total(dictionary(&group)?);
+    assert!(filled <= BOUND && BOUND - filled < 16, "{filled}");
+    let name = group.group_name()?;
+    assert!(name.len() + 16 < MAX_GROUP_NAME_LENGTH);
+
+    let epoch = group.epoch().await?;
+    assert!(
+        group
+            .update_group_name("n".repeat(MAX_GROUP_NAME_LENGTH))
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        group.epoch().await?,
+        epoch,
+        "the refused update publishes nothing"
+    );
+    assert_eq!(group.group_name()?, name);
+    assert_eq!(total(dictionary(&group)?), filled);
+    group
+        .send_message(b"after the name", Default::default())
+        .await?;
+    bo_group.sync().await?;
+    assert_eq!(bo_group.epoch().await?, group.epoch().await?);
+    assert_eq!(last_rejection(&group)?, None);
+}
