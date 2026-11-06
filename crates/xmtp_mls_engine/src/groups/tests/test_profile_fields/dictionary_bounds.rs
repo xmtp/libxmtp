@@ -517,3 +517,109 @@ async fn a_metadata_update_past_the_bound_is_refused() {
     assert_eq!(bo_group.epoch().await?, group.epoch().await?);
     assert_eq!(last_rejection(&group)?, None);
 }
+
+/// The bound compares the whole commit with the committed total. With the
+/// dictionary already past half the envelope (here, because the deployment
+/// lowered its limit), a peer's pending delete leaves room: Alix's small
+/// insert, which leaves the total below the committed one, is accepted and
+/// published with the delete.
+// verifies: META-078
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_pending_shrink_leaves_room_for_an_own_write() {
+    const FIELDS: u16 = 3;
+    const LOWERED_LIMIT: usize = 256 * 1024;
+    let catalogue: Vec<_> = (0..FIELDS)
+        .map(|n| {
+            definition(
+                0xC110 + n,
+                ComponentType::TlsMapBytesBytes,
+                MetadataBasePolicy::Allow,
+                false,
+                true,
+            )
+        })
+        .collect();
+    let alix =
+        EngineTestPeer::new_with(|o| o.configure(|c| c.application_components = catalogue.clone()))
+            .await;
+    let bo = EngineTestPeer::new().await;
+    let dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
+    let bo_dm = bo.wait_for_welcomes().await?.pop()?;
+    let field = |n: u16| MetadataFieldRef::new(ComponentId::new(0xC110 + n));
+    let total = |dictionary: AppDataDictionary| -> usize {
+        let entries = dictionary.entries();
+        let counted = entries.filter(|c| c.id() != ComponentId::GROUP_MEMBERSHIP.as_u16());
+        counted.map(|c| c.data().len()).sum()
+    };
+    // About 168 KB in three maps, under the default bound.
+    let fill = ComponentMutation::MapDelta(
+        (0..8u8)
+            .map(|k| {
+                MapMutation::Insert(FieldKey::Bytes(vec![k]), FieldValue::Bytes(vec![k; 7000]))
+            })
+            .collect(),
+    );
+    dm.write_fields(|snapshot| {
+        (0..FIELDS)
+            .map(|n| snapshot.field_write(&field(n), &fill))
+            .collect()
+    })
+    .await?;
+    bo_dm.sync().await?;
+
+    // The deployment lowers its limit, so the dictionary is past the bound.
+    let alix = alix
+        .with_options(|o| {
+            o.configure(|c| {
+                c.application_components = catalogue.clone();
+                c.limits.max_envelope_bytes = LOWERED_LIMIT;
+            })
+        })
+        .await;
+    let dm = alix.group(&dm.group_id)?;
+    let committed = total(dictionary(&dm)?);
+    assert!(committed > LOWERED_LIMIT / 2, "{committed}");
+
+    // Bo proposes deleting one 7000-byte entry alone.
+    let delete = TlsMapDelta::<VLBytes, VLBytes>::new().delete(VLBytes::new(vec![0]));
+    let proposal = state_write(bo.context.mls_storage(), |tx| {
+        tx.with_group(bo_dm.group_id, |mls, storage| {
+            let (message, _) = mls
+                .propose_app_data_update(
+                    &xmtp_db::XmtpOpenMlsProviderRef::new(storage),
+                    &bo.context.identity().installation_keys,
+                    0xC110,
+                    AppDataUpdateOperation::Update(delete.tls_serialize_detached()?.into()),
+                )
+                .map_err(GroupError::Proposal)?;
+            Ok::<_, GroupError>(Continue(message.tls_serialize_detached()?))
+        })
+    })?
+    .into_continued();
+    let messages = bo_dm.prepare_group_messages(vec![(proposal.as_slice(), false)])?;
+    bo.context.api().send_group_messages(messages).await?;
+    dm.receive().await?;
+    assert_eq!(
+        dm.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?,
+        1
+    );
+
+    let epoch = dm.epoch().await?;
+    let insert = ComponentMutation::MapDelta(vec![MapMutation::Insert(
+        FieldKey::Bytes(vec![9]),
+        FieldValue::Bytes(vec![9; 4]),
+    )]);
+    dm.write_fields(|snapshot| Ok(vec![snapshot.field_write(&field(2), &insert)?]))
+        .await?;
+    assert!(dm.epoch().await? > epoch);
+    let written = total(dictionary(&dm)?);
+    assert!(written < committed, "{written} {committed}");
+    assert_eq!(
+        dm.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?,
+        0
+    );
+    bo_dm.sync().await?;
+    assert_eq!(bo_dm.epoch().await?, dm.epoch().await?);
+    assert_eq!(dictionary(&bo_dm)?, dictionary(&dm)?);
+    assert_eq!(last_rejection(&dm)?, None);
+}

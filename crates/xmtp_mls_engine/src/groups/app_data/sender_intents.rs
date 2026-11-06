@@ -348,6 +348,7 @@ pub(crate) fn field_writes_commit(
     authorize_updates(
         openmls_group,
         snapshot.registry(),
+        committed,
         &values,
         &updates,
         dictionary_max,
@@ -372,6 +373,7 @@ pub(crate) fn field_writes_commit(
             Ok(changes) => authorize_updates(
                 openmls_group,
                 snapshot.registry(),
+                committed,
                 committed.unwrap_or(&empty),
                 &changes,
                 dictionary_max,
@@ -379,6 +381,7 @@ pub(crate) fn field_writes_commit(
             Err(_) => authorize_updates(
                 openmls_group,
                 snapshot.registry(),
+                committed,
                 &values,
                 &snapshot.write_operations(Some(&*values), own, write)?,
                 dictionary_max,
@@ -397,11 +400,14 @@ pub(crate) fn field_writes_commit(
 /// changing membership. With the committed values, it is the membership
 /// before the commit.
 ///
-/// The commit may not grow the dictionary total past `dictionary_max`.
+/// The commit, which carries the pending proposals that turned `committed`
+/// into `values` and then `updates`, may not grow the dictionary total past
+/// `dictionary_max` and past the `committed` total.
 // implements: META-071, META-073, META-077, META-078
 fn authorize_updates(
     openmls_group: &OpenMlsGroup,
     registry: &ComponentRegistry,
+    committed: Option<&AppDataDictionary>,
     values: &AppDataDictionary,
     updates: &[(ComponentId, AppDataUpdateOperation)],
     dictionary_max: usize,
@@ -440,12 +446,30 @@ fn authorize_updates(
         .map_err(|_| FieldError::Denied(*id))?;
         states.extend(post);
     }
-    // Receivers judge the total the whole commit leaves.
-    match updates.last() {
-        Some((id, _)) => validate_post_dictionary_size(Some(values), &states, dictionary_max)
-            .map_err(|_| FieldError::Denied(*id).into()),
-        None => Ok(()),
+    let Some((id, _)) = updates.last() else {
+        return Ok(());
+    };
+    // implements: META-078
+    // The pending proposals and these updates make one commit, so judge the
+    // total it leaves against the committed total: a pending shrink leaves
+    // room. Only the components the pending proposals changed are copied.
+    let committed_value = |id: u16| committed.and_then(|dictionary| dictionary.get(&id));
+    let mut post = AppDataPostStates::new();
+    for data in values.entries() {
+        let component = ComponentId::from(data.id());
+        if !states.contains_key(&component) && committed_value(data.id()) != Some(data.data()) {
+            post.insert(component, Some(data.data().to_vec().into()));
+        }
     }
+    for data in committed.into_iter().flat_map(AppDataDictionary::entries) {
+        let component = ComponentId::from(data.id());
+        if !states.contains_key(&component) && values.get(&data.id()).is_none() {
+            post.insert(component, None);
+        }
+    }
+    post.extend(states);
+    validate_post_dictionary_size(committed, &post, dictionary_max)
+        .map_err(|_| FieldError::Denied(*id).into())
 }
 
 /// Propose `updates` and stage one commit of them, publishing the
