@@ -384,10 +384,11 @@ async fn a_capped_membership_delta_drops_its_add() -> Result<(), Box<dyn std::er
 async fn copies_of_the_refresh_target_do_not_escape_the_cap()
 -> Result<(), Box<dyn std::error::Error>> {
     use super::membership_recovery::{committed_membership, has_leaf};
-    const ENVELOPE_LIMIT: usize = 64 * 1024;
-    // More than the cap of 481 at this limit.
-    const FILL: usize = 500;
-    const COPIES: usize = 2_500;
+    const ENVELOPE_LIMIT: usize = 16 * 1024;
+    // More than the cap of 120 at this limit.
+    const FILL: usize = 150;
+    // The copies of one rung alone exceed the envelope.
+    const COPIES: usize = 650;
     let alix =
         EngineTestPeer::new_with(|o| o.configure(|c| c.limits.max_envelope_bytes = ENVELOPE_LIMIT))
             .await;
