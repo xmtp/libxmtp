@@ -17,7 +17,7 @@ use crate::{
         load_identity_updates_for_client,
     },
     inbox_handles::{self, HandleError, IdentityTarget, account_targets, resolve_verified_in},
-    mls_store::{MlsStore, MlsStoreError},
+    mls_store::{KeyPackageResultsByInstallation, MlsStore, MlsStoreError},
     server_configuration::{BlockedConnection, ServerConfigError},
     subscriptions::{
         LocalEventError,
@@ -72,7 +72,7 @@ use xmtp_db::{
 use xmtp_db::{group::GroupQueryOrderBy, prelude::*};
 use xmtp_events::DeletionCause;
 use xmtp_id::associations::handle::Handle;
-use xmtp_id::key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2};
+use xmtp_id::key_package::KeyPackageVerificationError;
 use xmtp_id::{
     AsIdRef, InboxId, InboxIdRef, InboxOwner,
     associations::{

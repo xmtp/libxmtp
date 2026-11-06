@@ -20,6 +20,7 @@ mod test_dm;
 mod test_failed_installations;
 mod test_group_info;
 mod test_group_updated;
+#[cfg(not(target_arch = "wasm32"))]
 mod test_identity_revocation;
 mod test_identity_updates;
 mod test_leaf_key_binding;

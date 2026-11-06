@@ -4,6 +4,7 @@ use crate::{
     events::InternalEvent,
     worker::{
         BoxedWorker, EVENT_BUFFER, NeedsDbReconnect, NewWorker, Worker, WorkerFactory, WorkerKind,
+        WorkerResult,
     },
 };
 use std::{marker::PhantomData, sync::Arc};
@@ -326,7 +327,7 @@ where
         self.subscription = Some(subscription);
     }
 
-    async fn run_tasks(&mut self) -> Result<(), Box<dyn NeedsDbReconnect>> {
+    async fn run_tasks(&mut self) -> WorkerResult<()> {
         self.run().await.map_err(|e| Box::new(e) as _)
     }
 }

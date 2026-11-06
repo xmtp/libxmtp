@@ -232,21 +232,10 @@ macro_rules! be_i64_component {
                 op: &AppDataUpdateOperation,
                 _prior: Option<&[u8]>,
             ) -> Result<Vec<ExpandedComponentChange>, ComponentTypedError> {
-                match op {
-                    AppDataUpdateOperation::Update(payload) => {
-                        let _ = decode_be_i64(Self::ID, payload.as_slice())?;
-                        Ok(vec![ExpandedComponentChange {
-                            op: ComponentOp::Update,
-                            key: None,
-                            value: Some(payload.as_slice().to_vec()),
-                        }])
-                    }
-                    AppDataUpdateOperation::Remove => Ok(vec![ExpandedComponentChange {
-                        op: ComponentOp::Delete,
-                        key: None,
-                        value: None,
-                    }]),
+                if let AppDataUpdateOperation::Update(payload) = op {
+                    let _ = decode_be_i64(Self::ID, payload.as_slice())?;
                 }
+                expand_passthrough(op)
             }
         }
     };
@@ -323,21 +312,10 @@ impl Component for CommitLogSignerComponent {
         op: &AppDataUpdateOperation,
         _prior: Option<&[u8]>,
     ) -> Result<Vec<ExpandedComponentChange>, ComponentTypedError> {
-        match op {
-            AppDataUpdateOperation::Update(payload) => {
-                require_exact_len(Self::ID, payload.as_slice(), ED25519_KEY_LENGTH)?;
-                Ok(vec![ExpandedComponentChange {
-                    op: ComponentOp::Update,
-                    key: None,
-                    value: Some(payload.as_slice().to_vec()),
-                }])
-            }
-            AppDataUpdateOperation::Remove => Ok(vec![ExpandedComponentChange {
-                op: ComponentOp::Delete,
-                key: None,
-                value: None,
-            }]),
+        if let AppDataUpdateOperation::Update(payload) = op {
+            require_exact_len(Self::ID, payload.as_slice(), ED25519_KEY_LENGTH)?;
         }
+        expand_passthrough(op)
     }
 }
 
@@ -582,5 +560,76 @@ mod tests {
         AppDataComponent,
         ComponentId::APP_DATA,
         MAX_APP_DATA_LENGTH
+    );
+
+    macro_rules! fixed_length_expansion_tests {
+        ($module:ident, $component:ty, $component_id:expr, $length:expr) => {
+            mod $module {
+                use super::*;
+
+                #[xmtp_common::test(unwrap_try = true)]
+                fn update_yields_one_update_with_the_payload() {
+                    let payload: Vec<u8> = (1..=$length as u8).collect();
+                    let op = AppDataUpdateOperation::Update(payload.clone().into());
+                    let changes = <$component>::expand_to_changes(&op, None)?;
+                    assert_eq!(
+                        changes,
+                        vec![ExpandedComponentChange {
+                            op: ComponentOp::Update,
+                            key: None,
+                            value: Some(payload),
+                        }]
+                    );
+                }
+
+                #[xmtp_common::test(unwrap_try = true)]
+                fn wrong_length_update_is_malformed() {
+                    for len in [0, $length - 1, $length + 1] {
+                        let op = AppDataUpdateOperation::Update(vec![0xAB; len].into());
+                        match <$component>::expand_to_changes(&op, None) {
+                            Err(ComponentTypedError::MalformedValue { component_id, .. }) => {
+                                assert_eq!(component_id, $component_id);
+                            }
+                            other => {
+                                panic!("expected MalformedValue for {len} bytes, got {other:?}")
+                            }
+                        }
+                    }
+                }
+
+                #[xmtp_common::test(unwrap_try = true)]
+                fn remove_yields_one_delete_with_no_value() {
+                    let changes =
+                        <$component>::expand_to_changes(&AppDataUpdateOperation::Remove, None)?;
+                    assert_eq!(
+                        changes,
+                        vec![ExpandedComponentChange {
+                            op: ComponentOp::Delete,
+                            key: None,
+                            value: None,
+                        }]
+                    );
+                }
+            }
+        };
+    }
+
+    fixed_length_expansion_tests!(
+        message_disappear_from_ns_expansion,
+        MessageDisappearFromNsComponent,
+        ComponentId::MESSAGE_DISAPPEAR_FROM_NS,
+        8
+    );
+    fixed_length_expansion_tests!(
+        message_disappear_in_ns_expansion,
+        MessageDisappearInNsComponent,
+        ComponentId::MESSAGE_DISAPPEAR_IN_NS,
+        8
+    );
+    fixed_length_expansion_tests!(
+        commit_log_signer_expansion,
+        CommitLogSignerComponent,
+        ComponentId::COMMIT_LOG_SIGNER,
+        ED25519_KEY_LENGTH
     );
 }
