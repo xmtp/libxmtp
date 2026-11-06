@@ -1580,7 +1580,33 @@ fn dictionary_growth_past_the_limit_is_rejected() {
         committed.insert(APP.as_u16(), vec![0; app]);
         committed.insert(MEMBERS.as_u16(), vec![0; members]);
         let state = Some(Zeroizing::new(vec![0; len]));
-        let result = validate_post_dictionary_size(Some(&committed), [(id, &state)]);
+        let result = validate_post_dictionary_size(Some(&committed), [(id, &state)], MAX);
+        assert_eq!(result.is_ok(), accepted, "row {row}: {result:?}");
+    }
+}
+
+/// A commit builder passes a bound below the receivers' 4 MiB. Growth past
+/// that bound is rejected, and a dictionary already above it can still
+/// shrink or stay the same.
+// verifies: META-078
+#[xmtp_common::test(unwrap_try = true)]
+fn a_builder_bound_rejects_only_growth_past_it() {
+    const APP: ComponentId = ComponentId::new(0xC078);
+    const MAX: usize = 1024;
+    // The committed `APP` length, its new length, and whether the commit is
+    // accepted.
+    let rows = [
+        (0, MAX, true),
+        (0, MAX + 1, false),
+        (MAX + 8, MAX + 4, true),
+        (MAX + 8, MAX + 8, true),
+        (MAX + 8, MAX + 9, false),
+    ];
+    for (row, (app, len, accepted)) in rows.into_iter().enumerate() {
+        let mut committed = openmls::extensions::AppDataDictionary::new();
+        committed.insert(APP.as_u16(), vec![0; app]);
+        let state = Some(Zeroizing::new(vec![0; len]));
+        let result = validate_post_dictionary_size(Some(&committed), [(APP, &state)], MAX);
         assert_eq!(result.is_ok(), accepted, "row {row}: {result:?}");
     }
 }

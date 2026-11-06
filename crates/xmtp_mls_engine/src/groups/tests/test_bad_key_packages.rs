@@ -114,6 +114,7 @@ async fn test_create_from_welcome_validation() {
                 &provider,
                 &alix.identity().installation_keys,
                 &[],
+                &xmtp_configuration::LimitsConfiguration::default(),
                 ComponentId::GROUP_MEMBERSHIP,
                 payload,
             )

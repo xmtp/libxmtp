@@ -457,6 +457,7 @@ async fn test_commit_removing_all_super_admins_is_rejected() {
                         provider,
                         signer,
                         &[],
+                        &xmtp_configuration::LimitsConfiguration::default(),
                         updates,
                     )?)
                 },

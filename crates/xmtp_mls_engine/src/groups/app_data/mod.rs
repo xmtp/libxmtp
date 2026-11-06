@@ -46,9 +46,9 @@ use xmtp_mls_group_state::inbox_id::InboxId;
 use xmtp_mls_group_state::libxmtp_version::LibXMTPVersion;
 use xmtp_mls_validation::commit::{
     AppDataPostStates, AppDataUpdateInCommit, AppDataUpdateList, CommitRuleError,
-    app_data_update_proposer_leaf, extract_commit_participant, membership_inbox_ids,
-    read_committed_metadata, validate_app_data_update_sequence, validate_post_dictionary_size,
-    validate_post_registry,
+    MAX_DICTIONARY_BYTES, app_data_update_proposer_leaf, extract_commit_participant,
+    membership_inbox_ids, read_committed_metadata, validate_app_data_update_sequence,
+    validate_post_dictionary_size, validate_post_registry,
 };
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -215,15 +215,16 @@ impl<'a> AppDataBatch<'a> {
     }
 
     /// Reject `post`, the states of proposals after the ones applied so far,
-    /// when receivers would reject the commit's dictionary total.
+    /// when the commit's dictionary total grows past `max`: receivers'
+    /// [`MAX_DICTIONARY_BYTES`], or a commit builder's lower bound.
     // implements: META-077
-    pub(crate) fn fits(&self, post: &AppDataPostStates) -> Result<(), CommitRuleError> {
+    pub(crate) fn fits(&self, post: &AppDataPostStates, max: usize) -> Result<(), CommitRuleError> {
         let states = &self.states;
         let earlier = states.iter().map(|(id, s)| (ComponentId::from(*id), s));
         let earlier = earlier.filter(|(id, _)| !post.contains_key(id));
         let committed = self.group.extensions().app_data_dictionary();
         let post = earlier.chain(post.iter().map(|(id, s)| (*id, s)));
-        validate_post_dictionary_size(committed.map(|e| e.dictionary()), post)
+        validate_post_dictionary_size(committed.map(|e| e.dictionary()), post, max)
     }
 
     /// The [`AppDataUpdates`] for the commit; `None` when no proposal was
@@ -262,6 +263,15 @@ pub(crate) fn proposal_cap(limits: &xmtp_configuration::LimitsConfiguration) -> 
     MAX_APP_DATA_PROPOSALS.min(limits.max_envelope_bytes / BYTES_PER_CAPPED_PROPOSAL)
 }
 
+/// Most bytes the components other than `GROUP_MEMBERSHIP` may hold after a
+/// commit this client builds under `limits`: half an envelope, so a Welcome,
+/// which carries the whole dictionary, still fits. Receivers keep
+/// [`MAX_DICTIONARY_BYTES`].
+// implements: META-078
+pub(crate) fn sender_dictionary_max(limits: &xmtp_configuration::LimitsConfiguration) -> usize {
+    MAX_DICTIONARY_BYTES.min(limits.max_envelope_bytes / 2)
+}
+
 /// The pending proposals one commit can carry, in store order, and the
 /// batch they produce.
 pub(crate) struct Committable<'a> {
@@ -296,11 +306,16 @@ impl<'a> Committable<'a> {
     /// filter runs again over the kept ones until that membership stops
     /// changing. Each further pass keeps fewer, so this ends.
     ///
-    /// `cap` bounds the non-membership `AppDataUpdate`s kept; commit
-    /// building passes [`proposal_cap`], and selection caps membership
-    /// deltas before this runs.
-    // implements: GMOD-047
-    pub(crate) fn pending(group: &'a OpenMlsGroup, cap: usize) -> Result<Self, GroupError> {
+    /// `cap` bounds the non-membership `AppDataUpdate`s kept, and
+    /// `dictionary_max` the dictionary total they leave; commit building
+    /// passes [`proposal_cap`] and [`sender_dictionary_max`]. Selection caps
+    /// membership deltas before this runs.
+    // implements: GMOD-047, META-078
+    pub(crate) fn pending(
+        group: &'a OpenMlsGroup,
+        cap: usize,
+        dictionary_max: usize,
+    ) -> Result<Self, GroupError> {
         let mut seen = HashSet::new();
         let mut budget = cap;
         let mut proposals: Vec<_> = group
@@ -325,7 +340,7 @@ impl<'a> Committable<'a> {
             group,
         ));
         loop {
-            let committable = Self::keep(group, proposals, membership.as_ref())?;
+            let committable = Self::keep(group, proposals, membership.as_ref(), dictionary_max)?;
             let kept = membership_inbox_ids(committable.batch.state(ComponentId::GROUP_MEMBERSHIP));
             if kept == membership {
                 return Ok(committable);
@@ -341,6 +356,7 @@ impl<'a> Committable<'a> {
         group: &'a OpenMlsGroup,
         proposals: Vec<&'a QueuedProposal>,
         membership: Option<&HashSet<InboxId>>,
+        dictionary_max: usize,
     ) -> Result<Self, GroupError> {
         let (immutable, mutable) = read_committed_metadata(group)?;
         let mut batch = AppDataBatch::new(group)?;
@@ -386,7 +402,9 @@ impl<'a> Committable<'a> {
                 ) else {
                     continue;
                 };
-                if validate_post_registry(&post).is_err() || batch.fits(&post).is_err() {
+                if validate_post_registry(&post).is_err()
+                    || batch.fits(&post, dictionary_max).is_err()
+                {
                     continue;
                 }
                 list.push(id, operation);
@@ -508,6 +526,7 @@ pub(crate) fn stage_app_data_propose_and_commit<Provider: OpenMlsProvider>(
     provider: &Provider,
     signer: &impl openmls_traits::signatures::Signer,
     catalogue: &[ApplicationComponentDefinition],
+    limits: &xmtp_configuration::LimitsConfiguration,
     component_id: ComponentId,
     payload: Vec<u8>,
 ) -> Result<(MlsMessageOut, CommitMessageBundle), GroupAppDataError<Provider::StorageError>> {
@@ -516,6 +535,7 @@ pub(crate) fn stage_app_data_propose_and_commit<Provider: OpenMlsProvider>(
         provider,
         signer,
         catalogue,
+        limits,
         vec![(component_id, AppDataUpdateOperation::Update(payload.into()))],
     )?;
     Ok((proposals.remove(0), bundle))
@@ -529,6 +549,7 @@ pub(crate) fn stage_app_data_proposals_and_commit<Provider: OpenMlsProvider>(
     provider: &Provider,
     signer: &impl openmls_traits::signatures::Signer,
     catalogue: &[ApplicationComponentDefinition],
+    limits: &xmtp_configuration::LimitsConfiguration,
     updates: Vec<(ComponentId, AppDataUpdateOperation)>,
 ) -> Result<(Vec<MlsMessageOut>, CommitMessageBundle), GroupAppDataError<Provider::StorageError>> {
     // Lazy-batching: we deliberately do NOT block on pre-existing
@@ -562,8 +583,9 @@ pub(crate) fn stage_app_data_proposals_and_commit<Provider: OpenMlsProvider>(
     // `consume_proposal_store(true)`'s sweep or `pending_proposals()`
     // ordering, receivers reject the commit with `WrongConfirmationTag`; the
     // AppDataUpdate E2E tests in `groups/tests/test_proposals.rs` catch that.
-    let (upkeep, app_data_updates) = membership_upkeep::membership_upkeep(mls_group, catalogue)
-        .map_err(|e| GroupAppDataError::Upkeep(Box::new(e)))?;
+    let (upkeep, app_data_updates) =
+        membership_upkeep::membership_upkeep(mls_group, catalogue, limits)
+            .map_err(|e| GroupAppDataError::Upkeep(Box::new(e)))?;
 
     // Step 3: build a commit that consumes the proposal store. The
     // just-queued proposals are encoded as `ProposalRef`s; only the upkeep
@@ -643,10 +665,14 @@ impl xmtp_common::RetryableError for GroupAppDataError<xmtp_db::sql_key_store::S
 }
 
 /// The dictionary a commit built now starts from: the committed one with
-/// the updates of the pending proposals it can carry applied (see
-/// [`Committable::pending`]).
+/// the updates of the pending proposals it can carry under `cap` and
+/// `dictionary_max` applied (see [`Committable::pending`]). The builder
+/// passes [`proposal_cap`] and [`sender_dictionary_max`], so a proposal it
+/// would omit does not count.
 pub(crate) fn pending_dictionary(
     mls_group: &OpenMlsGroup,
+    cap: usize,
+    dictionary_max: usize,
 ) -> Result<PendingDictionary, GroupError> {
     let mut dictionary = PendingDictionary(
         mls_group
@@ -655,7 +681,7 @@ pub(crate) fn pending_dictionary(
             .map(|extension| extension.dictionary().clone())
             .unwrap_or_default(),
     );
-    for (id, value) in Committable::pending(mls_group, MAX_APP_DATA_PROPOSALS)?
+    for (id, value) in Committable::pending(mls_group, cap, dictionary_max)?
         .batch
         .updates()
         .into_iter()

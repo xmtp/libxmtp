@@ -93,6 +93,7 @@ async fn add_outside_identity_diff(
             provider,
             &signer,
             &[],
+            &xmtp_configuration::LimitsConfiguration::default(),
             vec![(
                 ComponentId::GROUP_MEMBERSHIP,
                 AppDataUpdateOperation::Update(payload.into()),
@@ -198,6 +199,7 @@ async fn own_inbox_retries_leafless_key(
                 provider,
                 &signer,
                 &[],
+                &xmtp_configuration::LimitsConfiguration::default(),
                 vec![(
                     ComponentId::GROUP_MEMBERSHIP,
                     AppDataUpdateOperation::Update(payload.into()),

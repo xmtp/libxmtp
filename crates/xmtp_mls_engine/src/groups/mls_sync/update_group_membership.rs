@@ -240,6 +240,7 @@ pub(crate) fn apply_update_group_membership_intent(
     intent_data: UpdateGroupMembershipIntentData,
     mut changes_with_kps: MembershipDiffWithKeyPackages,
     catalogue: &[ApplicationComponentDefinition],
+    limits: &xmtp_configuration::LimitsConfiguration,
     signer: impl Signer,
 ) -> Result<Option<PublishIntentData>, GroupError> {
     reject_super_admin_removal(openmls_group, &intent_data.removed_members)?;
@@ -342,6 +343,7 @@ pub(crate) fn apply_update_group_membership_intent(
         leaf_nodes_to_remove,
         app_data_payload,
         catalogue,
+        limits,
         signer,
     )?;
     Ok(Some(publish_intent_data))
@@ -352,6 +354,7 @@ pub(crate) fn apply_update_group_membership_intent(
 /// All payloads are returned together so they can be published in a single
 /// `send_group_messages` call, eliminating multiple network roundtrips.
 #[tracing::instrument(level = "trace", skip_all)]
+#[allow(clippy::too_many_arguments)]
 fn compute_publish_data_for_proposal_based_update(
     storage: &impl XmtpMlsStorageProvider,
     openmls_group: &mut OpenMlsGroup,
@@ -359,6 +362,7 @@ fn compute_publish_data_for_proposal_based_update(
     leaf_nodes_to_remove: Vec<LeafNodeIndex>,
     app_data_membership_payload: Vec<u8>,
     catalogue: &[ApplicationComponentDefinition],
+    limits: &xmtp_configuration::LimitsConfiguration,
     signer: impl Signer,
 ) -> Result<PublishIntentData, GroupError> {
     let ((proposal_payloads, bundle), staged_commit, group_epoch) =
@@ -432,7 +436,7 @@ fn compute_publish_data_for_proposal_based_update(
             // inline, so their authority is judged against the post-commit
             // membership. Pre-compute the dictionary updates so the
             // confirmation tag agrees with the receiver's apply path.
-            let (upkeep, app_data_updates) = membership_upkeep(group, catalogue)?;
+            let (upkeep, app_data_updates) = membership_upkeep(group, catalogue, limits)?;
 
             // 5. Create a commit consuming all proposals.
             let mut stage = crate::groups::mls_ext::commit_without_group_info(
@@ -563,6 +567,7 @@ pub(crate) fn apply_readd_installations_intent(
     intent_data: ReaddInstallationsIntentData,
     changes_with_kps: MembershipDiffWithKeyPackages,
     catalogue: &[ApplicationComponentDefinition],
+    limits: &xmtp_configuration::LimitsConfiguration,
     signer: impl Signer,
 ) -> Result<Option<PublishIntentData>, GroupError> {
     let readded_installations: HashSet<Vec<u8>> =
@@ -604,6 +609,7 @@ pub(crate) fn apply_readd_installations_intent(
         leaf_indices_to_remove,
         payload,
         catalogue,
+        limits,
         signer,
     )?;
 
@@ -673,6 +679,7 @@ mod tests {
                         vec![],
                         payload,
                         &[],
+                        &xmtp_configuration::LimitsConfiguration::default(),
                         group.context.identity().installation_keys.clone(),
                     )?;
                     assert_eq!(

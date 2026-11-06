@@ -34,6 +34,7 @@ async fn app_data_commit_exports_no_group_info() {
                         provider,
                         signer,
                         &[],
+                        &xmtp_configuration::LimitsConfiguration::default(),
                         updates,
                     )?)
                 },

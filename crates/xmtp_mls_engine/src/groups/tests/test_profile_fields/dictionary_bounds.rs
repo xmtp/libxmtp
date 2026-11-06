@@ -7,7 +7,9 @@ use super::*;
 async fn test_large_dictionary_membership_observation() {
     use xmtp_db::{encrypted_store::database::count_sql_queries, sql_key_store::count_kv_reads};
 
-    const FIELDS: u16 = 16;
+    // About 448 KB: below half the default envelope, the most an honest
+    // sender writes.
+    const FIELDS: u16 = 7;
     let alix = EngineTestPeer::new_with(|o| {
         o.configure(|c| {
             c.application_components = (0..FIELDS)
@@ -73,30 +75,33 @@ async fn test_large_dictionary_membership_observation() {
     );
 }
 
-/// A DM participant fills application maps until the next one would grow
-/// the dictionary past 4 MiB: that write is refused as a field write and as a
-/// payload intent, which fails without blocking the next intent. Nothing of
-/// it is published, and the peer's dictionary is unchanged. A commit that
-/// also empties a map is judged by the total it leaves.
-// verifies: META-077
+/// A DM member's writes stop at half the envelope, not at the receivers'
+/// 4 MiB: a field write that grows the dictionary past it is refused and
+/// publishes nothing, the same map as a payload intent fails without
+/// blocking the next intent, a peer's standalone proposal that would grow it
+/// past it stays out of the next commit, and a commit that also empties a
+/// map is judged by the total it leaves.
+// verifies: META-078
 #[xmtp_common::test(unwrap_try = true)]
-// Dozens of multi-MiB commits outlast the wasm job's time limit.
-#[cfg_attr(target_arch = "wasm32", ignore)]
-async fn test_dictionary_growth_is_bounded() {
-    const FIELDS: u16 = 67;
+async fn the_sender_keeps_the_dictionary_within_half_an_envelope() {
+    const ENVELOPE_LIMIT: usize = 256 * 1024;
+    const BOUND: usize = ENVELOPE_LIMIT / 2;
+    const FIELDS: u16 = 4;
+    let catalogue: Vec<_> = (0..FIELDS)
+        .map(|n| {
+            definition(
+                0xC110 + n,
+                ComponentType::TlsMapBytesBytes,
+                MetadataBasePolicy::Allow,
+                false,
+                true,
+            )
+        })
+        .collect();
     let alix = EngineTestPeer::new_with(|o| {
         o.configure(|c| {
-            c.application_components = (0..FIELDS)
-                .map(|n| {
-                    definition(
-                        0xC110 + n,
-                        ComponentType::TlsMapBytesBytes,
-                        MetadataBasePolicy::Allow,
-                        false,
-                        true,
-                    )
-                })
-                .collect()
+            c.application_components = catalogue.clone();
+            c.limits.max_envelope_bytes = ENVELOPE_LIMIT;
         })
     })
     .await;
@@ -108,17 +113,14 @@ async fn test_dictionary_growth_is_bounded() {
         let counted = entries.filter(|c| c.id() != ComponentId::GROUP_MEMBERSHIP.as_u16());
         counted.map(|c| c.data().len()).sum()
     };
-    // Eight 8000-byte values: a map just under the snapshot bound.
     let fill = ComponentMutation::MapDelta(
         (0..8u8)
             .map(|k| {
-                MapMutation::Insert(FieldKey::Bytes(vec![k]), FieldValue::Bytes(vec![k; 8000]))
+                MapMutation::Insert(FieldKey::Bytes(vec![k]), FieldValue::Bytes(vec![k; 7000]))
             })
             .collect(),
     );
     let mut fields = (0..FIELDS).map(|n| MetadataFieldRef::new(ComponentId::new(0xC110 + n)));
-    // Fill `count` maps in one commit, so the test reaches the limit in a
-    // few commits.
     let mut fill_maps = |count: usize| {
         let batch: Vec<_> = fields.by_ref().take(count).collect();
         let fill = &fill;
@@ -133,47 +135,75 @@ async fn test_dictionary_growth_is_bounded() {
     let before = total(dictionary(&dm)?);
     fill_maps(1).await?;
     let map = total(dictionary(&dm)?) - before;
-    let mut room = (MAX_DICTIONARY_BYTES - before - map) / map;
-    while room > 0 {
-        // Each sync processes one commit, well inside the sync deadline.
-        let count = room.min(16);
-        fill_maps(count).await?;
-        bo_dm.sync().await?;
-        room -= count;
-    }
-    assert!(total(dictionary(&dm)?) + map > MAX_DICTIONARY_BYTES);
+    let room = (BOUND - before - map) / map;
+    assert!(room > 0);
+    fill_maps(room).await?;
+    assert!(total(dictionary(&dm)?) + map > BOUND);
     bo_dm.sync().await?;
     let expected = dictionary(&bo_dm)?;
     assert_eq!(expected, dictionary(&dm)?);
+    let epoch = dm.epoch().await?;
     assert!(matches!(
         fill_maps(1).await,
         Err(GroupError::MetadataField(FieldError::Denied(_)))
     ));
+    assert_eq!(
+        dm.epoch().await?,
+        epoch,
+        "the refused write publishes nothing"
+    );
+
     // The same map as a payload intent fails at once, without publishing,
     // and the message queued after it is still sent.
-    let payload = (0..8u8).fold(TlsMapDelta::<VLBytes, VLBytes>::new(), |delta, k| {
-        delta.insert(VLBytes::new(vec![k]), VLBytes::new(vec![k; 8000]))
-    });
     let unused = ComponentId::new(0xC110 + FIELDS - 1);
-    let payload = AppDataUpdateIntentData::new(unused.as_u16(), payload.tls_serialize_detached()?);
+    let payload = (0..8u8).fold(TlsMapDelta::<VLBytes, VLBytes>::new(), |delta, k| {
+        delta.insert(VLBytes::new(vec![k]), VLBytes::new(vec![k; 7000]))
+    });
     let refused = QueueIntent::app_data_update()
-        .data(Vec::<u8>::from(payload))
+        .data(Vec::<u8>::from(AppDataUpdateIntentData::new(
+            unused.as_u16(),
+            payload.tls_serialize_detached()?,
+        )))
         .queue(&dm)?;
-    dm.send_message(b"after", Default::default()).await?;
+    dm.send_message(b"after the payload", Default::default())
+        .await?;
     let failed =
         dm.context
             .db()
             .find_group_intents(dm.group_id, Some(vec![IntentState::Error]), None)?;
     assert!(failed.iter().any(|intent| intent.id == refused.id));
-    bo_dm.sync().await?;
-    assert_eq!(last_rejection(&bo_dm)?, None);
-    assert_eq!(dictionary(&bo_dm)?, expected);
-    let messages = bo_dm.find_messages(&MsgQueryArgs::default())?;
-    assert!(
-        messages
-            .iter()
-            .any(|m| m.decrypted_message_bytes == b"after")
+    assert_eq!(dm.epoch().await?, epoch, "the payload publishes nothing");
+
+    // Bo, whose own bound is higher, proposes the same map alone. Alix's next
+    // commit leaves it out, so neither side applies it.
+    let proposal = state_write(bo.context.mls_storage(), |tx| {
+        tx.with_group(bo_dm.group_id, |mls, storage| {
+            let (message, _) = mls
+                .propose_app_data_update(
+                    &xmtp_db::XmtpOpenMlsProviderRef::new(storage),
+                    &bo.context.identity().installation_keys,
+                    unused.as_u16(),
+                    AppDataUpdateOperation::Update(payload.tls_serialize_detached()?.into()),
+                )
+                .map_err(GroupError::Proposal)?;
+            Ok::<_, GroupError>(Continue(message.tls_serialize_detached()?))
+        })
+    })?
+    .into_continued();
+    let messages = bo_dm.prepare_group_messages(vec![(proposal.as_slice(), false)])?;
+    bo.context.api().send_group_messages(messages).await?;
+    dm.receive().await?;
+    assert_eq!(
+        dm.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?,
+        1
     );
+    dm.send_message(b"after", Default::default()).await?;
+    assert!(dm.epoch().await? > epoch, "the commit published");
+    bo_dm.sync().await?;
+    assert_eq!(bo_dm.epoch().await?, dm.epoch().await?);
+    assert_eq!(last_rejection(&dm)?, None);
+    assert_eq!(dictionary(&bo_dm)?, expected);
+    assert_eq!(dictionary(&dm)?, expected);
 
     // The same map is accepted when the commit also empties another, even
     // though the map comes first.
@@ -185,4 +215,204 @@ async fn test_dictionary_growth_is_bounded() {
         Ok(vec![snapshot.field_write(&unused, &fill)?, emptied])
     })
     .await?;
+}
+
+/// A peer's standalone proposal that the builder would leave out under its
+/// dictionary bound does not count against an own write: with it pending,
+/// Alix's small insert is still accepted and published, and the proposal is
+/// omitted.
+// verifies: META-078
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_proposal_the_builder_omits_does_not_refuse_an_own_write() {
+    const ENVELOPE_LIMIT: usize = 256 * 1024;
+    const FIELDS: u16 = 4;
+    let catalogue: Vec<_> = (0..FIELDS)
+        .map(|n| {
+            definition(
+                0xC110 + n,
+                ComponentType::TlsMapBytesBytes,
+                MetadataBasePolicy::Allow,
+                false,
+                true,
+            )
+        })
+        .collect();
+    let alix = EngineTestPeer::new_with(|o| {
+        o.configure(|c| {
+            c.application_components = catalogue.clone();
+            c.limits.max_envelope_bytes = ENVELOPE_LIMIT;
+        })
+    })
+    .await;
+    let bo = EngineTestPeer::new().await;
+    let dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
+    let bo_dm = bo.wait_for_welcomes().await?.pop()?;
+    let field = |n: u16| MetadataFieldRef::new(ComponentId::new(0xC110 + n));
+    // About 112 KB in two maps, under the 128 KiB bound.
+    let fill = ComponentMutation::MapDelta(
+        (0..8u8)
+            .map(|k| {
+                MapMutation::Insert(FieldKey::Bytes(vec![k]), FieldValue::Bytes(vec![k; 7000]))
+            })
+            .collect(),
+    );
+    dm.write_fields(|snapshot| {
+        Ok(vec![
+            snapshot.field_write(&field(0), &fill)?,
+            snapshot.field_write(&field(1), &fill)?,
+        ])
+    })
+    .await?;
+    bo_dm.sync().await?;
+
+    // Bo proposes a 56 KB map alone, which would cross Alix's bound.
+    let unused = ComponentId::new(0xC110 + FIELDS - 1);
+    let payload = (0..8u8).fold(TlsMapDelta::<VLBytes, VLBytes>::new(), |delta, k| {
+        delta.insert(VLBytes::new(vec![k]), VLBytes::new(vec![k; 7000]))
+    });
+    let proposal = state_write(bo.context.mls_storage(), |tx| {
+        tx.with_group(bo_dm.group_id, |mls, storage| {
+            let (message, _) = mls
+                .propose_app_data_update(
+                    &xmtp_db::XmtpOpenMlsProviderRef::new(storage),
+                    &bo.context.identity().installation_keys,
+                    unused.as_u16(),
+                    AppDataUpdateOperation::Update(payload.tls_serialize_detached()?.into()),
+                )
+                .map_err(GroupError::Proposal)?;
+            Ok::<_, GroupError>(Continue(message.tls_serialize_detached()?))
+        })
+    })?
+    .into_continued();
+    let messages = bo_dm.prepare_group_messages(vec![(proposal.as_slice(), false)])?;
+    bo.context.api().send_group_messages(messages).await?;
+    dm.receive().await?;
+    assert_eq!(
+        dm.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?,
+        1
+    );
+
+    let epoch = dm.epoch().await?;
+    let insert = ComponentMutation::MapDelta(vec![MapMutation::Insert(
+        FieldKey::Bytes(vec![9]),
+        FieldValue::Bytes(vec![9; 4]),
+    )]);
+    dm.write_fields(|snapshot| Ok(vec![snapshot.field_write(&field(2), &insert)?]))
+        .await?;
+    assert!(dm.epoch().await? > epoch);
+    let written = dictionary(&dm)?;
+    assert!(
+        written.get(&unused.as_u16()).is_none(),
+        "the proposal was omitted"
+    );
+    assert!(written.get(&(0xC110 + 2)).is_some());
+    bo_dm.sync().await?;
+    assert_eq!(bo_dm.epoch().await?, dm.epoch().await?);
+    assert_eq!(last_rejection(&dm)?, None);
+}
+
+/// Membership upkeep keeps to the builder's bound too. With the dictionary
+/// just under half the envelope, Alix's client gains a catalogue component
+/// that the group has not registered. Her next commit leaves that registry
+/// insert out, because it would cross the bound, and still publishes.
+// verifies: META-078
+#[xmtp_common::test(unwrap_try = true)]
+async fn upkeep_leaves_out_a_registry_insert_past_the_bound() {
+    use crate::groups::tests::test_dictionary_creation::registry;
+    const ENVELOPE_LIMIT: usize = 256 * 1024;
+    const BOUND: usize = ENVELOPE_LIMIT / 2;
+    let map = |n: u16| {
+        definition(
+            0xC110 + n,
+            ComponentType::TlsMapBytesBytes,
+            MetadataBasePolicy::Allow,
+            true,
+            true,
+        )
+    };
+    let alix = EngineTestPeer::new_with(|o| {
+        o.configure(|c| {
+            c.application_components = vec![map(0), map(1), map(2)];
+            c.limits.max_envelope_bytes = ENVELOPE_LIMIT;
+        })
+    })
+    .await;
+    let bo = EngineTestPeer::new().await;
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
+    let total = |dictionary: AppDataDictionary| -> usize {
+        let entries = dictionary.entries();
+        let counted = entries.filter(|c| c.id() != ComponentId::GROUP_MEMBERSHIP.as_u16());
+        counted.map(|c| c.data().len()).sum()
+    };
+    let write = |n: u16, keys: std::ops::Range<u8>, len: usize| {
+        let insert = ComponentMutation::MapDelta(
+            keys.map(|key| {
+                MapMutation::Insert(
+                    FieldKey::Bytes(vec![key]),
+                    FieldValue::Bytes(vec![key; len]),
+                )
+            })
+            .collect(),
+        );
+        let group = &group;
+        async move {
+            group
+                .write_fields(|snapshot| {
+                    Ok(vec![snapshot.field_write(
+                        &MetadataFieldRef::new(ComponentId::new(0xC110 + n)),
+                        &insert,
+                    )?])
+                })
+                .await
+        }
+    };
+    // Fill the dictionary to a few bytes under the bound: two maps of
+    // 8000-byte values, then smaller values in a third.
+    write(0, 0..8, 8000).await?;
+    write(1, 0..7, 8000).await?;
+    let before = total(dictionary(&group)?);
+    write(2, 0..1, 1).await?;
+    let overhead = total(dictionary(&group)?) - before - 1;
+    let mut key = 1;
+    loop {
+        let room = BOUND - total(dictionary(&group)?) - overhead;
+        if room <= 4000 {
+            write(2, key..key + 1, room - 4).await?;
+            break;
+        }
+        write(2, key..key + 1, 4000).await?;
+        key += 1;
+    }
+    let filled = total(dictionary(&group)?);
+    assert!(filled <= BOUND && BOUND - filled < 16, "{filled}");
+    bo_group.sync().await?;
+
+    // The rebuilt client's catalogue has a component the group lacks.
+    let alix = alix
+        .with_options(|o| {
+            o.configure(|c| {
+                c.application_components = vec![map(0), map(1), map(2), map(3)];
+                c.limits.max_envelope_bytes = ENVELOPE_LIMIT;
+            })
+        })
+        .await;
+    assert_eq!(
+        alix.context.api().limits().max_envelope_bytes,
+        ENVELOPE_LIMIT
+    );
+    let group = alix.group(&group.group_id)?;
+    let epoch = group.epoch().await?;
+    group.key_update().await?;
+    assert!(group.epoch().await? > epoch, "the commit published");
+    assert!(
+        registry(&group)?.get(&ComponentId::new(0xC113))?.is_none(),
+        "the registry insert was left out"
+    );
+    assert_eq!(total(dictionary(&group)?), filled);
+    bo_group.sync().await?;
+    assert_eq!(bo_group.epoch().await?, group.epoch().await?);
+    assert_eq!(last_rejection(&group)?, None);
 }

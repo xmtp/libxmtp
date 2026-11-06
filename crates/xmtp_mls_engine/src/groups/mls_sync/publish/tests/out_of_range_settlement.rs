@@ -9,7 +9,9 @@
 use super::faults::{Fault, FaultyApi, FaultyContext, faulty_group, group_message, welcome};
 use super::welcomes::{PreparedWelcomes, WelcomeEnvelopeKind};
 use super::*;
-use crate::groups::test_support::{EnginePeer, EngineSuiteOps, EngineTestPeer, EngineTestPeerOps};
+use crate::groups::test_support::{
+    EnginePeer, EngineSuiteOps, EngineTestGroup, EngineTestPeer, EngineTestPeerOps,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -995,4 +997,167 @@ async fn publish_settlement_recovers_an_oversized_saved_attempt_the_backend_stor
 
     group.sync_until_intent_resolved(intent.id).await?;
     assert_eq!(status(&group, &message_id), DeliveryStatus::Published);
+}
+
+/// Application maps that a group can fill to about 96 KiB: more than half of
+/// a 64 KiB envelope, so no Welcome of that group fits one.
+const LARGE_MAPS: u16 = 2;
+
+fn large_map_definitions() -> Vec<xmtp_configuration::ApplicationComponentDefinition> {
+    use xmtp_configuration::{
+        ApplicationComponentDefinition, ComponentPermissions, MetadataPolicy,
+    };
+    use xmtp_proto::xmtp::mls::message_contents::{
+        ComponentType, metadata_policy::MetadataBasePolicy,
+    };
+    (0..LARGE_MAPS)
+        .map(|n| {
+            let policy = Some(MetadataPolicy::Base(MetadataBasePolicy::Allow as i32));
+            ApplicationComponentDefinition {
+                component_id: 0xC110 + n,
+                name: format!("app.{:x}", 0xC110 + n),
+                component_type: ComponentType::TlsMapBytesBytes as i32,
+                permissions: ComponentPermissions {
+                    insert: policy.clone(),
+                    update: policy.clone(),
+                    delete: policy,
+                },
+                in_groups: true,
+                in_dms: true,
+            }
+        })
+        .collect()
+}
+
+/// Alix's group with `members`, whose application maps hold about 96 KiB,
+/// written under the default limits.
+async fn group_with_large_maps(members: &[&EngineTestPeer]) -> (EngineTestPeer, EngineTestGroup) {
+    use xmtp_mls_group_state::app_data::{
+        component_id::ComponentId,
+        fields::{ComponentMutation, FieldKey, FieldValue, MapMutation, MetadataFieldRef},
+    };
+    let alix = EngineTestPeer::new_with(|o| {
+        o.configure(|c| c.application_components = large_map_definitions())
+    })
+    .await;
+    let inboxes: Vec<_> = members.iter().map(|member| member.inbox_id()).collect();
+    let group = alix
+        .create_group_with_members(&inboxes, None, None)
+        .await
+        .unwrap();
+    let fill = ComponentMutation::MapDelta(
+        (0..6u8)
+            .map(|k| {
+                MapMutation::Insert(FieldKey::Bytes(vec![k]), FieldValue::Bytes(vec![k; 8000]))
+            })
+            .collect(),
+    );
+    group
+        .write_fields(|snapshot| {
+            (0..LARGE_MAPS)
+                .map(|n| {
+                    snapshot
+                        .field_write(&MetadataFieldRef::new(ComponentId::new(0xC110 + n)), &fill)
+                })
+                .collect()
+        })
+        .await
+        .unwrap();
+    (alix, group)
+}
+
+/// An Add whose Welcome cannot fit one envelope is refused before its
+/// commit is published: nothing changes, and no installation is left
+/// without a Welcome.
+// verifies: SEND-027
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_add_whose_welcome_cannot_fit_is_refused_before_the_commit() {
+    const ENVELOPE_LIMIT: usize = 64 * 1024;
+    let bo = EngineTestPeer::new().await;
+    let (alix, group) = group_with_large_maps(&[]).await;
+    let recorder = FaultyApi::new(&alix, group_message, []);
+    let shrunk =
+        group_after_envelope_limit_shrink(&alix, &group.group_id, recorder.clone(), ENVELOPE_LIMIT)
+            .await;
+    let epoch = shrunk.epoch().await?;
+
+    assert!(shrunk.add_members(&[bo.inbox_id()]).await.is_err());
+    // The same request queued directly shows the cause.
+    let data = shrunk
+        .get_membership_update_intent(&[bo.inbox_id()], &[])
+        .await?;
+    crate::groups::intents::QueueIntent::update_group_membership()
+        .data(data)
+        .queue(&shrunk)?;
+    let result = shrunk.publish_intents().await;
+    assert!(
+        matches!(
+            result,
+            Err(GroupError::WrappedApi(xmtp_api::ApiError::EnvelopeTooLarge))
+        ),
+        "{result:?}"
+    );
+    let failed = group.context.db().find_group_intents(
+        group.group_id,
+        Some(vec![IntentState::Error]),
+        Some(vec![IntentKind::UpdateGroupMembership]),
+    )?;
+    assert_eq!(failed.len(), 2, "both adds failed");
+    assert!(recorder.requests.lock().is_empty(), "nothing was published");
+    assert_eq!(shrunk.epoch().await?, epoch);
+    assert!(bo.sync_welcomes().await?.is_empty());
+
+    shrunk
+        .send_message(b"after the refused add", Default::default())
+        .await?;
+}
+
+/// A commit for an intent that adds nothing publishes even when it carries
+/// another member's pending Add whose Welcome cannot fit; that Welcome batch
+/// then ends as unsendable.
+// verifies: SEND-027
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_foreign_pending_add_does_not_block_commits() {
+    use crate::groups::{intents::QueueIntent, test_support::propose_member_update_data};
+    const ENVELOPE_LIMIT: usize = 64 * 1024;
+    let caro = EngineTestPeer::new().await;
+    let dave = EngineTestPeer::new().await;
+    let (alix, group) = group_with_large_maps(&[&caro]).await;
+    let caro_group = caro.wait_for_welcomes().await?.remove(0);
+    caro_group.sync().await?;
+    let proposal = QueueIntent::propose_member_update()
+        .data(propose_member_update_data(
+            vec![dave.inbox_id().to_string()],
+            vec![],
+        )?)
+        .queue(&caro_group)?;
+    caro_group.sync_until_intent_resolved(proposal.id).await?;
+    let shrunk = group_after_envelope_limit_shrink(
+        &alix,
+        &group.group_id,
+        FaultyApi::new(&alix, group_message, []),
+        ENVELOPE_LIMIT,
+    )
+    .await;
+    shrunk.receive().await?;
+    let pending = shrunk.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?;
+    assert!(pending > 0, "alix holds caro's Add");
+    let epoch = shrunk.epoch().await?;
+
+    let sent = shrunk.send_message(b"hello", Default::default()).await;
+    assert!(
+        shrunk.epoch().await? > epoch,
+        "the commit published: {sent:?}"
+    );
+    only_intent(
+        &group,
+        IntentState::FollowUpFailed,
+        IntentKind::CommitPendingProposals,
+    );
+    caro_group.sync().await?;
+    assert_eq!(caro_group.epoch().await?, shrunk.epoch().await?);
+    assert!(dave.sync_welcomes().await?.is_empty());
+    shrunk
+        .send_message(b"after the unsendable Welcome", Default::default())
+        .await?;
 }

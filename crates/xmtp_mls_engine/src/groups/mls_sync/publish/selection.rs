@@ -880,16 +880,18 @@ pub(super) fn commits_proposals(kind: IntentKind) -> bool {
     )
 }
 
-/// Drop each pending proposal no commit can carry, and each non-membership
-/// `AppDataUpdate` past `cap` (see [`Committable::pending`]), and return
-/// whether any was dropped. It expires with the epoch.
-// implements: GMOD-047
+/// Drop each pending proposal no commit can carry, each non-membership
+/// `AppDataUpdate` past `cap`, and each that grows the dictionary past
+/// `dictionary_max` (see [`Committable::pending`]), and return whether any
+/// was dropped. It expires with the epoch.
+// implements: GMOD-047, META-078
 pub(super) fn omit_uncommittable_proposals(
     group: &mut OpenMlsGroup,
     storage: &impl XmtpMlsStorageProvider,
     cap: usize,
+    dictionary_max: usize,
 ) -> Result<bool, GroupError> {
-    let kept: Vec<_> = Committable::pending(group, cap)?
+    let kept: Vec<_> = Committable::pending(group, cap, dictionary_max)?
         .proposals
         .into_iter()
         .cloned()

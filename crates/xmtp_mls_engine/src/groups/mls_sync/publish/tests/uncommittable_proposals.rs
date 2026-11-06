@@ -140,6 +140,7 @@ async fn a_repeated_reference_counts_once() -> Result<(), Box<dyn std::error::Er
                     mls,
                     storage,
                     crate::groups::app_data::MAX_APP_DATA_PROPOSALS,
+                    xmtp_mls_validation::commit::MAX_DICTIONARY_BYTES,
                 )?;
                 Ok::<_, GroupError>(Continue((omitted, references)))
             })

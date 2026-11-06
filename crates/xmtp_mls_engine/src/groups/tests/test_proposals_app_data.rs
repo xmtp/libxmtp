@@ -59,6 +59,7 @@ async fn test_permission_updates_preserve_pending_fields() {
                             None,
                         ),
                         &[],
+                        author.context.api().limits(),
                         &author.context.identity().installation_keys,
                         false,
                     )

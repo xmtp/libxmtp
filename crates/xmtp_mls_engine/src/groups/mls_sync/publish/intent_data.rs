@@ -31,6 +31,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                         .server_configuration()
                         .configuration()
                         .application_components,
+                    self.context.api().limits(),
                     signer,
                 )
             }
@@ -77,6 +78,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                                     .server_configuration()
                                     .configuration()
                                     .application_components,
+                                self.context.api().limits(),
                             )?;
                         let mut stage = crate::groups::mls_ext::commit_without_group_info(
                             group,
@@ -184,6 +186,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                                 provider,
                                 &signer,
                                 catalogue,
+                                self.context.api().limits(),
                                 component_id,
                                 std::mem::take(&mut *payload),
                             )?)
@@ -221,6 +224,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                             .server_configuration()
                             .configuration()
                             .application_components,
+                        self.context.api().limits(),
                         signer,
                         intent.should_push,
                     )?;
@@ -241,6 +245,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                             .server_configuration()
                             .configuration()
                             .application_components,
+                        self.context.api().limits(),
                         signer,
                         intent.should_push,
                     )?;
@@ -259,6 +264,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                         .server_configuration()
                         .configuration()
                         .application_components,
+                    self.context.api().limits(),
                     signer,
                 )
             }
@@ -437,6 +443,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                         .server_configuration()
                         .configuration()
                         .application_components,
+                    self.context.api().limits(),
                     self.context.identity().installation_keys.clone(),
                     intent.should_push,
                 )
@@ -469,6 +476,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                                 .server_configuration()
                                 .configuration()
                                 .application_components,
+                            self.context.api().limits(),
                             |_| true,
                         )
                     })?;

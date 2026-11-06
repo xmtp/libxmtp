@@ -94,6 +94,7 @@ fn legacy_entry(group: &EngineTestGroup, payload: Vec<u8>) -> Result<(), GroupEr
                 &provider,
                 &group.context.identity().installation_keys,
                 &[],
+                &xmtp_configuration::LimitsConfiguration::default(),
                 vec![(
                     ComponentId::GROUP_MEMBERSHIP,
                     AppDataUpdateOperation::Update(payload.into()),

@@ -48,6 +48,7 @@ pub(super) async fn publish_proposals<C: XmtpSharedContext>(
                 AppDataUpdateIntentData::Fields(writes),
                 own,
                 &[],
+                group.context.api().limits(),
                 &group.context.identity().installation_keys,
                 false,
             )?;

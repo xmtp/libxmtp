@@ -118,6 +118,7 @@ async fn assert_omitted_new_installation_rejected(bo_commits: bool) {
             provider,
             &signer,
             &[],
+            &xmtp_configuration::LimitsConfiguration::default(),
             vec![(
                 ComponentId::GROUP_MEMBERSHIP,
                 set_entries(&[(&bo_inbox, bo_sequence, vec![])]),
@@ -185,6 +186,7 @@ async fn publish_dropped_failure(
             provider,
             &signer,
             &[],
+            &xmtp_configuration::LimitsConfiguration::default(),
             vec![(
                 ComponentId::GROUP_MEMBERSHIP,
                 set_entries(&[(bo_inbox, bo_sequence, vec![])]),
@@ -228,6 +230,7 @@ async fn floor_raise_does_not_pause_on_an_unaccounting_commit() {
             provider,
             &signer,
             &[],
+            &xmtp_configuration::LimitsConfiguration::default(),
             vec![
                 (
                     ComponentId::GROUP_MEMBERSHIP,
@@ -431,6 +434,7 @@ async fn joiner_accepts_welcome_after_incomplete_bump_rejected() {
             provider,
             &signer,
             &[],
+            &xmtp_configuration::LimitsConfiguration::default(),
             vec![(
                 ComponentId::GROUP_MEMBERSHIP,
                 set_entries(&[(&bo_inbox, bo_sequence, vec![])]),
