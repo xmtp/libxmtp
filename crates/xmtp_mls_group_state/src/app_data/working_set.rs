@@ -407,11 +407,17 @@ impl<'a> WorkingSet<'a> {
     /// `MismatchedMutation` once a proposal changed it as a collection,
     /// whose bytes only [`Self::encode`] builds.
     pub fn bytes(&self, id: ComponentId) -> Result<Option<&[u8]>, ComponentSourceError> {
-        match self.components.get(&id).map(|record| &record.state) {
-            None => Ok((self.base)(id)),
-            Some(State::Removed) => Ok(None),
-            Some(State::Scalar(value)) => Ok(Some(value.as_slice())),
-            Some(State::Collection(_)) => Err(ComponentSourceError::MismatchedMutation(id)),
+        let Some(record) = self.components.get(&id) else {
+            return Ok((self.base)(id));
+        };
+        match &record.state {
+            State::Removed => Ok(None),
+            State::Scalar(value) => Ok(Some(value.as_slice())),
+            // Decoded by a read, or written and rolled back: unchanged.
+            State::Collection(_) if !record.touched => Ok((self.base)(id)),
+            // Removed, then decoded by a read.
+            State::Collection(map) if !map.present => Ok(None),
+            State::Collection(_) => Err(ComponentSourceError::MismatchedMutation(id)),
         }
     }
 

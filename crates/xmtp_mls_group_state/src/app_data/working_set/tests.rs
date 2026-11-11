@@ -463,6 +463,38 @@ fn resolve_hash_of_an_unknown_component_fails_as_the_expansion_does() {
     );
 }
 
+/// A collection that a read decoded, or that a rolled-back proposal wrote,
+/// still has its committed bytes, as one never read does. Only a kept
+/// write makes them unreadable without an encode.
+#[xmtp_common::test(unwrap_try = true)]
+fn bytes_of_a_read_collection_are_the_committed_bytes() {
+    let super_admins = ComponentId::SUPER_ADMIN_LIST;
+    let committed = TlsSet::from_keys([InboxId::from_bytes([1; 32])]).tls_serialize_detached()?;
+    let registry = ComponentRegistry::new();
+    let mut set = WorkingSet::new(Cow::Borrowed(&registry), |id| {
+        (id == super_admins).then_some(committed.as_slice())
+    });
+
+    assert_eq!(set.bytes(super_admins)?, Some(committed.as_slice()));
+    assert_eq!(set.is_empty(super_admins)?, Some(false));
+    assert_eq!(set.bytes(super_admins)?, Some(committed.as_slice()));
+    let insert = TlsSetDelta::new()
+        .insert(InboxId::from_bytes([2; 32]))
+        .tls_serialize_detached()?;
+    let checkpoint = set.checkpoint();
+    set.update(super_admins, &insert)?;
+    set.rollback(checkpoint);
+    assert_eq!(set.bytes(super_admins)?, Some(committed.as_slice()));
+    set.remove(super_admins);
+    assert_eq!(set.is_empty(super_admins)?, None);
+    assert_eq!(set.bytes(super_admins)?, None);
+    set.update(super_admins, &insert)?;
+    assert!(matches!(
+        set.bytes(super_admins),
+        Err(ComponentSourceError::MismatchedMutation(id)) if id == super_admins
+    ));
+}
+
 /// Each record and undo step a working set moves to the heap is a few words
 /// long. Moving an enum copies its largest variant's size, so a short
 /// variant of a large enum carries the unwritten stack bytes under its tail,
