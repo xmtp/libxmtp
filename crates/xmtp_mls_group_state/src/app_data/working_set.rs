@@ -149,6 +149,9 @@ pub struct WorkingSet<'a> {
     tags: BTreeMap<ComponentId, Option<i32>>,
     components: BTreeMap<ComponentId, Tracked<'a>>,
     undo: Vec<Undo<'a>>,
+    /// The collection entries that the [`Undo::Entry`] steps of `undo`
+    /// restore, in the same order.
+    entries: Vec<(ComponentId, Replaced)>,
     /// Live checkpoints. With none, a successful update keeps no undo entries.
     checkpoints: usize,
 }
@@ -181,6 +184,11 @@ struct Tracked<'a> {
     touched: bool,
 }
 
+/// A component's state. Moving an enum copies its largest variant's size,
+/// and a smaller variant leaves the rest unwritten, so a move from the stack
+/// to the heap copies dead stack bytes, which can hold a secret, into a
+/// block that is later freed unwiped. Each variant is small for that
+/// reason: a collection is boxed.
 enum State<'a> {
     /// Removed by a proposal. A `Remove` resolves no type, so its shape is
     /// unknown until the next update.
@@ -188,10 +196,11 @@ enum State<'a> {
     /// A scalar, written by a proposal. It can be the commit-log signer's
     /// private key.
     Scalar(Zeroizing<Vec<u8>>),
-    Collection(TrackedMap<'a>),
+    Collection(Box<TrackedMap<'a>>),
 }
 
-/// How to undo one change to the working set.
+/// How to undo one change to the working set. Each variant is small, as
+/// for [`State`]: a replaced entry is kept in [`WorkingSet::entries`].
 enum Undo<'a> {
     /// The component had no record.
     Created(ComponentId),
@@ -203,8 +212,9 @@ enum Undo<'a> {
         touched: bool,
         present: bool,
     },
-    /// A collection entry before a write.
-    Entry(ComponentId, Replaced),
+    /// A collection entry before a write: the last of
+    /// [`WorkingSet::entries`].
+    Entry,
     /// A collection's arena length before an update.
     Arena(ComponentId, usize),
 }
@@ -226,11 +236,12 @@ enum Mutation {
     DeleteByHash(TlsKeyHash),
 }
 
-/// A mutation with its hash resolved: the hash a deletion was named by.
+/// A mutation with its hash resolved: the hash a deletion was named by,
+/// boxed so a deletion by key leaves no unwritten hash (see [`State`]).
 enum Change {
     Insert(Box<[u8]>, VLBytes),
     Update(Box<[u8]>, VLBytes),
-    Delete(Box<[u8]>, Option<TlsKeyHash>),
+    Delete(Box<[u8]>, Option<Box<TlsKeyHash>>),
 }
 
 impl<'a> WorkingSet<'a> {
@@ -247,6 +258,7 @@ impl<'a> WorkingSet<'a> {
             tags: BTreeMap::new(),
             components: BTreeMap::new(),
             undo: Vec::new(),
+            entries: Vec::new(),
             checkpoints: 0,
         }
     }
@@ -326,7 +338,7 @@ impl<'a> WorkingSet<'a> {
             self.undo_to(mark);
         }
         if self.checkpoints == 0 {
-            self.undo.clear();
+            self.clear_undo();
         }
         result
     }
@@ -522,7 +534,7 @@ impl<'a> WorkingSet<'a> {
         if self.end(&checkpoint) {
             self.undo_to(checkpoint.mark);
             if self.checkpoints == 0 {
-                self.undo.clear();
+                self.clear_undo();
             }
         }
     }
@@ -530,7 +542,7 @@ impl<'a> WorkingSet<'a> {
     /// Keep every change since `checkpoint`.
     pub fn release(&mut self, checkpoint: Checkpoint) {
         if self.end(&checkpoint) && self.checkpoints == 0 {
-            self.undo.clear();
+            self.clear_undo();
         }
     }
 
@@ -545,6 +557,12 @@ impl<'a> WorkingSet<'a> {
             self.checkpoints -= 1;
         }
         innermost
+    }
+
+    /// Drop every undo step.
+    fn clear_undo(&mut self) {
+        self.undo.clear();
+        self.entries.clear();
     }
 
     // implements: META-010, META-068
@@ -607,7 +625,10 @@ impl<'a> WorkingSet<'a> {
         let mutations = decode_delta(id, shape, codec, payload)?;
         self.load(id, shape, codec)?;
         let Self {
-            components, undo, ..
+            components,
+            undo,
+            entries,
+            ..
         } = self;
         let Some(Tracked {
             state: State::Collection(map),
@@ -650,7 +671,7 @@ impl<'a> WorkingSet<'a> {
                         let key = map
                             .indexed(&hash)
                             .ok_or_else(|| apply_error(TlsMapError::KeyNotFound))?;
-                        Change::Delete(key, Some(hash))
+                        Change::Delete(key, Some(Box::new(hash)))
                     }
                 })
             })
@@ -661,7 +682,9 @@ impl<'a> WorkingSet<'a> {
                 Change::Insert(key, value) if map.get(&key).is_none() => (key, Some(value), None),
                 Change::Insert(..) => return Err(apply_error(TlsMapError::KeyExists)),
                 Change::Update(key, value) if map.get(&key).is_some() => (key, Some(value), None),
-                Change::Delete(key, hash) if map.get(&key).is_some() => (key, None, hash),
+                Change::Delete(key, hash) if map.get(&key).is_some() => {
+                    (key, None, hash.map(|hash| *hash))
+                }
                 Change::Update(..) | Change::Delete(..) => {
                     return Err(apply_error(TlsMapError::KeyNotFound));
                 }
@@ -673,7 +696,8 @@ impl<'a> WorkingSet<'a> {
                     map.push(value.as_slice())
                 }
             });
-            undo.push(Undo::Entry(id, map.write(key, value, hash)));
+            entries.push((id, map.write(key, value, hash)));
+            undo.push(Undo::Entry);
         }
         *touched = true;
         map.present = true;
@@ -727,7 +751,7 @@ impl<'a> WorkingSet<'a> {
         match self.components.get_mut(&id) {
             Some(record) => {
                 if matches!(record.state, State::Removed) {
-                    record.state = State::Collection(TrackedMap::absent(shape));
+                    record.state = State::Collection(Box::new(TrackedMap::absent(shape)));
                 }
             }
             None => {
@@ -738,7 +762,7 @@ impl<'a> WorkingSet<'a> {
                     None => TrackedMap::absent(shape),
                 };
                 let record = Tracked {
-                    state: State::Collection(map),
+                    state: State::Collection(Box::new(map)),
                     touched: false,
                 };
                 self.components.insert(id, record);
@@ -749,14 +773,14 @@ impl<'a> WorkingSet<'a> {
 
     fn collection(&self, id: ComponentId) -> Option<&TrackedMap<'a>> {
         match &self.components.get(&id)?.state {
-            State::Collection(map) => Some(map),
+            State::Collection(map) => Some(&**map),
             _ => None,
         }
     }
 
     fn collection_mut(&mut self, id: ComponentId) -> Option<&mut TrackedMap<'a>> {
         match &mut self.components.get_mut(&id)?.state {
-            State::Collection(map) => Some(map),
+            State::Collection(map) => Some(&mut **map),
             _ => None,
         }
     }
@@ -785,8 +809,10 @@ impl<'a> WorkingSet<'a> {
                         }
                     }
                 }
-                Undo::Entry(id, replaced) => {
-                    if let Some(map) = self.collection_mut(id) {
+                Undo::Entry => {
+                    if let Some((id, replaced)) = self.entries.pop()
+                        && let Some(map) = self.collection_mut(id)
+                    {
                         map.restore(replaced);
                     }
                 }

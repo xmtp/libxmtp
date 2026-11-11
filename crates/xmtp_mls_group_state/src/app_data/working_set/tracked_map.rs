@@ -100,7 +100,11 @@ struct Facts {
 pub(super) struct Replaced {
     key: Box<[u8]>,
     slot: Option<Option<Span>>,
-    hash: Option<TlsKeyHash>,
+    /// The key's hash when `hashed`, else zero. An absent `Option` would
+    /// leave 32 bytes unwritten, and moving a `Replaced` to the heap would
+    /// fill them with dead stack bytes, which can hold a secret.
+    hash: TlsKeyHash,
+    hashed: bool,
 }
 
 /// A collection component decoded for one commit.
@@ -272,12 +276,23 @@ impl<'a> TrackedMap<'a> {
         self.account(&key, old, false);
         self.account(&key, new, true);
         let slot = self.changes.insert(key.clone(), value);
-        Replaced { key, slot, hash }
+        Replaced {
+            key,
+            slot,
+            hash: hash.unwrap_or(TlsKeyHash::from_bytes([0; 32])),
+            hashed: hash.is_some(),
+        }
     }
 
     /// Undo a [`Self::write`]. Writes are undone in reverse order.
     pub(super) fn restore(&mut self, replaced: Replaced) {
-        let Replaced { key, slot, hash } = replaced;
+        let Replaced {
+            key,
+            slot,
+            hash,
+            hashed,
+        } = replaced;
+        let hash = hashed.then_some(hash);
         let current = self.get(&key).map(|bytes| self.facts(bytes));
         let restored = match slot {
             Some(value) => value.map(|span| self.facts(self.arena_bytes(span))),

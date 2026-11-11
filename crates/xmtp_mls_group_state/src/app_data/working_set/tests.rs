@@ -462,3 +462,27 @@ fn resolve_hash_of_an_unknown_component_fails_as_the_expansion_does() {
         "{read:?}"
     );
 }
+
+/// Each record and undo step a working set moves to the heap is a few words
+/// long. Moving an enum copies its largest variant's size, so a short
+/// variant of a large enum carries the unwritten stack bytes under its tail,
+/// which can hold a key, into a block that is later freed unwiped.
+#[xmtp_common::test(unwrap_try = true)]
+fn heap_records_have_no_long_unwritten_tail() {
+    use std::mem::size_of;
+
+    use super::{Change, Tracked, Undo};
+
+    let word = size_of::<usize>();
+    assert!(
+        size_of::<Tracked<'_>>() <= 4 * word,
+        "{}",
+        size_of::<Tracked<'_>>()
+    );
+    assert!(
+        size_of::<Undo<'_>>() <= 2 * word,
+        "{}",
+        size_of::<Undo<'_>>()
+    );
+    assert!(size_of::<Change>() <= 6 * word, "{}", size_of::<Change>());
+}
