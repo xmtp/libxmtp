@@ -64,7 +64,7 @@ use crate::app_data::{
 /// tolerance** path in:
 ///   - `apply_app_data_update_payload`
 ///   - `expand_app_data_update_to_changes`
-///   - `validate_one_app_data_update_with_old_value`
+///   - `validate_one_app_data_update_with_validator`
 ///
 /// That path looks the unknown id up in the on-dict
 /// [`ComponentRegistry`](crate::app_data::component_registry::ComponentRegistry),

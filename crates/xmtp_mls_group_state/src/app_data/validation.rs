@@ -242,11 +242,7 @@ impl<'r> ComponentWriteValidator<'r> {
         let outcome = *self
             .verdicts
             .entry((component_id, op, subject))
-            .or_insert_with(|| {
-                #[cfg(any(test, feature = "test-utils"))]
-                record_work(|work| work.policy_evaluations += 1);
-                evaluate_policy_proto(policy_proto, &subject)
-            });
+            .or_insert_with(|| evaluate_policy_proto(policy_proto, &subject));
         match outcome {
             PolicyOutcome::Allow => Ok(()),
             PolicyOutcome::Deny => {
@@ -386,6 +382,8 @@ fn evaluate_policy_proto(proto: &MetadataPolicyProto, subject: &PolicySubject) -
 /// the component, operation, and subject can be reused.
 // implements: PERM-027, PERM-008
 fn evaluate_base_policy(base: i32, subject: &PolicySubject) -> PolicyOutcome {
+    #[cfg(any(test, feature = "test-utils"))]
+    record_work(|work| work.base_policy_evaluations += 1);
     let actor = subject.actor;
     let base = match MetadataBasePolicy::try_from(base) {
         Ok(b) => b,
@@ -405,14 +403,15 @@ fn evaluate_base_policy(base: i32, subject: &PolicySubject) -> PolicyOutcome {
     }
 }
 
-/// Registry decodes and policy evaluations, counted for cost tests.
+/// Registry decodes and base policy evaluations, counted for cost tests.
 #[cfg(any(test, feature = "test-utils"))]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct ValidationWork {
     /// Registry entries decoded.
     pub registry_decodes: u64,
-    /// Policies evaluated from their root.
-    pub policy_evaluations: u64,
+    /// Base policies evaluated: one for each leaf of a policy tree walked,
+    /// whether or not a verdict is reused.
+    pub base_policy_evaluations: u64,
 }
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -420,13 +419,13 @@ thread_local! {
     static WORK: std::cell::Cell<ValidationWork> = const {
         std::cell::Cell::new(ValidationWork {
             registry_decodes: 0,
-            policy_evaluations: 0,
+            base_policy_evaluations: 0,
         })
     };
 }
 
-/// Run `f` and return the registry decodes and policy evaluations it made
-/// on this thread.
+/// Run `f` and return the registry decodes and base policy evaluations it
+/// made on this thread.
 #[cfg(any(test, feature = "test-utils"))]
 pub fn count_validation_work<R>(f: impl FnOnce() -> R) -> (R, ValidationWork) {
     let before = WORK.get();
@@ -434,7 +433,7 @@ pub fn count_validation_work<R>(f: impl FnOnce() -> R) -> (R, ValidationWork) {
     let after = WORK.get();
     let work = ValidationWork {
         registry_decodes: after.registry_decodes - before.registry_decodes,
-        policy_evaluations: after.policy_evaluations - before.policy_evaluations,
+        base_policy_evaluations: after.base_policy_evaluations - before.base_policy_evaluations,
     };
     (result, work)
 }

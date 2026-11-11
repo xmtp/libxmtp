@@ -307,26 +307,26 @@ tls_map_tests!(vec_vec, Vec<u8>, Vec<u8>, 1000, |v: Vec<u8>| {
 });
 
 /// Apply one mutation to the model map, or name the error it fails with.
-fn apply_to_model(
-    model: &mut std::collections::BTreeMap<u8, u8>,
-    mutation: &TlsMapMutation<u8, u8>,
+fn apply_to_model<K: Ord + Clone, V: Clone>(
+    model: &mut std::collections::BTreeMap<K, V>,
+    mutation: &TlsMapMutation<K, V>,
 ) -> Result<(), &'static str> {
-    match *mutation {
-        TlsMapMutation::Insert { key, value } => match model.entry(key) {
+    match mutation {
+        TlsMapMutation::Insert { key, value } => match model.entry(key.clone()) {
             std::collections::btree_map::Entry::Occupied(_) => Err("KeyExists"),
             std::collections::btree_map::Entry::Vacant(slot) => {
-                slot.insert(value);
+                slot.insert(value.clone());
                 Ok(())
             }
         },
-        TlsMapMutation::Update { key, value } => match model.get_mut(&key) {
+        TlsMapMutation::Update { key, value } => match model.get_mut(key) {
             Some(slot) => {
-                *slot = value;
+                *slot = value.clone();
                 Ok(())
             }
             None => Err("KeyNotFound"),
         },
-        TlsMapMutation::Delete { key } => model.remove(&key).map(drop).ok_or("KeyNotFound"),
+        TlsMapMutation::Delete { key } => model.remove(key).map(drop).ok_or("KeyNotFound"),
     }
 }
 
@@ -338,12 +338,54 @@ fn error_name(error: TlsMapError) -> &'static str {
     }
 }
 
+/// Check that a delta has the result of applying its mutations one at a time
+/// to a copy of `base`: the same final map, the error of the first mutation
+/// that fails, and an unchanged map on error. Each step picks a mutation that
+/// succeeds or fails against the copy, so failures land anywhere in the delta
+/// and keys repeat within it.
+fn check_delta_matches_model<K, V>(
+    base: std::collections::BTreeMap<K, V>,
+    steps: Vec<(K, V, bool, bool)>,
+) -> Result<(), TestCaseError>
+where
+    K: Ord + Clone + std::fmt::Debug,
+    V: Clone + PartialEq + std::fmt::Debug,
+{
+    let mut model = base.clone();
+    let mut expected = Ok(());
+    let mut delta = TlsMapDelta::new();
+    for (key, value, succeeds, update) in steps {
+        // An update or delete succeeds on a present key, an insert on an
+        // absent one.
+        let mutation = if model.contains_key(&key) == succeeds {
+            if update {
+                TlsMapMutation::Update { key, value }
+            } else {
+                TlsMapMutation::Delete { key }
+            }
+        } else {
+            TlsMapMutation::Insert { key, value }
+        };
+        if expected.is_ok() {
+            expected = apply_to_model(&mut model, &mutation);
+        }
+        delta.mutations.push(mutation);
+    }
+    if expected.is_err() {
+        model = base.clone();
+    }
+
+    let mut map = TlsMap::from_pairs(base);
+    prop_assert_eq!(map.apply_delta(delta).map_err(error_name), expected);
+    prop_assert_eq!(
+        map.into_iter().collect::<Vec<_>>(),
+        model.into_iter().collect::<Vec<_>>()
+    );
+    Ok(())
+}
+
 proptest! {
-    /// A delta has the result of applying its mutations one at a time to a
-    /// copy of the map: the same final map, the error of the first mutation
-    /// that fails, and an unchanged map on error. Each step picks a mutation
-    /// that succeeds or fails against the copy, so failures land anywhere in
-    /// the delta and keys repeat within it.
+    /// A delta on integer keys matches the sequential model.
     #[test]
     // verifies: META-013
     fn delta_matches_sequential_model(
@@ -353,32 +395,102 @@ proptest! {
             0..=64,
         ),
     ) {
-        let mut model = base.clone();
-        let mut expected = Ok(());
-        let mut delta = TlsMapDelta::new();
-        for (key, value, succeeds, update) in steps {
-            // An update or delete succeeds on a present key, an insert on an
-            // absent one.
-            let mutation = if model.contains_key(&key) == succeeds {
-                if update {
-                    TlsMapMutation::Update { key, value }
-                } else {
-                    TlsMapMutation::Delete { key }
-                }
-            } else {
-                TlsMapMutation::Insert { key, value }
-            };
-            if expected.is_ok() {
-                expected = apply_to_model(&mut model, &mutation);
-            }
-            delta.mutations.push(mutation);
-        }
-        if expected.is_err() {
-            model = base.clone();
-        }
-
-        let mut map = TlsMap::from_pairs(base);
-        prop_assert_eq!(map.apply_delta(delta).map_err(error_name), expected);
-        prop_assert_eq!(map.into_iter().collect::<Vec<_>>(), model.into_iter().collect::<Vec<_>>());
+        check_delta_matches_model(base, steps)?;
     }
+
+    /// A delta on byte-string keys of up to 3 bytes, where one key is often a
+    /// prefix of another, matches the sequential model.
+    #[test]
+    // verifies: META-013
+    fn delta_matches_sequential_model_on_prefix_keys(
+        base in proptest::collection::btree_map(
+            proptest::collection::vec(0u8..2, 0..4), any::<u8>(), 0..16,
+        ),
+        steps in proptest::collection::vec(
+            (
+                proptest::collection::vec(0u8..2, 0..4),
+                any::<u8>(),
+                proptest::bool::weighted(0.9),
+                any::<bool>(),
+            ),
+            0..=64,
+        ),
+    ) {
+        check_delta_matches_model(base, steps)?;
+    }
+}
+
+/// A key whose order ignores ASCII case, so two equal keys can differ in
+/// bytes.
+#[derive(Debug, Clone, Copy)]
+struct CaseInsensitiveKey(&'static str);
+
+impl PartialEq for CaseInsensitiveKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other).is_eq()
+    }
+}
+
+impl Eq for CaseInsensitiveKey {}
+
+impl PartialOrd for CaseInsensitiveKey {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for CaseInsensitiveKey {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0
+            .to_ascii_lowercase()
+            .cmp(&other.0.to_ascii_lowercase())
+    }
+}
+
+/// A delta stores the keys that applying its mutations one at a time
+/// stores: an update keeps the stored key, and an insert stores its own key,
+/// also in place of an equal key the delta deleted.
+// verifies: META-013
+#[xmtp_common::test(unwrap_try = true)]
+fn delta_stores_the_keys_sequential_apply_stores() {
+    let key = CaseInsensitiveKey;
+    let apply = |delta| {
+        let mut map = TlsMap::from_pairs([(key("AB"), 1_u8)]);
+        map.apply_delta(delta)?;
+        map.into_iter()
+            .map(|(key, value)| (key.0, value))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(apply(TlsMapDelta::new().update(key("ab"), 2)), [("AB", 2)]);
+    assert_eq!(
+        apply(TlsMapDelta::new().delete(key("aB")).insert(key("ab"), 2)),
+        [("ab", 2)]
+    );
+    assert_eq!(
+        apply(TlsMapDelta::new().insert(key("cd"), 2).update(key("CD"), 3)),
+        [("AB", 1), ("cd", 3)]
+    );
+}
+
+/// Descending inserts of keys that all sort before a map's existing keys.
+/// Inserted one at a time, each shifts every entry after it; the delta
+/// writes each entry of the result once.
+#[xmtp_common::test(unwrap_try = true)]
+fn delta_into_a_full_map_is_linear() {
+    const KEYS: u32 = 1 << 12;
+    let mut map = TlsMap::from_pairs((KEYS..2 * KEYS).map(|key| (key, ())));
+    let delta = TlsMapDelta {
+        mutations: (0..KEYS)
+            .rev()
+            .map(|key| TlsMapMutation::Insert { key, value: () })
+            .collect(),
+    };
+    let (applied, moves) = count_entry_moves(|| map.apply_delta(delta));
+    applied?;
+    assert!(map.keys().copied().eq(0..2 * KEYS));
+    assert!(
+        moves <= u64::from(2 * KEYS),
+        "{moves} entry moves for {} entries",
+        2 * KEYS
+    );
 }

@@ -26,7 +26,7 @@
 //! The Vec implementation is more memory efficient and significantly
 //! faster at deserialization.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, btree_map::Entry};
 use std::io::{Read, Write};
 
 use tls_codec::{Deserialize, Serialize, Size};
@@ -519,9 +519,7 @@ where
     /// ```
     // implements: META-013
     pub fn apply_delta(&mut self, delta: TlsMapDelta<K, V>) -> Result<(), TlsMapError> {
-        // Each changed key's value after the mutations so far; `None` once
-        // deleted.
-        let mut changed = BTreeMap::<K, Option<V>>::new();
+        let mut changed = BTreeMap::<K, Change<V>>::new();
         for mutation in delta.mutations {
             let (key, value, must_exist) = match mutation {
                 TlsMapMutation::Insert { key, value } => (key, Some(value), false),
@@ -530,7 +528,7 @@ where
             };
             let present = changed
                 .get(&key)
-                .map_or_else(|| self.contains_key(&key), Option::is_some);
+                .map_or_else(|| self.contains_key(&key), |change| change.value.is_some());
             if present != must_exist {
                 return Err(if present {
                     TlsMapError::KeyExists
@@ -538,28 +536,54 @@ where
                     TlsMapError::KeyNotFound
                 });
             }
-            changed.insert(key, value);
+            if must_exist {
+                // An update or delete keeps the key already stored.
+                match changed.entry(key) {
+                    Entry::Occupied(mut change) => change.get_mut().value = value,
+                    Entry::Vacant(change) => {
+                        change.insert(Change {
+                            value,
+                            inserted: false,
+                        });
+                    }
+                }
+            } else {
+                // An insert stores its own key, also in place of an equal key
+                // that the delta deleted.
+                changed.remove(&key);
+                changed.insert(
+                    key,
+                    Change {
+                        value,
+                        inserted: true,
+                    },
+                );
+            }
         }
         self.merge(changed);
         Ok(())
     }
 
     /// Merge `changed` into the entries in one pass: a changed key's value
-    /// replaces its entry, and `None` drops the entry.
-    fn merge(&mut self, changed: BTreeMap<K, Option<V>>) {
+    /// replaces its entry, and a deleted key drops it.
+    fn merge(&mut self, changed: BTreeMap<K, Change<V>>) {
         if changed.is_empty() {
             return;
         }
         let mut entries = std::mem::take(&mut self.entries).into_iter().peekable();
         let mut merged = Vec::with_capacity(entries.len() + changed.len());
-        for (key, value) in changed {
+        for (key, change) in changed {
             // Keep the entries before the changed key.
             while let Some(entry) = entries.next_if(|entry| entry.key < key) {
                 merged.push(entry);
             }
-            // Drop the entry that the change replaces or deletes.
-            entries.next_if(|entry| entry.key == key);
-            if let Some(value) = value {
+            // Take the entry that the change replaces or deletes.
+            let stored = entries.next_if(|entry| entry.key == key);
+            if let Some(value) = change.value {
+                let key = match stored {
+                    Some(stored) if !change.inserted => stored.key,
+                    _ => key,
+                };
                 merged.push(TlsMapEntry { key, value });
             }
         }
@@ -567,6 +591,16 @@ where
         count_moves(merged.len());
         self.entries = merged;
     }
+}
+
+/// One key's change in [`TlsMap::apply_delta`], after the mutations so far.
+struct Change<V> {
+    /// The key's value; `None` once deleted.
+    value: Option<V>,
+    /// Whether the delta inserted the key. The entry then stores the delta's
+    /// key, as a sequential insert does; otherwise it keeps its stored key,
+    /// as a sequential update does.
+    inserted: bool,
 }
 
 // -- TLS codec for delta types --

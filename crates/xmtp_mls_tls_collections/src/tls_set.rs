@@ -594,6 +594,30 @@ mod tests {
         assert!(set.contains(&30));
     }
 
+    /// A hash names a key of the set as it was before the delta, so it does
+    /// not find a key that the same delta inserts, and it still names a key
+    /// that the delta removes and inserts again.
+    #[xmtp_common::test(unwrap_try = true)]
+    // verifies: META-013
+    fn remove_by_hash_resolves_against_the_set_before_the_delta() {
+        let hash = TlsKeyHash::of(&2_u16)?;
+        let mut set = TlsSet::from_keys([1_u16]);
+        let delta = TlsSetDelta::new().insert(2).remove_by_hash(hash);
+        assert!(matches!(
+            set.apply_delta(delta),
+            Err(TlsSetError::Map(TlsMapError::KeyNotFound))
+        ));
+        assert_eq!(set, TlsSet::from_keys([1_u16]));
+
+        let mut set = TlsSet::from_keys([1_u16, 2]);
+        let delta = TlsSetDelta::new()
+            .remove_by_hash(hash)
+            .insert(2)
+            .remove_by_hash(hash);
+        set.apply_delta(delta)?;
+        assert_eq!(set, TlsSet::from_keys([1_u16]));
+    }
+
     #[xmtp_common::test]
     fn test_remove_by_hash_matches_remove_by_value() {
         let mut set_a = TlsSet::from_keys([1_u16, 2, 3]);
