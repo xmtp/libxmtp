@@ -55,6 +55,19 @@ pub(crate) fn count_entry_moves<R>(f: impl FnOnce() -> R) -> (R, u64) {
     (result, ENTRY_MOVES.get() - before)
 }
 
+#[cfg(any(test, feature = "test-utils"))]
+thread_local! {
+    /// `TlsMap` and `TlsSet` snapshots this thread decoded.
+    static SNAPSHOT_DECODES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// `TlsMap` and `TlsSet` snapshots decoded so far on this thread, for cost
+/// tests.
+#[cfg(any(test, feature = "test-utils"))]
+pub fn snapshot_decodes() -> usize {
+    SNAPSHOT_DECODES.get()
+}
+
 /// Error type for [`TlsMap`] operations.
 #[derive(Debug, thiserror::Error)]
 pub enum TlsMapError {
@@ -389,6 +402,8 @@ where
     where
         Self: Sized,
     {
+        #[cfg(any(test, feature = "test-utils"))]
+        SNAPSHOT_DECODES.set(SNAPSHOT_DECODES.get() + 1);
         let entries = Vec::<TlsMapEntry<K, V>>::tls_deserialize(bytes)?;
 
         // Verify sorted and unique

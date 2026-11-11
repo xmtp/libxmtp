@@ -12,7 +12,7 @@ use openmls::{
 };
 use openmls_traits::signatures::Signer;
 use prost::Message;
-use std::collections::HashSet;
+use std::{borrow::Cow, collections::HashSet};
 
 use openmls::extensions::AppDataDictionary;
 use tls_codec::{Deserialize, VLBytes};
@@ -27,6 +27,8 @@ use xmtp_mls_group_state::{
         },
         fields::{FieldError, FieldSnapshot, FieldWrite},
         typed::Component,
+        validation::ComponentWriteValidator,
+        working_set::WorkingSet,
     },
     group_mutable_metadata::GroupMutableMetadataError,
     inbox_id::InboxId,
@@ -36,8 +38,8 @@ use xmtp_mls_tls_collections::{
     tls_set::{TlsSetDelta, TlsSetMutation},
 };
 use xmtp_mls_validation::commit::{
-    AppDataPostStates, AppDataUpdateInCommit, extract_commit_participant, read_committed_metadata,
-    validate_app_data_update_sequence, validate_post_dictionary_size,
+    AppDataPostStates, AppDataUpdateInCommit, CommitRuleError, extract_commit_participant,
+    read_committed_metadata, validate_post_dictionary_size, validate_update_in,
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     MetadataPolicy as MetadataPolicyProto,
@@ -45,7 +47,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 
 use super::{
-    AppDataBatch, pending_dictionary, proposal_cap, sender_dictionary_max,
+    AppDataBatch, load_component_registry, pending_dictionary, proposal_cap, sender_dictionary_max,
     stage_app_data_proposals_and_commit,
 };
 use crate::groups::{
@@ -274,11 +276,10 @@ pub(crate) fn apply_app_data_update_intent(
             // Receivers judge everything else about a verbatim payload; the
             // builder keeps only its dictionary bound. A payload that does
             // not apply is left to them.
-            let mut batch = AppDataBatch::pending(openmls_group)?;
+            let registry = load_component_registry(openmls_group)?;
+            let mut batch = AppDataBatch::pending(openmls_group, &registry)?;
             if batch.apply(id.as_u16(), &operation).is_ok()
-                && batch
-                    .fits(&AppDataPostStates::new(), sender_dictionary_max(limits))
-                    .is_err()
+                && batch.fits(sender_dictionary_max(limits)).is_err()
             {
                 return Err(FieldError::Denied(id).into());
             }
@@ -423,9 +424,10 @@ fn authorize_updates(
     let members = value(ComponentId::GROUP_MEMBERSHIP)
         .and_then(|bytes| TlsMap::<InboxId, VLBytes>::tls_deserialize_exact(bytes).ok())
         .map(|map| map.keys().copied().collect::<HashSet<_>>());
-    // Post-states can hold the commit-log signer's private key; each is
-    // wiped on drop.
-    let mut states = AppDataPostStates::new();
+    // One working set judges the updates in order, so each sees the ones
+    // before it; one validator answers each policy question once.
+    let mut set = WorkingSet::new(Cow::Borrowed(registry), value);
+    let mut validator = ComponentWriteValidator::new(registry);
     for (id, operation) in updates {
         let update = AppDataUpdateInCommit {
             component_id: *id,
@@ -433,22 +435,22 @@ fn authorize_updates(
             actor: (&own).into(),
             proposer_inbox_id: &own.inbox_id,
         };
-        let post = validate_app_data_update_sequence(
-            [update],
-            |id| match states.get(&id) {
-                Some(state) => state.as_deref().map(Vec::as_slice),
-                None => value(id),
-            },
-            registry,
+        validate_update_in(
+            &mut set,
+            &mut validator,
+            update,
             immutable.dm_members.as_ref(),
             members.as_ref(),
         )
+        .and_then(|applied| applied.map_err(|_| CommitRuleError::InsufficientPermissions))
         .map_err(|_| FieldError::Denied(*id))?;
-        states.extend(post);
     }
     let Some((id, _)) = updates.last() else {
         return Ok(());
     };
+    // Post-states can hold the commit-log signer's private key; each is
+    // wiped on drop.
+    let states = set.into_states()?;
     // implements: META-078
     // The pending proposals and these updates make one commit, so judge the
     // total it leaves against the committed total: a pending shrink leaves

@@ -155,7 +155,7 @@ impl<'a> TrackedMap<'a> {
     /// and value types: the length and element codecs are tls_codec's own.
     // implements: META-012
     pub(super) fn decode(shape: MapShape, bytes: &'a [u8]) -> Result<Self, tls_codec::Error> {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-utils"))]
         super::counters::count_decode();
         let mut rest = bytes;
         let (body_len, _) = tls_codec::vlen::read_length(&mut rest)?;
@@ -567,7 +567,7 @@ fn read_bytes(bytes: &[u8], pos: &mut usize) -> Result<(usize, usize), tls_codec
 
 /// The hash a `RemoveByHash` names `key` with: SHA-256 of its TLS encoding.
 fn hash_key(kind: KeyKind, key: &[u8]) -> Result<TlsKeyHash, tls_codec::Error> {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     super::counters::count_hash();
     let hash = match kind {
         KeyKind::InboxId => TlsKeyHash::of(&inbox_id(key)?),

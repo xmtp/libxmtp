@@ -278,6 +278,28 @@ impl<'a> WorkingSet<'a> {
         registered_type(id, tag)
     }
 
+    /// [`Self::component_type`], resolved through `validator`, which judges
+    /// against this set's registry. A commit's checks and applies then
+    /// decode each registry entry once between them.
+    pub fn component_type_with(
+        &mut self,
+        id: ComponentId,
+        validator: &mut ComponentWriteValidator<'_>,
+    ) -> Result<ComponentType, ComponentSourceError> {
+        if let Some(ty) = well_known_type(id) {
+            return Ok(ty);
+        }
+        let tag = match self.tags.get(&id) {
+            Some(tag) => *tag,
+            None => {
+                let tag = registry_type_tag(id, validator)?;
+                self.tags.insert(id, tag);
+                tag
+            }
+        };
+        registered_type(id, tag)
+    }
+
     /// Apply one proposal's operation: [`Self::update`] or [`Self::remove`].
     pub fn apply(
         &mut self,
@@ -365,6 +387,35 @@ impl<'a> WorkingSet<'a> {
                 State::Collection(_) => None,
             },
         })
+    }
+
+    /// The bytes of component `id` after the proposals applied so far,
+    /// without a copy: its committed bytes until a proposal writes it, then
+    /// the scalar a proposal wrote. `None` when it is absent. Fails with
+    /// `MismatchedMutation` once a proposal changed it as a collection,
+    /// whose bytes only [`Self::encode`] builds.
+    pub fn bytes(&self, id: ComponentId) -> Result<Option<&[u8]>, ComponentSourceError> {
+        match self.components.get(&id).map(|record| &record.state) {
+            None => Ok((self.base)(id)),
+            Some(State::Removed) => Ok(None),
+            Some(State::Scalar(value)) => Ok(Some(value.as_slice())),
+            Some(State::Collection(_)) => Err(ComponentSourceError::MismatchedMutation(id)),
+        }
+    }
+
+    /// Whether collection `id` holds no entries after the proposals applied
+    /// so far; `None` when it is absent. Decodes the committed bytes on
+    /// first use, and fails as an update does when they do not decode.
+    pub fn is_empty(&mut self, id: ComponentId) -> Result<Option<bool>, ComponentSourceError> {
+        if !self.present(id) {
+            return Ok(None);
+        }
+        let codec = self.codec(id)?;
+        let shape = codec
+            .shape(id)
+            .ok_or(ComponentSourceError::MismatchedMutation(id))?;
+        self.load(id, shape, codec)?;
+        Ok(self.collection(id).map(|map| map.body_len() == 0))
     }
 
     /// The value of the entry with the TLS-encoded `key` in collection
@@ -901,20 +952,26 @@ fn key_bytes(kind: KeyKind, key: &[u8]) -> Result<Box<[u8]>, tls_codec::Error> {
 }
 
 /// Test-only operation counters and a hash clash, per thread.
-#[cfg(test)]
-mod counters {
+#[cfg(any(test, feature = "test-utils"))]
+pub mod counters {
     use std::cell::Cell;
 
+    #[cfg(test)]
     use xmtp_mls_tls_collections::tls_set::TlsKeyHash;
 
     thread_local! {
         static HASHES: Cell<usize> = const { Cell::new(0) };
         static DECODES: Cell<usize> = const { Cell::new(0) };
+    }
+
+    #[cfg(test)]
+    thread_local! {
         static CLASH: Cell<bool> = const { Cell::new(false) };
     }
 
     /// Run `f` with every key hash that [`key_hash`] passes replaced by one
     /// value, so any two keys share a hash.
+    #[cfg(test)]
     pub(super) fn with_hash_clash<R>(f: impl FnOnce() -> R) -> R {
         struct Reset;
         impl Drop for Reset {
@@ -928,6 +985,7 @@ mod counters {
     }
 
     /// `hash`, or inside [`with_hash_clash`] the one hash every key has.
+    #[cfg(test)]
     pub(super) fn key_hash(hash: TlsKeyHash) -> TlsKeyHash {
         if CLASH.get() {
             TlsKeyHash::from_bytes([0; 32])
@@ -945,13 +1003,27 @@ mod counters {
     }
 
     /// SHA-256 key hashes so far on this thread.
-    pub(super) fn hashes() -> usize {
+    pub fn hashes() -> usize {
         HASHES.with(Cell::get)
     }
 
     /// Committed collection decodes so far on this thread.
-    pub(super) fn decodes() -> usize {
+    pub fn decodes() -> usize {
         DECODES.with(Cell::get)
+    }
+
+    /// Collection snapshots decoded so far on this thread: by a working set,
+    /// or by `TlsMap` and `TlsSet` as the byte-level apply does.
+    pub fn snapshot_decodes() -> usize {
+        decodes() + xmtp_mls_tls_collections::tls_map::snapshot_decodes()
+    }
+
+    /// Run `f` and return how many collection snapshots it decoded on this
+    /// thread ([`snapshot_decodes`]).
+    pub fn count_snapshot_decodes<R>(f: impl FnOnce() -> R) -> (R, usize) {
+        let before = snapshot_decodes();
+        let result = f();
+        (result, snapshot_decodes() - before)
     }
 }
 

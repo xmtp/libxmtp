@@ -11,8 +11,9 @@ publish.workspace = true
 workspace = true
 
 [features]
-# Counters of registry decodes and policy evaluations, for cost tests.
-test-utils = []
+# Counters of registry decodes, policy evaluations and snapshot decodes, for
+# cost tests.
+test-utils = ["xmtp_mls_tls_collections/test-utils"]
 
 [dependencies]
 bon.workspace = true
