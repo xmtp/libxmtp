@@ -1,4 +1,5 @@
-//! Single source-of-truth for the per-`ComponentId` read/encode/apply logic.
+//! Single source-of-truth for the per-`ComponentId` read/encode logic and
+//! the byte-level apply.
 //!
 //! Centralizes everything the rest of the MLS pipeline needs to know about
 //! a well-known `ComponentId`: its logical [`ComponentType`], where its
@@ -8,6 +9,17 @@
 //! The helpers are `pub` so `xmtp_mls` can call them. They read and write
 //! raw component bytes; `xmtp_mls` owns the intent and commit paths that
 //! decide when a write is allowed.
+//!
+//! ## Two apply paths
+//!
+//! [`apply_app_data_update_payload`] decodes, applies, and re-encodes the
+//! whole component for each update. The
+//! [`WorkingSet`](super::working_set::WorkingSet) applies the same updates
+//! to components it decodes once per commit, and applies a collection by
+//! its [`ComponentType`] rather than through its `Component` impl. Members
+//! must reach one verdict on every input, so a change to how a component
+//! applies changes both paths. The differential test in
+//! `working_set/tests/differential.rs` compares them.
 //!
 //! ## Field bounds
 //!
@@ -65,11 +77,11 @@ use xmtp_proto::xmtp::mls::message_contents::ComponentType;
 mod bounds;
 mod metadata_reads;
 
-use bounds::check_update_payload_bounds;
 pub(crate) use bounds::{
     check_field_bounds, check_payload_element_bound, has_payload_bound, is_field_bounded,
-    resolved_type,
+    registered_type, registry_type_tag,
 };
+use bounds::{check_update_payload_bounds, resolved_type};
 #[cfg(test)]
 use metadata_reads::encode_inbox_id_set;
 pub use metadata_reads::{

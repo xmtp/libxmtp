@@ -2,7 +2,9 @@
 //! [`super::reference`], on random committed values and proposal
 //! sequences: the same verdict, error class, lengths, and final bytes
 //! after every proposal, in a receiver's commit and in a sender's
-//! keep-or-roll-back loop.
+//! keep-or-roll-back loop. A receiver's commit is also held to
+//! production's byte-level apply, and the working set's reads to the reads
+//! they replace.
 
 use std::{
     borrow::Cow,
@@ -17,17 +19,24 @@ use proptest::{
     test_runner::{Config, TestCaseError, TestRunner},
 };
 use prost::Message;
-use tls_codec::{Serialize, Size, VLBytes};
+use tls_codec::{Deserialize, Serialize, Size, VLBytes};
 use xmtp_cryptography::secret::Zeroizing;
 use xmtp_mls_tls_collections::{
     tls_map::{TlsMap, TlsMapDelta, TlsMapEntry, TlsMapError},
-    tls_set::{TlsKeyHash, TlsSetDelta, TlsSetError},
+    tls_set::{TlsKeyHash, TlsSet, TlsSetDelta, TlsSetError, TlsSetMutation},
 };
 use xmtp_proto::xmtp::mls::message_contents::ComponentType;
 
-use super::{WorkingSet, metadata, reference, registry, update};
+use super::{WorkingSet, counters, metadata, reference, registry, update};
 use crate::{
-    app_data::{component_id::ComponentId, component_source::ComponentSourceError},
+    app_data::{
+        component_id::ComponentId,
+        component_registry::ComponentRegistry,
+        component_source::{
+            ComponentSourceError, apply_app_data_update_payload, expand_app_data_update_to_changes,
+        },
+        registry_table::WELL_KNOWN,
+    },
     inbox_id::InboxId,
 };
 
@@ -91,8 +100,17 @@ const SUBJECTS: [(ComponentId, Kind); 28] = [
     (ComponentId::CREATOR_INBOX_ID, Kind::Scalar),
 ];
 
+/// How the generator writes component `id`, one of [`SUBJECTS`].
+fn kind_of(id: ComponentId) -> Kind {
+    SUBJECTS
+        .iter()
+        .find(|(subject, _)| *subject == id)
+        .map(|(_, kind)| *kind)
+        .unwrap()
+}
+
 /// The registry the subjects resolve against.
-fn subject_registry() -> crate::app_data::component_registry::ComponentRegistry {
+fn subject_registry() -> ComponentRegistry {
     let tag = |ty: ComponentType| ty as i32;
     registry(&[
         (APP_MAP, tag(ComponentType::TlsMapBytesBytes)),
@@ -485,7 +503,9 @@ fn set_delta<K: Serialize + Size + std::fmt::Debug>(
         .fold(TlsSetDelta::new(), |delta, mutation| match *mutation {
             MutationSpec::Insert(k, _) => delta.insert(key(k)),
             MutationSpec::Update(k, _) | MutationSpec::Delete(k) => delta.remove(key(k)),
-            MutationSpec::ByHash(k) => delta.remove_by_hash(TlsKeyHash::of(&key(k)).unwrap()),
+            MutationSpec::ByHash(k) => {
+                delta.remove_by_hash(counters::key_hash(TlsKeyHash::of(&key(k)).unwrap()))
+            }
         });
     delta.tls_serialize_detached().unwrap()
 }
@@ -528,22 +548,66 @@ fn len(bytes: Option<&[u8]>) -> Option<usize> {
     bytes.map(<[u8]>::len)
 }
 
+/// What a receiver's commit is compared with besides the frozen reference.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Oracles {
+    /// Also production's byte-level apply, and the expansion that resolves
+    /// a `RemoveByHash` for validation.
+    All,
+    /// The frozen reference alone: inside a hash clash, which production's
+    /// hashes do not see.
+    Reference,
+}
+
 /// A receiver's commit: every proposal applies in order, and the first
-/// failure rejects the commit.
+/// failure rejects the commit. After each proposal, the working set's
+/// reads match the byte-level state.
 fn check_commit(
-    registry: &crate::app_data::component_registry::ComponentRegistry,
+    registry: &ComponentRegistry,
     base: &BTreeMap<ComponentId, Vec<u8>>,
     proposals: &Proposals,
+    oracles: Oracles,
 ) -> Result<(), TestCaseError> {
     let mut set = WorkingSet::new(Cow::Borrowed(registry), |id| {
         base.get(&id).map(Vec::as_slice)
     });
+    for (id, _, _) in proposals {
+        prop_assert_eq!(
+            set.component_type(*id).map_err(|e| class(&e)),
+            reference::resolved_type(*id, registry).map_err(|e| class(&e)),
+            "type of {}",
+            id
+        );
+    }
     let mut expected = reference::States::new();
+    let mut production = reference::States::new();
     for (index, (id, operation, _)) in proposals.iter().enumerate() {
+        if oracles == Oracles::All {
+            let prior = reference::current(&expected, base, *id);
+            check_hash_removals(&mut set, registry, *id, operation, prior)?;
+        }
         let want = reference::apply_one(registry, base, &mut expected, *id, operation)
             .map_err(|e| class(&e));
         let got = set.apply(*id, operation).map_err(|e| class(&e));
         prop_assert_eq!(&got, &want, "proposal {} to {}", index, id);
+        if oracles == Oracles::All {
+            let verdict = reference::apply_one_with(
+                apply_app_data_update_payload,
+                registry,
+                base,
+                &mut production,
+                *id,
+                operation,
+            )
+            .map_err(|e| class(&e));
+            prop_assert_eq!(
+                &verdict,
+                &want,
+                "production on proposal {} to {}",
+                index,
+                id
+            );
+        }
         if want.is_err() {
             return Ok(());
         }
@@ -555,6 +619,10 @@ fn check_commit(
             index
         );
         prop_assert_eq!(set.present(*id), bytes.is_some());
+        check_reads(&mut set, registry, *id, bytes)?;
+    }
+    if oracles == Oracles::All {
+        prop_assert_eq!(plain(production), plain(expected.clone()));
     }
     let got = set
         .into_states()
@@ -563,54 +631,272 @@ fn check_commit(
     Ok(())
 }
 
+/// Before an update, each `RemoveByHash` of a set delta resolves in the
+/// working set as validation's expansion resolves it against the same
+/// prior state, errors by class.
+fn check_hash_removals(
+    set: &mut WorkingSet<'_>,
+    registry: &ComponentRegistry,
+    id: ComponentId,
+    operation: &AppDataUpdateOperation,
+    prior: Option<&[u8]>,
+) -> Result<(), TestCaseError> {
+    let AppDataUpdateOperation::Update(payload) = operation else {
+        return Ok(());
+    };
+    let removals = match kind_of(id) {
+        Kind::InboxSet => hash_removals::<InboxId>(payload.as_slice()),
+        Kind::BytesSet => hash_removals::<VLBytes>(payload.as_slice()),
+        _ => Vec::new(),
+    };
+    if removals.is_empty() {
+        return Ok(());
+    }
+    let expanded = expand_app_data_update_to_changes(id, operation, prior, registry);
+    for (index, hash) in removals {
+        let want = match &expanded {
+            Ok(changes) => Ok(changes[index].value.clone()),
+            Err(error) => Err(class(error)),
+        };
+        let got = set.resolve_hash(id, &hash).map_err(|e| class(&e));
+        prop_assert_eq!(got, want, "hash removal {} in an update of {}", index, id);
+    }
+    Ok(())
+}
+
+/// The index and hash of each `RemoveByHash` in a set delta; none when
+/// `payload` is not one.
+fn hash_removals<K: Deserialize + Size>(payload: &[u8]) -> Vec<(usize, TlsKeyHash)> {
+    let Ok(delta) = TlsSetDelta::<K>::tls_deserialize_exact(payload) else {
+        return Vec::new();
+    };
+    delta
+        .mutations
+        .iter()
+        .enumerate()
+        .filter_map(|(index, mutation)| match mutation {
+            TlsSetMutation::RemoveByHash(hash) => Some((index, *hash)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The working set's reads of component `id` match its byte-level `bytes`:
+/// the encoding, the value of each key the generator writes, and in the
+/// registry, each entry the registry recognizes.
+fn check_reads(
+    set: &mut WorkingSet<'_>,
+    registry: &ComponentRegistry,
+    id: ComponentId,
+    bytes: Option<&[u8]>,
+) -> Result<(), TestCaseError> {
+    let encoded = set
+        .encode(id)
+        .map_err(|e| TestCaseError::fail(format!("{e:?}")))?;
+    prop_assert_eq!(
+        encoded.as_deref().map(Vec::as_slice),
+        bytes,
+        "encoding of {}",
+        id
+    );
+    let ty = match reference::resolved_type(id, registry) {
+        Ok(ty) => ty,
+        Err(error) => {
+            let read = set.get(id, &[]).map(|_| ()).map_err(|e| class(&e));
+            prop_assert_eq!(read, Err(class(&error)), "read of {}", id);
+            return Ok(());
+        }
+    };
+    for key in pool_keys(kind_of(id)) {
+        let got = set
+            .get(id, &key)
+            .map(|value| value.map(<[u8]>::to_vec))
+            .map_err(|e| class(&e));
+        prop_assert_eq!(got, decoded_get(id, ty, bytes, &key), "a key of {}", id);
+    }
+    if id == ComponentId::COMPONENT_REGISTRY {
+        let after = bytes
+            .map(ComponentRegistry::from_bytes)
+            .transpose()
+            .map_err(|e| TestCaseError::fail(format!("{e:?}")))?
+            .unwrap_or_else(ComponentRegistry::new);
+        for key in REGISTRY_KEYS.map(ComponentId::new) {
+            let got = set
+                .registry_entry(key)
+                .map_err(|e| TestCaseError::fail(format!("{e:?}")))?;
+            let want = after
+                .get(&key)
+                .map_err(|e| TestCaseError::fail(format!("{e:?}")))?;
+            prop_assert_eq!(got, want, "registry entry {}", key);
+        }
+    }
+    Ok(())
+}
+
+/// The TLS encoding of each key the generator writes to a component of
+/// `kind`.
+fn pool_keys(kind: Kind) -> Vec<Vec<u8>> {
+    match kind {
+        Kind::BytesMap | Kind::BytesSet | Kind::Scalar => pools()
+            .keys
+            .iter()
+            .map(|key| vl(key).tls_serialize_detached().unwrap())
+            .collect(),
+        Kind::InboxMap | Kind::InboxSet => (0..INBOXES as u8)
+            .map(|index| inbox(index).tls_serialize_detached().unwrap())
+            .collect(),
+        Kind::Registry => REGISTRY_KEYS
+            .map(|key| ComponentId::new(key).tls_serialize_detached().unwrap())
+            .to_vec(),
+    }
+}
+
+/// The value of the TLS-encoded `key` in component `id`'s `bytes`, decoded
+/// as the byte-level code decodes a component of type `ty`; a set element's
+/// value is empty. Errors by class, as [`WorkingSet::get`] reports them.
+fn decoded_get(
+    id: ComponentId,
+    ty: ComponentType,
+    bytes: Option<&[u8]>,
+    key: &[u8],
+) -> Result<Option<Vec<u8>>, String> {
+    fn in_set<K: Deserialize + Size + Ord>(
+        bytes: &[u8],
+        key: &[u8],
+    ) -> Result<Option<Vec<u8>>, tls_codec::Error> {
+        let set = TlsSet::<K>::tls_deserialize_exact(bytes)?;
+        Ok(set.contains(&K::tls_deserialize_exact(key)?).then(Vec::new))
+    }
+    fn in_map<K: Deserialize + Size + Ord>(
+        bytes: &[u8],
+        key: &[u8],
+    ) -> Result<Option<Vec<u8>>, tls_codec::Error> {
+        let map = TlsMap::<K, VLBytes>::tls_deserialize_exact(bytes)?;
+        let key = K::tls_deserialize_exact(key)?;
+        Ok(map.get(&key).map(|value| value.as_slice().to_vec()))
+    }
+    type Read = fn(&[u8], &[u8]) -> Result<Option<Vec<u8>>, tls_codec::Error>;
+    let read: Read = match ty {
+        ComponentType::Bytes | ComponentType::String | ComponentType::Unspecified => {
+            return Err(class(&ComponentSourceError::MismatchedMutation(id)));
+        }
+        _ if bytes.is_none() => return Ok(None),
+        ComponentType::TlsSetInboxId => in_set::<InboxId>,
+        ComponentType::TlsSetBytes => in_set::<VLBytes>,
+        ComponentType::TlsMapInboxIdBytes | ComponentType::TlsMapInboxIdString => in_map::<InboxId>,
+        ComponentType::TlsMapBytesBytes if id == ComponentId::COMPONENT_REGISTRY => {
+            in_map::<ComponentId>
+        }
+        ComponentType::TlsMapBytesBytes => in_map::<VLBytes>,
+    };
+    read(bytes.unwrap_or_default(), key).map_err(|e| format!("undecodable: {e}"))
+}
+
 /// A sender's loop: each proposal is kept when it applies after the ones
 /// kept before it and the sender does not drop it, and rolled back
-/// otherwise.
+/// otherwise. Every other proposal the sender would keep applies without a
+/// checkpoint, so a failed update must leave the set as it was. With
+/// `outer`, the loop runs inside one more checkpoint, whose rollback must
+/// restore the committed state.
 fn check_keep(
-    registry: &crate::app_data::component_registry::ComponentRegistry,
+    registry: &ComponentRegistry,
     base: &BTreeMap<ComponentId, Vec<u8>>,
     proposals: &Proposals,
+    outer: bool,
 ) -> Result<(), TestCaseError> {
     let mut set = WorkingSet::new(Cow::Borrowed(registry), |id| {
         base.get(&id).map(Vec::as_slice)
     });
+    let outer = outer.then(|| set.checkpoint());
     let mut kept = reference::States::new();
     for (index, (id, operation, dropped)) in proposals.iter().enumerate() {
         let mut trial = kept.clone();
         let want =
             reference::apply_one(registry, base, &mut trial, *id, operation).map_err(|e| class(&e));
-        let checkpoint = set.checkpoint();
+        let checkpoint = (*dropped || index % 2 == 0).then(|| set.checkpoint());
         let got = set.apply(*id, operation).map_err(|e| class(&e));
         prop_assert_eq!(&got, &want, "proposal {} to {}", index, id);
-        if want.is_ok() && !dropped {
+        let keep = want.is_ok() && !dropped;
+        if keep {
             kept = trial;
-            set.release(checkpoint);
-        } else {
-            set.rollback(checkpoint);
         }
-        for (id, _, _) in proposals {
-            let bytes = reference::current(&kept, base, *id);
-            prop_assert_eq!(
-                set.snapshot_len(*id),
-                len(bytes),
-                "length after proposal {}",
-                index
-            );
-            prop_assert_eq!(set.present(*id), bytes.is_some());
+        match checkpoint {
+            Some(checkpoint) if keep => set.release(checkpoint),
+            Some(checkpoint) => set.rollback(checkpoint),
+            // A failed update without a checkpoint left the set as it was.
+            None => {}
+        }
+        check_states(&set, base, &kept, proposals, index)?;
+    }
+    match outer {
+        Some(checkpoint) => {
+            set.rollback(checkpoint);
+            check_states(
+                &set,
+                base,
+                &reference::States::new(),
+                proposals,
+                proposals.len(),
+            )?;
+            prop_assert_eq!(set.touched().count(), 0);
+            let got = set
+                .into_states()
+                .map_err(|e| TestCaseError::fail(format!("{e:?}")))?;
+            prop_assert!(got.is_empty());
+        }
+        None => {
+            let got = set
+                .into_states()
+                .map_err(|e| TestCaseError::fail(format!("{e:?}")))?;
+            prop_assert_eq!(plain(got), plain(kept));
         }
     }
-    let got = set
-        .into_states()
-        .map_err(|e| TestCaseError::fail(format!("{e:?}")))?;
-    prop_assert_eq!(plain(got), plain(kept));
+    Ok(())
+}
+
+/// The length, presence and bytes of each component `proposals` write
+/// match `states` over `base`.
+fn check_states(
+    set: &WorkingSet<'_>,
+    base: &BTreeMap<ComponentId, Vec<u8>>,
+    states: &reference::States,
+    proposals: &Proposals,
+    index: usize,
+) -> Result<(), TestCaseError> {
+    for (id, _, _) in proposals {
+        let bytes = reference::current(states, base, *id);
+        prop_assert_eq!(
+            set.snapshot_len(*id),
+            len(bytes),
+            "length of {} after proposal {}",
+            id,
+            index
+        );
+        prop_assert_eq!(set.present(*id), bytes.is_some());
+        let encoded = set
+            .encode(*id)
+            .map_err(|e| TestCaseError::fail(format!("{e:?}")))?;
+        prop_assert_eq!(
+            encoded.as_deref().map(Vec::as_slice),
+            bytes,
+            "bytes of {} after proposal {}",
+            id,
+            index
+        );
+    }
     Ok(())
 }
 
 fn check(case: &Case) -> Result<(), TestCaseError> {
+    check_with(case, Oracles::All)
+}
+
+fn check_with(case: &Case, oracles: Oracles) -> Result<(), TestCaseError> {
     let registry = subject_registry();
     let (base, proposals) = case.build();
-    check_commit(&registry, &base, &proposals)?;
-    check_keep(&registry, &base, &proposals)
+    check_commit(&registry, &base, &proposals, oracles)?;
+    check_keep(&registry, &base, &proposals, false)?;
+    check_keep(&registry, &base, &proposals, true)
 }
 
 /// Mostly the distinct one-byte keys, so mutations meet each other.
@@ -701,7 +987,7 @@ fn case() -> impl Strategy<Value = Case> {
 /// A working set reaches the byte-level apply's verdict, error class,
 /// lengths, and bytes on random committed values and proposals.
 // verifies: META-010, META-012, META-013, META-068
-#[xmtp_common::test]
+#[xmtp_common::test(unwrap_try = true)]
 fn working_set_matches_byte_level_apply() {
     let mut runner = TestRunner::new(Config {
         cases: 1024,
@@ -717,21 +1003,41 @@ fn subject(id: ComponentId) -> u8 {
         .unwrap() as u8
 }
 
+/// A delta of `mutations` as written, not repaired.
+fn unrepaired(mutations: Vec<MutationSpec>) -> OperationSpec {
+    OperationSpec::Delta(mutations, false)
+}
+
+/// A case of `proposals` to component `id`, over the committed `base`.
+fn one(id: ComponentId, base: BaseSpec, proposals: Vec<OperationSpec>) -> Case {
+    Case {
+        subjects: vec![(subject(id), base)],
+        proposals: proposals.into_iter().map(|p| (0, p, false)).collect(),
+    }
+}
+
+/// Run `check` on each case, naming the case that fails.
+fn check_all<'c>(
+    cases: impl IntoIterator<Item = &'c Case>,
+    check: impl Fn(&Case) -> Result<(), TestCaseError>,
+) {
+    for case in cases {
+        if let Err(error) = check(case) {
+            panic!("{case:?}: {error}");
+        }
+    }
+}
+
 /// The cases the plan names, on every run: a hash removal of a key the
 /// same delta inserts, a removal then an update, the length-prefix
 /// boundaries, and malformed committed bytes.
 // verifies: META-012, META-013
-#[xmtp_common::test]
+#[xmtp_common::test(unwrap_try = true)]
 fn working_set_matches_byte_level_apply_on_pinned_cases() {
     use BaseSpec::{Absent, Corrupt, Entries, Heavy};
     use MutationSpec::{ByHash, Delete, Insert, Update};
     use OperationSpec::Remove;
-    // The mutations as written, not repaired.
-    let delta = |mutations| OperationSpec::Delta(mutations, false);
-    let one = |id: ComponentId, base: BaseSpec, proposals: Vec<OperationSpec>| Case {
-        subjects: vec![(subject(id), base)],
-        proposals: proposals.into_iter().map(|p| (0, p, false)).collect(),
-    };
+    let delta = unrepaired;
     let cases = [
         // `[Insert(k), RemoveByHash(h(k))]` with `k` absent: KeyNotFound.
         one(
@@ -744,7 +1050,15 @@ fn working_set_matches_byte_level_apply_on_pinned_cases() {
             Entries(vec![(2, 0)]),
             vec![delta(vec![Insert(1, 0), ByHash(1), ByHash(2)])],
         ),
-        // Hashes resolve against the set before the delta.
+        // A hash that names no key fails the delta before an earlier
+        // mutation's error: KeyNotFound, not KeyExists.
+        one(
+            ComponentId::ADMIN_LIST,
+            Entries(vec![(1, 0)]),
+            vec![delta(vec![Insert(1, 0), ByHash(5)])],
+        ),
+        // A key that a hash removal deletes is inserted again in the same
+        // delta.
         one(
             ComponentId::ADMIN_LIST,
             Entries(vec![(1, 0), (2, 0)]),
@@ -789,6 +1103,14 @@ fn working_set_matches_byte_level_apply_on_pinned_cases() {
         one(APP_MAP, Heavy(8), vec![delta(vec![Insert(8, 6)])]),
         one(APP_MAP, Heavy(9), vec![delta(vec![Delete(0)])]),
         one(APP_MAP, Heavy(9), vec![delta(vec![Insert(9, 1)])]),
+        // Removing the committed value or key over the element bound
+        // clears the bound.
+        one(APP_MAP, Entries(vec![(1, 8)]), vec![delta(vec![Delete(1)])]),
+        one(
+            APP_SET,
+            Entries(vec![(17, 0)]),
+            vec![delta(vec![ByHash(17)])],
+        ),
         // A value that is not UTF-8 fails every update that keeps it.
         one(
             APP_NAMES,
@@ -811,11 +1133,17 @@ fn working_set_matches_byte_level_apply_on_pinned_cases() {
             Corrupt(vec![(6, 0), (7, 0), (8, 0), (9, 0)], Corruption::Reversed),
             vec![delta(vec![Insert(1, 0)])],
         ),
-        // Malformed committed bytes fail the first update, not a removal.
+        // Malformed committed bytes fail the first update, not a removal,
+        // and a hash removal's resolution.
         one(
             ComponentId::ADMIN_LIST,
             Corrupt(vec![(1, 0), (2, 0)], Corruption::Reversed),
             vec![delta(vec![Insert(3, 0)])],
+        ),
+        one(
+            APP_SET,
+            Corrupt(vec![(1, 0), (2, 0)], Corruption::Reversed),
+            vec![delta(vec![ByHash(1)])],
         ),
         one(
             APP_MAP,
@@ -845,9 +1173,62 @@ fn working_set_matches_byte_level_apply_on_pinned_cases() {
             (0, delta(vec![ByHash(1)]), false),
         ],
     };
-    for case in cases.iter().chain([&dropped]) {
-        if let Err(error) = check(case) {
-            panic!("{case:?}: {error}");
-        }
+    check_all(cases.iter().chain([&dropped]), check);
+}
+
+/// Two keys with one hash: a hash removal fails with `DuplicateHash`,
+/// whether the clash is committed or a proposal makes it, as the byte-level
+/// apply does, and a removal that ends the clash lets the next one apply.
+#[xmtp_common::test(unwrap_try = true)]
+fn hash_clash_matches_byte_level_apply() {
+    use BaseSpec::Entries;
+    use MutationSpec::{ByHash, Delete, Insert};
+    let delta = unrepaired;
+    counters::with_hash_clash(|| {
+        let cases = [
+            one(
+                ComponentId::ADMIN_LIST,
+                Entries(vec![(1, 0), (2, 0)]),
+                vec![delta(vec![ByHash(1)])],
+            ),
+            one(
+                APP_SET,
+                Entries(vec![(1, 0)]),
+                vec![
+                    delta(vec![ByHash(1)]),
+                    delta(vec![Insert(1, 0), Insert(2, 0)]),
+                    delta(vec![ByHash(1)]),
+                ],
+            ),
+            one(
+                ComponentId::ADMIN_LIST,
+                Entries(vec![(1, 0)]),
+                vec![
+                    delta(vec![ByHash(1)]),
+                    delta(vec![Insert(1, 0), Insert(2, 0)]),
+                    delta(vec![Delete(2)]),
+                    delta(vec![ByHash(1)]),
+                ],
+            ),
+        ];
+        check_all(&cases, |case| check_with(case, Oracles::Reference));
+    });
+}
+
+/// Every built-in collection component is a subject. The working set
+/// applies a collection by its type, not through its impl, so a new one
+/// fails here until the differential test covers it.
+#[xmtp_common::test(unwrap_try = true)]
+fn every_built_in_collection_is_a_subject() {
+    let subjects: BTreeSet<ComponentId> = SUBJECTS.iter().map(|(id, _)| *id).collect();
+    for (id, component) in WELL_KNOWN {
+        let scalar = matches!(
+            component.component_type(),
+            ComponentType::Bytes | ComponentType::String | ComponentType::Unspecified
+        );
+        assert!(
+            scalar || subjects.contains(id),
+            "the differential test does not cover the built-in collection {id}"
+        );
     }
 }

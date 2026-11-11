@@ -11,7 +11,7 @@ use super::*;
 /// 2. On-dict [`ComponentRegistry`] entry, which `validator` decodes once —
 ///    covers components a *newer* release ships that this client has never
 ///    heard of; the registry's `component_type` tag is the type oracle.
-pub(crate) fn resolved_type(
+pub(super) fn resolved_type(
     id: ComponentId,
     validator: &mut ComponentWriteValidator<'_>,
 ) -> Result<ComponentType, ComponentSourceError> {
@@ -191,20 +191,33 @@ fn registered_component_type(
     id: ComponentId,
     validator: &mut ComponentWriteValidator<'_>,
 ) -> Result<ComponentType, ComponentSourceError> {
-    let meta = validator
+    registered_type(id, registry_type_tag(id, validator)?)
+}
+
+/// The `component_type` tag of component `id`'s recognized registry
+/// entry, which `validator` decodes once; `None` when it has none.
+pub(crate) fn registry_type_tag(
+    id: ComponentId,
+    validator: &mut ComponentWriteValidator<'_>,
+) -> Result<Option<i32>, ComponentSourceError> {
+    let entry = validator
         .entry(id)
         .map_err(|e| ComponentSourceError::MalformedComponentValue {
             component_id: id,
             reason: format!("registry lookup: {e}"),
-        })?
-        .ok_or(ComponentSourceError::UnknownComponent(id))?;
-    ComponentType::try_from(meta.component_type).map_err(|_| {
-        ComponentSourceError::MalformedComponentValue {
-            component_id: id,
-            reason: format!(
-                "registry entry has unknown component_type tag {}",
-                meta.component_type
-            ),
-        }
+        })?;
+    Ok(entry.map(|meta| meta.component_type))
+}
+
+/// The [`ComponentType`] that `tag`, from [`registry_type_tag`], names for
+/// component `id`.
+pub(crate) fn registered_type(
+    id: ComponentId,
+    tag: Option<i32>,
+) -> Result<ComponentType, ComponentSourceError> {
+    let tag = tag.ok_or(ComponentSourceError::UnknownComponent(id))?;
+    ComponentType::try_from(tag).map_err(|_| ComponentSourceError::MalformedComponentValue {
+        component_id: id,
+        reason: format!("registry entry has unknown component_type tag {tag}"),
     })
 }

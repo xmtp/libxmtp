@@ -324,16 +324,17 @@ impl ComponentRegistry {
     /// Decode and fully validate a stored entry, returning its metadata iff
     /// the entry is recognized. This is the one place that decides
     /// visibility: [`get`](Self::get), [`iter`](Self::iter),
-    /// [`contains`](Self::contains), [`len`](Self::len), and
-    /// [`unrecognized_ids`](Self::unrecognized_ids) are all defined in terms
-    /// of whether this returns `Ok`.
+    /// [`contains`](Self::contains), [`len`](Self::len),
+    /// [`unrecognized_ids`](Self::unrecognized_ids), and
+    /// `WorkingSet::registry_entry` are all defined in terms of whether this
+    /// returns `Ok`.
     ///
     /// Rejects ids outside the component space, reserved ids, hardcoded ids
     /// (their permissions are enforced in code), values that don't decode as
     /// `ComponentMetadata`, and metadata that is structurally incomplete or
     /// violates a constrained component's policy allowlist.
     // implements: META-014
-    fn decode_recognized(
+    pub(crate) fn decode_recognized(
         id: ComponentId,
         raw: &[u8],
     ) -> Result<ComponentMetadata, ComponentRegistryError> {

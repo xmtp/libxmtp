@@ -1,10 +1,11 @@
 use std::{borrow::Cow, collections::BTreeMap};
 
 use openmls::messages::proposals::AppDataUpdateOperation;
+use prost::Message;
 use tls_codec::{Serialize, VLBytes};
 use xmtp_mls_tls_collections::{
-    tls_map::TlsMapDelta,
-    tls_set::{TlsKeyHash, TlsSet, TlsSetDelta},
+    tls_map::{TlsMap, TlsMapDelta, TlsMapError},
+    tls_set::{TlsKeyHash, TlsSet, TlsSetDelta, TlsSetError},
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     ComponentMetadata, ComponentType, MetadataPolicy,
@@ -17,7 +18,10 @@ use crate::{
         component_id::ComponentId,
         component_permissions::component_permissions,
         component_registry::{ComponentRegistry, new_component_metadata},
-        component_source::{ComponentSourceError, MAX_FIELD_SNAPSHOT_BYTES},
+        component_source::{
+            ComponentSourceError, MAX_FIELD_SNAPSHOT_BYTES, expand_app_data_update_to_changes,
+        },
+        validation::count_validation_work,
     },
     inbox_id::InboxId,
 };
@@ -54,6 +58,25 @@ fn update(payload: Vec<u8>) -> AppDataUpdateOperation {
     AppDataUpdateOperation::Update(payload.into())
 }
 
+/// An update of a bytes map that inserts each one-byte key with a value of
+/// `len` bytes.
+fn insert(entries: &[(u8, usize)]) -> AppDataUpdateOperation {
+    let delta = entries
+        .iter()
+        .fold(TlsMapDelta::new(), |delta, &(key, len)| {
+            delta.insert(VLBytes::new(vec![key]), VLBytes::new(vec![b'v'; len]))
+        });
+    update(delta.tls_serialize_detached().unwrap())
+}
+
+/// An update of an inbox-id set that inserts `inbox`.
+fn insert_inbox(inbox: InboxId) -> Vec<u8> {
+    TlsSetDelta::new()
+        .insert(inbox)
+        .tls_serialize_detached()
+        .unwrap()
+}
+
 /// A proposal that leaves a bounded snapshot at 65,537 bytes fails, even
 /// when a later proposal of the commit shrinks it below the bound.
 // verifies: META-068
@@ -61,14 +84,6 @@ fn update(payload: Vec<u8>) -> AppDataUpdateOperation {
 fn intermediate_snapshot_bound() {
     let id = ComponentId::new(0xC0A0);
     let registry = registry(&[(id, ComponentType::TlsMapBytesBytes as i32)]);
-    let insert = |entries: &[(u8, usize)]| {
-        let delta = entries
-            .iter()
-            .fold(TlsMapDelta::new(), |delta, &(key, len)| {
-                delta.insert(VLBytes::new(vec![key]), VLBytes::new(vec![b'v'; len]))
-            });
-        update(delta.tls_serialize_detached().unwrap())
-    };
     let shrink = TlsMapDelta::<VLBytes, VLBytes>::new().delete(VLBytes::new(vec![0]));
     let proposals = [
         // Seven 8,004-byte entries and a 4-byte length: 56,032 bytes.
@@ -97,6 +112,49 @@ fn intermediate_snapshot_bound() {
         reference::apply_sequence(&registry, &BTreeMap::new(), &proposals),
         Err((
             1,
+            ComponentSourceError::FieldBoundExceeded { len: 65_537, .. }
+        ))
+    ));
+}
+
+/// The snapshot bound admits a bounded snapshot of exactly 65,536 bytes
+/// and fails one byte more, as the byte-level apply does.
+// verifies: META-068
+#[xmtp_common::test(unwrap_try = true)]
+fn snapshot_bound_admits_exactly_the_bound() {
+    let id = ComponentId::new(0xC0A0);
+    let registry = registry(&[(id, ComponentType::TlsMapBytesBytes as i32)]);
+    let grow = TlsMapDelta::<VLBytes, VLBytes>::new()
+        .update(VLBytes::new(vec![8]), VLBytes::new(vec![b'v'; 1305]));
+    let proposals = [
+        // 56,032 bytes, as in `intermediate_snapshot_bound`.
+        (id, insert(&[0, 1, 2, 3, 4, 5, 6].map(|key| (key, 8000)))),
+        // 8,196 and 1,308 more bytes: 65,536.
+        (id, insert(&[(7, 8192), (8, 1304)])),
+        // One byte more.
+        (id, update(grow.tls_serialize_detached()?)),
+    ];
+
+    let mut set = WorkingSet::new(Cow::Borrowed(&registry), |_| None);
+    set.apply(id, &proposals[0].1)?;
+    set.apply(id, &proposals[1].1)?;
+    assert_eq!(set.snapshot_len(id), Some(MAX_FIELD_SNAPSHOT_BYTES));
+    let rejected = set.apply(id, &proposals[2].1);
+    assert!(
+        matches!(
+            rejected,
+            Err(ComponentSourceError::FieldBoundExceeded {
+                len: 65_537,
+                max: MAX_FIELD_SNAPSHOT_BYTES,
+                ..
+            })
+        ),
+        "{rejected:?}"
+    );
+    assert!(matches!(
+        reference::apply_sequence(&registry, &BTreeMap::new(), &proposals),
+        Err((
+            2,
             ComponentSourceError::FieldBoundExceeded { len: 65_537, .. }
         ))
     ));
@@ -162,48 +220,245 @@ fn remove_skips_the_committed_value() {
     assert_eq!(present, [(admins, true), (unregistered, false)]);
 }
 
-/// Reads see the proposals applied so far, and a rollback undoes them.
+/// An update that fails without a checkpoint leaves the set as it was: its
+/// entries, its length, and which components a proposal wrote.
 #[xmtp_common::test(unwrap_try = true)]
-fn reads_follow_applied_proposals() {
+fn failed_update_leaves_the_set_unchanged() {
     let alice = InboxId::from_bytes([1; 32]);
     let bob = InboxId::from_bytes([2; 32]);
     let admins = ComponentId::ADMIN_LIST;
-    let members = ComponentId::GROUP_MEMBERSHIP;
     let committed = TlsSet::from_keys([alice]).tls_serialize_detached()?;
     let registry = ComponentRegistry::new();
     let mut set = WorkingSet::new(Cow::Borrowed(&registry), |id| {
         (id == admins).then_some(committed.as_slice())
     });
-    let bob_hash = TlsKeyHash::of(&bob)?;
 
-    assert_eq!(
-        set.resolve_hash(admins, &TlsKeyHash::of(&alice)?)?,
-        Some(alice.as_bytes().to_vec())
+    // Bob's insert applies before Alice's fails.
+    let failing = TlsSetDelta::new().insert(bob).insert(alice);
+    let failed = set.update(admins, &failing.tls_serialize_detached()?);
+    assert!(
+        matches!(
+            failed,
+            Err(ComponentSourceError::TlsSetApply(TlsSetError::Map(
+                TlsMapError::KeyExists
+            )))
+        ),
+        "{failed:?}"
     );
-    assert_eq!(set.resolve_hash(admins, &bob_hash)?, None);
+    assert_eq!(
+        set.encode(admins)?.map(|bytes| bytes.to_vec()),
+        Some(committed.clone())
+    );
+    assert_eq!(set.snapshot_len(admins), Some(committed.len()));
+    assert_eq!(set.touched().count(), 0);
+
+    set.update(admins, &insert_inbox(bob))?;
+    assert_eq!(
+        set.encode(admins)?.map(|bytes| bytes.to_vec()),
+        Some(TlsSet::from_keys([alice, bob]).tls_serialize_detached()?)
+    );
+}
+
+/// Rolling back an outer checkpoint undoes every proposal since it,
+/// including those under a released inner checkpoint and a failed update:
+/// each read then matches a set that never saw them.
+#[xmtp_common::test(unwrap_try = true)]
+fn rollback_undoes_nested_checkpoints() {
+    let inbox = |n: u8| InboxId::from_bytes([n; 32]);
+    let hash = |n: u8| TlsKeyHash::of(&inbox(n)).unwrap();
+    let by_hash = |n: u8| {
+        TlsSetDelta::<InboxId>::new()
+            .remove_by_hash(hash(n))
+            .tls_serialize_detached()
+            .unwrap()
+    };
+    let admins = ComponentId::ADMIN_LIST;
+    let members = ComponentId::GROUP_MEMBERSHIP;
+    let committed_admins = TlsSet::from_keys([inbox(1), inbox(2)]).tls_serialize_detached()?;
+    let committed_members =
+        TlsMap::from_pairs([(inbox(1), VLBytes::new(b"a".to_vec()))]).tls_serialize_detached()?;
+    let base = |id: ComponentId| match id {
+        ComponentId::ADMIN_LIST => Some(committed_admins.as_slice()),
+        ComponentId::GROUP_MEMBERSHIP => Some(committed_members.as_slice()),
+        _ => None,
+    };
+    let registry = ComponentRegistry::new();
+    let mut set = WorkingSet::new(Cow::Borrowed(&registry), base);
+    let mut fresh = WorkingSet::new(Cow::Borrowed(&registry), base);
+    set.update(admins, &insert_inbox(inbox(3)))?;
+    fresh.update(admins, &insert_inbox(inbox(3)))?;
+    // The hash index exists before the checkpoint.
+    assert!(set.resolve_hash(admins, &hash(1))?.is_some());
+
+    let outer = set.checkpoint();
+    set.update(admins, &by_hash(1))?;
+    set.remove(admins);
+    set.update(admins, &insert_inbox(inbox(4)))?;
+    let inner = set.checkpoint();
+    set.update(admins, &by_hash(4))?;
+    let entry = TlsMapDelta::new()
+        .insert(inbox(9), VLBytes::new(b"x".to_vec()))
+        .tls_serialize_detached()?;
+    set.update(members, &entry)?;
+    set.remove(members);
+    set.release(inner);
+    assert!(set.update(admins, &by_hash(7)).is_err());
+    set.update(members, &entry)?;
+    set.rollback(outer);
+
+    for n in 1..=9 {
+        assert_eq!(
+            set.resolve_hash(admins, &hash(n))?,
+            fresh.resolve_hash(admins, &hash(n))?,
+            "{n}"
+        );
+        let key = inbox(n).tls_serialize_detached()?;
+        assert_eq!(
+            set.get(members, &key)?.map(<[u8]>::to_vec),
+            fresh.get(members, &key)?.map(<[u8]>::to_vec),
+            "{n}"
+        );
+    }
+    for id in [admins, members] {
+        assert_eq!(set.snapshot_len(id), fresh.snapshot_len(id));
+        assert_eq!(set.present(id), fresh.present(id));
+        assert_eq!(set.encode(id)?, fresh.encode(id)?);
+    }
+    assert!(set.touched().eq(fresh.touched()));
+    assert_eq!(set.into_states()?, fresh.into_states()?);
+}
+
+/// Ending another working set's checkpoint is a bug that debug builds
+/// catch, instead of undoing the wrong changes.
+#[cfg(debug_assertions)]
+#[xmtp_common::test(unwrap_try = true)]
+#[should_panic(expected = "innermost checkpoint")]
+fn ending_another_sets_checkpoint_panics() {
+    let registry = ComponentRegistry::new();
+    let mut set = WorkingSet::new(Cow::Borrowed(&registry), |_| None);
+    let mut other = WorkingSet::new(Cow::Borrowed(&registry), |_| None);
     let checkpoint = set.checkpoint();
     set.update(
-        admins,
-        &TlsSetDelta::new().insert(bob).tls_serialize_detached()?,
+        ComponentId::ADMIN_LIST,
+        &insert_inbox(InboxId::from_bytes([1; 32])),
+    )?;
+    set.release(other.checkpoint());
+    set.rollback(checkpoint);
+}
+
+/// Ending an outer checkpoint while an inner one is live is a bug that
+/// debug builds catch.
+#[cfg(debug_assertions)]
+#[xmtp_common::test(unwrap_try = true)]
+#[should_panic(expected = "innermost checkpoint")]
+fn ending_an_outer_checkpoint_first_panics() {
+    let registry = ComponentRegistry::new();
+    let mut set = WorkingSet::new(Cow::Borrowed(&registry), |_| None);
+    let outer = set.checkpoint();
+    set.update(
+        ComponentId::ADMIN_LIST,
+        &insert_inbox(InboxId::from_bytes([1; 32])),
+    )?;
+    let inner = set.checkpoint();
+    set.rollback(outer);
+    set.rollback(inner);
+}
+
+/// A type that does not resolve is not resolved again: the registry entry
+/// decodes once per working set, however often an update or a read needs
+/// the type.
+#[xmtp_common::test(unwrap_try = true)]
+fn failed_type_resolution_decodes_the_entry_once() {
+    let id = ComponentId::new(0xC0A2);
+    let registry = registry(&[(id, 99)]);
+    let mut set = WorkingSet::new(Cow::Borrowed(&registry), |_| None);
+    let ((), work) = count_validation_work(|| {
+        for _ in 0..3 {
+            let resolved = set.component_type(id);
+            assert!(
+                matches!(
+                    resolved,
+                    Err(ComponentSourceError::MalformedComponentValue { .. })
+                ),
+                "{resolved:?}"
+            );
+            assert!(set.update(id, b"x").is_err());
+        }
+    });
+    assert_eq!(work.registry_decodes, 1);
+}
+
+/// A registry read through the working set hides an entry the registry
+/// does not recognize, as `ComponentRegistry::get` does, and sees the
+/// proposals applied so far.
+#[xmtp_common::test(unwrap_try = true)]
+fn registry_entry_hides_unrecognized_entries() {
+    let app = ComponentId::new(0xC0A3);
+    let entry = |ty: ComponentType| VLBytes::new(metadata(ty as i32).encode_to_vec());
+    // An admin-list entry violates the admin list's policy allowlist.
+    let committed = TlsMap::from_pairs([
+        (ComponentId::ADMIN_LIST, entry(ComponentType::TlsSetInboxId)),
+        (app, entry(ComponentType::Bytes)),
+    ])
+    .tls_serialize_detached()?;
+    let parsed = ComponentRegistry::from_bytes(&committed)?;
+    let registry = ComponentRegistry::new();
+    let mut set = WorkingSet::new(Cow::Borrowed(&registry), |id| {
+        (id == ComponentId::COMPONENT_REGISTRY).then_some(committed.as_slice())
+    });
+
+    let admin_key = ComponentId::ADMIN_LIST.tls_serialize_detached()?;
+    assert!(
+        set.get(ComponentId::COMPONENT_REGISTRY, &admin_key)?
+            .is_some()
+    );
+    for id in [ComponentId::ADMIN_LIST, app, ComponentId::new(0xC0A4)] {
+        assert_eq!(set.registry_entry(id)?, parsed.get(&id)?, "{id}");
+    }
+    assert!(set.registry_entry(ComponentId::ADMIN_LIST)?.is_none());
+
+    let retype = TlsMapDelta::new().update(app, entry(ComponentType::String));
+    set.update(
+        ComponentId::COMPONENT_REGISTRY,
+        &retype.tls_serialize_detached()?,
     )?;
     assert_eq!(
-        set.resolve_hash(admins, &bob_hash)?,
-        Some(bob.as_bytes().to_vec())
+        set.registry_entry(app)?.map(|meta| meta.component_type),
+        Some(ComponentType::String as i32)
     );
-    assert_eq!(
-        set.get(admins, &bob.tls_serialize_detached()?)?,
-        Some(&[][..])
-    );
-    let entry = TlsMapDelta::new().insert(bob, VLBytes::new(b"entry".to_vec()));
-    set.update(members, &entry.tls_serialize_detached()?)?;
-    assert_eq!(
-        set.get(members, &bob.tls_serialize_detached()?)?,
-        Some(&b"entry"[..])
-    );
-    set.rollback(checkpoint);
+}
 
-    assert_eq!(set.resolve_hash(admins, &bob_hash)?, None);
-    assert_eq!(set.get(members, &bob.tls_serialize_detached()?)?, None);
-    assert!(!set.present(members));
-    assert_eq!(set.touched().count(), 0);
+/// `resolve_hash` resolves the component's type first, as the expansion of
+/// a `RemoveByHash` does: an id with no built-in impl and no registry entry
+/// fails even when it is absent, as `get` does.
+#[xmtp_common::test(unwrap_try = true)]
+fn resolve_hash_of_an_unknown_component_fails_as_the_expansion_does() {
+    let id = ComponentId::new(0xC0B0);
+    let alice = InboxId::from_bytes([1; 32]);
+    let hash = TlsKeyHash::of(&alice)?;
+    let registry = ComponentRegistry::new();
+    let mut set = WorkingSet::new(Cow::Borrowed(&registry), |_| None);
+    let operation = update(
+        TlsSetDelta::<InboxId>::new()
+            .remove_by_hash(hash)
+            .tls_serialize_detached()?,
+    );
+
+    let expanded = expand_app_data_update_to_changes(id, &operation, None, &registry);
+    assert!(
+        matches!(expanded, Err(ComponentSourceError::UnknownComponent(_))),
+        "{expanded:?}"
+    );
+    let resolved = set.resolve_hash(id, &hash);
+    assert!(
+        matches!(resolved, Err(ComponentSourceError::UnknownComponent(_))),
+        "{resolved:?}"
+    );
+    let read = set
+        .get(id, &alice.tls_serialize_detached()?)
+        .map(|value| value.map(<[u8]>::to_vec));
+    assert!(
+        matches!(read, Err(ComponentSourceError::UnknownComponent(_))),
+        "{read:?}"
+    );
 }

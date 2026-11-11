@@ -60,13 +60,24 @@
 //! entries, the hash index, the snapshot length, and the counts. A sender
 //! uses one around each pending proposal it considers keeping.
 //!
+//! ## Registry reads
+//!
+//! [`WorkingSet::get`] returns an entry's raw bytes. A registry entry that
+//! the registry does not recognize still has bytes, so read registry
+//! policy through [`WorkingSet::registry_entry`], which hides it as
+//! [`ComponentRegistry::get`] does.
+//!
 //! ## Memory
 //!
 //! A decoded collection keeps its committed entries in the committed bytes,
 //! as ranges, and the values the commit writes in one byte arena, so a map
 //! of `n` committed entries costs about `16n` bytes beyond its bytes.
 
-use std::{borrow::Cow, collections::BTreeMap};
+use std::{
+    borrow::Cow,
+    collections::BTreeMap,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use openmls::messages::proposals::AppDataUpdateOperation;
 use tls_codec::{Deserialize, Serialize, VLBytes};
@@ -75,7 +86,7 @@ use xmtp_mls_tls_collections::{
     tls_map::{TlsMapDelta, TlsMapError, TlsMapMutation},
     tls_set::{TlsKeyHash, TlsSetDelta, TlsSetError, TlsSetMutation},
 };
-use xmtp_proto::xmtp::mls::message_contents::ComponentType;
+use xmtp_proto::xmtp::mls::message_contents::{ComponentMetadata, ComponentType};
 
 #[cfg(doc)]
 use crate::app_data::component_source::apply_app_data_update_payload;
@@ -86,7 +97,8 @@ use crate::{
         component_source::{
             ComponentSourceError, MAX_FIELD_ELEMENT_BYTES, MAX_FIELD_SNAPSHOT_BYTES,
             check_field_bounds, check_group_root_length, check_payload_element_bound,
-            has_payload_bound, is_field_bounded, resolved_type,
+            component_type as well_known_type, has_payload_bound, is_field_bounded,
+            registered_type, registry_type_tag,
         },
         components::{
             tls_map_components::validate_registry_delta,
@@ -106,6 +118,10 @@ use tracked_map::{KeyKind, MapShape, Measured, Replaced, Span, TrackedMap};
 /// The longest vector body tls_codec encodes with its `mls` feature.
 const MAX_VECTOR_BODY: usize = (1 << 30) - 1;
 
+/// Tells working sets apart, so a checkpoint ends only in the set that
+/// took it.
+static NEXT_SET: AtomicUsize = AtomicUsize::new(0);
+
 /// A component's committed bytes, or `None` when it is absent.
 type Base<'a> = Box<dyn Fn(ComponentId) -> Option<&'a [u8]> + 'a>;
 
@@ -123,21 +139,36 @@ pub type ComponentStates = BTreeMap<ComponentId, Option<Zeroizing<Vec<u8>>>>;
 /// with [`Self::into_states`]. See the [module docs](self) for the
 /// guarantees.
 pub struct WorkingSet<'a> {
+    /// Tells this set's checkpoints from another set's.
+    id: usize,
     registry: Cow<'a, ComponentRegistry>,
     base: Base<'a>,
-    /// The types resolved so far.
-    types: BTreeMap<ComponentId, ComponentType>,
+    /// The registry type tag of each component without a well-known type,
+    /// once read: `None` when it has no recognized entry. A type that does
+    /// not resolve keeps its tag too, so each entry decodes at most once.
+    tags: BTreeMap<ComponentId, Option<i32>>,
     components: BTreeMap<ComponentId, Tracked<'a>>,
     undo: Vec<Undo<'a>>,
     /// Live checkpoints. With none, a successful update keeps no undo entries.
     checkpoints: usize,
 }
 
-/// A point that [`WorkingSet::rollback`] returns to. Roll back or release
-/// checkpoints in the reverse order they were taken.
+/// A point that [`WorkingSet::rollback`] returns to.
+///
+/// End checkpoints in the reverse order they were taken, each in the set
+/// that took it. Ending another set's checkpoint, or one taken before a
+/// checkpoint that is still live, is a bug: debug builds panic, and other
+/// builds ignore the call. A checkpoint that is never ended keeps its
+/// changes, as [`WorkingSet::release`] does, but the set then keeps undo
+/// records of every later change until it is dropped.
 #[must_use = "roll back or release a checkpoint"]
 #[derive(Debug)]
 pub struct Checkpoint {
+    /// The set that took it.
+    set: usize,
+    /// How many checkpoints were live when it was taken.
+    depth: usize,
+    /// The undo log's length when it was taken.
     mark: usize,
 }
 
@@ -210,9 +241,10 @@ impl<'a> WorkingSet<'a> {
         base: impl Fn(ComponentId) -> Option<&'a [u8]> + 'a,
     ) -> Self {
         Self {
+            id: NEXT_SET.fetch_add(1, Ordering::Relaxed),
             registry,
             base: Box::new(base),
-            types: BTreeMap::new(),
+            tags: BTreeMap::new(),
             components: BTreeMap::new(),
             undo: Vec::new(),
             checkpoints: 0,
@@ -225,18 +257,25 @@ impl<'a> WorkingSet<'a> {
     }
 
     /// The type of component `id`, as `resolved_type` gives it: its
-    /// well-known type, else the type its registry entry names. Resolved
-    /// once per component.
+    /// well-known type, else the type its registry entry names. Each
+    /// registry entry decodes at most once, whether or not its type
+    /// resolves.
     pub fn component_type(
         &mut self,
         id: ComponentId,
     ) -> Result<ComponentType, ComponentSourceError> {
-        if let Some(ty) = self.types.get(&id) {
-            return Ok(*ty);
+        if let Some(ty) = well_known_type(id) {
+            return Ok(ty);
         }
-        let ty = resolved_type(id, &mut ComponentWriteValidator::new(&self.registry))?;
-        self.types.insert(id, ty);
-        Ok(ty)
+        let tag = match self.tags.get(&id) {
+            Some(tag) => *tag,
+            None => {
+                let tag = registry_type_tag(id, &mut ComponentWriteValidator::new(&self.registry))?;
+                self.tags.insert(id, tag);
+                tag
+            }
+        };
+        registered_type(id, tag)
     }
 
     /// Apply one proposal's operation: [`Self::update`] or [`Self::remove`].
@@ -331,7 +370,9 @@ impl<'a> WorkingSet<'a> {
     /// The value of the entry with the TLS-encoded `key` in collection
     /// `id`, after the proposals applied so far; `None` when the component
     /// or the entry is absent. A set element's value is empty. Decodes the
-    /// committed bytes on first use.
+    /// committed bytes on first use. A registry entry's value is its raw
+    /// bytes, even when the registry does not recognize the entry; read
+    /// registry policy with [`Self::registry_entry`].
     pub fn get(
         &mut self,
         id: ComponentId,
@@ -346,25 +387,39 @@ impl<'a> WorkingSet<'a> {
         Ok(self.collection(id).and_then(|map| map.get(&key)))
     }
 
+    /// The registry entry of component `id` after the proposals applied so
+    /// far, as [`ComponentRegistry::get`] reads it from that registry:
+    /// `None` when the entry is absent or the registry does not recognize
+    /// it.
+    pub fn registry_entry(
+        &mut self,
+        id: ComponentId,
+    ) -> Result<Option<ComponentMetadata>, ComponentSourceError> {
+        let key = id.tls_serialize_detached()?;
+        Ok(self
+            .get(ComponentId::COMPONENT_REGISTRY, &key)?
+            .and_then(|raw| ComponentRegistry::decode_recognized(id, raw).ok()))
+    }
+
     /// The element of set `id` that `hash` names, after the proposals
     /// applied so far: the 32 bytes of an inbox id or the bytes of a byte
     /// string, as `expand_app_data_update_to_changes` reports a
     /// `RemoveByHash`. `None` when the set is absent, holds no such element,
-    /// or `id` is not a set. Decodes the committed bytes and builds the
-    /// hash index on first use, and fails as that expansion does when
-    /// either fails.
+    /// or `id` is not a set. Resolves the type first, decodes the committed
+    /// bytes and builds the hash index on first use, and fails as that
+    /// expansion does when one of them fails.
     pub fn resolve_hash(
         &mut self,
         id: ComponentId,
         hash: &TlsKeyHash,
     ) -> Result<Option<Vec<u8>>, ComponentSourceError> {
-        if !self.present(id) {
-            return Ok(None);
-        }
         let codec = self.codec(id)?;
         let Some(shape) = codec.shape(id).filter(|shape| shape.set) else {
             return Ok(None);
         };
+        if !self.present(id) {
+            return Ok(None);
+        }
         self.load(id, shape, codec)?;
         let Some(map) = self.collection_mut(id) else {
             return Ok(None);
@@ -402,25 +457,43 @@ impl<'a> WorkingSet<'a> {
 
     /// Mark a point to return to.
     pub fn checkpoint(&mut self) -> Checkpoint {
-        self.checkpoints += 1;
-        Checkpoint {
+        let checkpoint = Checkpoint {
+            set: self.id,
+            depth: self.checkpoints,
             mark: self.undo.len(),
-        }
+        };
+        self.checkpoints += 1;
+        checkpoint
     }
 
     /// Undo every update and removal since `checkpoint`.
     pub fn rollback(&mut self, checkpoint: Checkpoint) {
-        self.undo_to(checkpoint.mark);
-        self.release(checkpoint);
+        if self.end(&checkpoint) {
+            self.undo_to(checkpoint.mark);
+            if self.checkpoints == 0 {
+                self.undo.clear();
+            }
+        }
     }
 
     /// Keep every change since `checkpoint`.
     pub fn release(&mut self, checkpoint: Checkpoint) {
-        let Checkpoint { .. } = checkpoint;
-        self.checkpoints = self.checkpoints.saturating_sub(1);
-        if self.checkpoints == 0 {
+        if self.end(&checkpoint) && self.checkpoints == 0 {
             self.undo.clear();
         }
+    }
+
+    /// End `checkpoint` when it is this set's innermost live checkpoint.
+    fn end(&mut self, checkpoint: &Checkpoint) -> bool {
+        let innermost = checkpoint.set == self.id && checkpoint.depth + 1 == self.checkpoints;
+        debug_assert!(
+            innermost,
+            "end a working set's innermost checkpoint, in that set"
+        );
+        if innermost {
+            self.checkpoints -= 1;
+        }
+        innermost
     }
 
     // implements: META-010, META-068
@@ -827,14 +900,40 @@ fn key_bytes(kind: KeyKind, key: &[u8]) -> Result<Box<[u8]>, tls_codec::Error> {
     })
 }
 
-/// Test-only operation counters, per thread.
+/// Test-only operation counters and a hash clash, per thread.
 #[cfg(test)]
 mod counters {
     use std::cell::Cell;
 
+    use xmtp_mls_tls_collections::tls_set::TlsKeyHash;
+
     thread_local! {
         static HASHES: Cell<usize> = const { Cell::new(0) };
         static DECODES: Cell<usize> = const { Cell::new(0) };
+        static CLASH: Cell<bool> = const { Cell::new(false) };
+    }
+
+    /// Run `f` with every key hash that [`key_hash`] passes replaced by one
+    /// value, so any two keys share a hash.
+    pub(super) fn with_hash_clash<R>(f: impl FnOnce() -> R) -> R {
+        struct Reset;
+        impl Drop for Reset {
+            fn drop(&mut self) {
+                CLASH.set(false);
+            }
+        }
+        CLASH.set(true);
+        let _reset = Reset;
+        f()
+    }
+
+    /// `hash`, or inside [`with_hash_clash`] the one hash every key has.
+    pub(super) fn key_hash(hash: TlsKeyHash) -> TlsKeyHash {
+        if CLASH.get() {
+            TlsKeyHash::from_bytes([0; 32])
+        } else {
+            hash
+        }
     }
 
     pub(super) fn count_hash() {

@@ -569,11 +569,14 @@ fn read_bytes(bytes: &[u8], pos: &mut usize) -> Result<(usize, usize), tls_codec
 fn hash_key(kind: KeyKind, key: &[u8]) -> Result<TlsKeyHash, tls_codec::Error> {
     #[cfg(test)]
     super::counters::count_hash();
-    match kind {
+    let hash = match kind {
         KeyKind::InboxId => TlsKeyHash::of(&inbox_id(key)?),
         KeyKind::ComponentId => TlsKeyHash::of(&ComponentId::tls_deserialize_exact(key)?),
         KeyKind::Bytes => TlsKeyHash::of(&VLByteSlice(key)),
-    }
+    }?;
+    #[cfg(test)]
+    let hash = super::counters::key_hash(hash);
+    Ok(hash)
 }
 
 fn inbox_id(key: &[u8]) -> Result<InboxId, tls_codec::Error> {

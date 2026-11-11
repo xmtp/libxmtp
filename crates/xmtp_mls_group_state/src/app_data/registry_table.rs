@@ -14,6 +14,13 @@
 //!    [`WELL_KNOWN`], maintaining ascending sort order.
 //! 3. The compile-time `assert_table_is_sorted_and_unique` check at
 //!    the bottom of this file verifies invariants on every build.
+//! 4. For a collection component, add it to `SUBJECTS` in
+//!    `working_set/tests/differential.rs`. The
+//!    [`WorkingSet`](crate::app_data::working_set::WorkingSet) applies a
+//!    collection by its `ComponentType`, never through the impl, so an
+//!    impl's `apply_update_payload` must not add checks its type lacks.
+//!    The test `every_built_in_collection_is_a_subject` fails until the
+//!    component is a subject.
 //!
 //! Application-range components have no entry and no process-local
 //! handler: every client decodes them with the standard codec for the
@@ -63,6 +70,7 @@ use crate::app_data::{
 /// entry) handle the new id via the **type-aware unknown-component
 /// tolerance** path in:
 ///   - `apply_app_data_update_payload`
+///   - `WorkingSet::update`
 ///   - `expand_app_data_update_to_changes`
 ///   - `validate_one_app_data_update_with_validator`
 ///
