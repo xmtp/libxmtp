@@ -551,42 +551,24 @@ pub fn get_latest_group_membership(
     extract_group_membership(staged_commit.group_context().extensions())
 }
 
-/// Read committed metadata once through the active extension representation.
-/// Decode the post-commit metadata for messages, callbacks, and admin side effects.
+/// Decode the post-commit metadata for messages, callbacks, and admin side
+/// effects from the staged commit's group context. Staging built that
+/// dictionary with the same apply that validation runs, so it holds each
+/// component's value after the commit.
 ///
-/// The post-commit values stay in `Zeroizing` until they are merged, because
-/// one can be the commit-log signer's private key.
+/// The values are borrowed, not copied: one can be the commit-log signer's
+/// private key.
 pub fn read_post_commit_mutable_metadata(
-    group: &OpenMlsGroup,
     staged_commit: &StagedCommit,
-    registry: &xmtp_mls_group_state::app_data::component_registry::ComponentRegistry,
 ) -> Result<GroupMutableMetadata, CommitRuleError> {
     use xmtp_mls_group_state::{
-        app_data::component_id::ComponentId,
-        group_mutable_metadata::{
-            METADATA_FIELD_COMPONENT_MAP, merge_components_into_mutable_metadata,
-        },
+        app_data::component_source::read_from_app_data_dict_from_extensions,
+        group_mutable_metadata::merge_components_into_mutable_metadata,
     };
-    let mut post_commit = HashMap::new();
-    for id in METADATA_FIELD_COMPONENT_MAP
-        .iter()
-        .map(|(_, id)| *id)
-        .chain([ComponentId::ADMIN_LIST, ComponentId::SUPER_ADMIN_LIST])
-    {
-        if let Some(bytes) =
-            xmtp_mls_group_state::app_data::component_source::read_post_commit_component_bytes(
-                id,
-                group,
-                staged_commit,
-                registry,
-            )?
-        {
-            post_commit.insert(id, bytes);
-        }
-    }
+    let post_commit = staged_commit.group_context().extensions();
     let mut metadata = GroupMutableMetadata::new(HashMap::new(), Vec::new(), Vec::new());
     merge_components_into_mutable_metadata(&mut metadata, |id| {
-        post_commit.get(&id).map(|bytes| bytes.as_slice())
+        read_from_app_data_dict_from_extensions(id, post_commit)
     })?;
     Ok(metadata)
 }
@@ -1361,7 +1343,7 @@ pub fn validate_app_data_update_proposals_in_commit(
 ) -> Result<(), CommitRuleError> {
     use xmtp_mls_group_state::app_data::{
         component_id::ComponentId,
-        component_source::{read_from_app_data_dict, read_post_commit_component_bytes},
+        component_source::{read_from_app_data_dict, read_from_app_data_dict_from_extensions},
         validation::ActorAuthority,
     };
 
@@ -1402,16 +1384,16 @@ pub fn validate_app_data_update_proposals_in_commit(
             )?);
         }
     }
+    // Staging built the staged commit's dictionary with the same apply, so
+    // each state the commit leaves is read from it.
+    let post_commit = staged_commit.group_context().extensions();
     // The self-owned policy tests a deleted key against the membership
     // after the commit.
-    let membership = read_post_commit_component_bytes(
+    let membership = membership_inbox_ids(read_from_app_data_dict_from_extensions(
         ComponentId::GROUP_MEMBERSHIP,
-        openmls_group,
-        staged_commit,
-        registry,
-    )
-    .map_err(|_| CommitRuleError::InsufficientPermissions)?;
-    let component_post_states = validate_app_data_update_sequence(
+        post_commit,
+    ));
+    validate_app_data_update_sequence(
         proposals.iter().map(|(queued, leaf)| {
             let proposal = queued.app_data_update_proposal();
             let proposer = &participants[leaf];
@@ -1425,20 +1407,60 @@ pub fn validate_app_data_update_proposals_in_commit(
         |component_id| read_from_app_data_dict(component_id, openmls_group),
         registry,
         immutable_metadata.dm_members.as_ref(),
-        membership_inbox_ids(membership.as_deref().map(Vec::as_slice)).as_ref(),
+        membership.as_ref(),
     )?;
 
-    validate_post_registry(&component_post_states)?;
-    let committed = openmls_group.extensions().app_data_dictionary();
-    validate_post_dictionary_size(
-        committed.map(|e| e.dictionary()),
-        &component_post_states,
+    let writes_registry = proposals.iter().any(|(queued, _)| {
+        ComponentId::from(queued.app_data_update_proposal().component_id())
+            == ComponentId::COMPONENT_REGISTRY
+    });
+    if writes_registry {
+        validate_registry_after_commit(read_from_app_data_dict_from_extensions(
+            ComponentId::COMPONENT_REGISTRY,
+            post_commit,
+        ))?;
+    }
+    let before = openmls_group.extensions().app_data_dictionary();
+    let after = post_commit.app_data_dictionary();
+    validate_dictionary_growth(
+        dictionary_total(before.map(|e| e.dictionary())),
+        dictionary_total(after.map(|e| e.dictionary())),
         MAX_DICTIONARY_BYTES,
     )
 }
 
 /// Most bytes all components other than `GROUP_MEMBERSHIP` may hold together.
 pub const MAX_DICTIONARY_BYTES: usize = 4 << 20;
+
+/// Whether component `id` counts toward the dictionary total.
+fn counts_toward_total(id: ComponentId) -> bool {
+    id != ComponentId::GROUP_MEMBERSHIP
+}
+
+/// The summed value lengths of every component of `dictionary` other than
+/// `GROUP_MEMBERSHIP`.
+fn dictionary_total(dictionary: Option<&AppDataDictionary>) -> usize {
+    dictionary
+        .into_iter()
+        .flat_map(AppDataDictionary::entries)
+        .filter(|component| counts_toward_total(component.id().into()))
+        .map(|component| component.data().len())
+        .sum()
+}
+
+/// Reject a commit that grows the dictionary total from `before` to `after`
+/// past `max`.
+// implements: META-077
+fn validate_dictionary_growth(
+    before: usize,
+    after: usize,
+    max: usize,
+) -> Result<(), CommitRuleError> {
+    if after > max && after > before {
+        return Err(CommitRuleError::InsufficientPermissions);
+    }
+    Ok(())
+}
 
 /// Reject a commit that grows the summed value lengths of every component
 /// other than `GROUP_MEMBERSHIP` past `max`, given the dictionary before it
@@ -1450,37 +1472,34 @@ pub fn validate_post_dictionary_size<'a, K: std::borrow::Borrow<ComponentId>>(
     post: impl IntoIterator<Item = (K, &'a Option<Zeroizing<Vec<u8>>>)>,
     max: usize,
 ) -> Result<(), CommitRuleError> {
-    let counted = |id: ComponentId| id != ComponentId::GROUP_MEMBERSHIP;
     let old = |id: ComponentId| Some(committed?.get(&id.as_u16())?.len());
-    let before: usize = committed
-        .into_iter()
-        .flat_map(AppDataDictionary::entries)
-        .filter(|component| counted(component.id().into()))
-        .map(|component| component.data().len())
-        .sum();
+    let before = dictionary_total(committed);
     let after = post
         .into_iter()
         .map(|(id, state)| (*id.borrow(), state))
-        .filter(|(id, _)| counted(*id))
+        .filter(|(id, _)| counts_toward_total(*id))
         .fold(before, |sum, (id, s)| {
             sum - old(id).unwrap_or(0) + s.as_deref().map_or(0, Vec::len)
         });
-    if after > max && after > before {
-        return Err(CommitRuleError::InsufficientPermissions);
-    }
-    Ok(())
+    validate_dictionary_growth(before, after, max)
 }
 
 /// Validate the registry `post_states` leave, if they change it: required
 /// action entries must remain present, and every child in each action tree
 /// must be valid.
 pub fn validate_post_registry(post_states: &AppDataPostStates) -> Result<(), CommitRuleError> {
-    let Some(post_registry) = post_states.get(&ComponentId::COMPONENT_REGISTRY) else {
-        return Ok(());
-    };
-    let bytes = post_registry
-        .as_deref()
-        .ok_or(CommitRuleError::InsufficientPermissions)?;
+    match post_states.get(&ComponentId::COMPONENT_REGISTRY) {
+        Some(post_registry) => {
+            validate_registry_after_commit(post_registry.as_deref().map(Vec::as_slice))
+        }
+        None => Ok(()),
+    }
+}
+
+/// Validate `post_registry`, the registry a commit that writes it leaves
+/// (`None` once removed), as [`validate_post_registry`] does.
+fn validate_registry_after_commit(post_registry: Option<&[u8]>) -> Result<(), CommitRuleError> {
+    let bytes = post_registry.ok_or(CommitRuleError::InsufficientPermissions)?;
     let registry =
         xmtp_mls_group_state::app_data::component_registry::ComponentRegistry::from_bytes(bytes)
             .map_err(|_| CommitRuleError::InsufficientPermissions)?;
