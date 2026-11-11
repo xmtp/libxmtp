@@ -574,23 +574,24 @@ pub fn get_latest_group_membership(
 }
 
 /// Decode the post-commit metadata for messages, callbacks, and admin side
-/// effects from the staged commit's group context. Staging built that
-/// dictionary with the same apply that validation runs, so it holds each
-/// component's value after the commit.
+/// effects: each component's state in `post_states`, the states
+/// [`validate_app_data_update_proposals_in_commit`] returns for a commit,
+/// else its committed bytes in `group`.
 ///
 /// The values are borrowed, not copied: one can be the commit-log signer's
 /// private key.
 pub fn read_post_commit_mutable_metadata(
-    staged_commit: &StagedCommit,
+    group: &OpenMlsGroup,
+    post_states: &AppDataPostStates,
 ) -> Result<GroupMutableMetadata, CommitRuleError> {
     use xmtp_mls_group_state::{
-        app_data::component_source::read_from_app_data_dict_from_extensions,
+        app_data::component_source::read_from_app_data_dict,
         group_mutable_metadata::merge_components_into_mutable_metadata,
     };
-    let post_commit = staged_commit.group_context().extensions();
     let mut metadata = GroupMutableMetadata::new(HashMap::new(), Vec::new(), Vec::new());
-    merge_components_into_mutable_metadata(&mut metadata, |id| {
-        read_from_app_data_dict_from_extensions(id, post_commit)
+    merge_components_into_mutable_metadata(&mut metadata, |id| match post_states.get(&id) {
+        Some(state) => state.as_deref().map(Vec::as_slice),
+        None => read_from_app_data_dict(id, group),
     })?;
     Ok(metadata)
 }
@@ -1478,6 +1479,11 @@ fn validate_sequence_in<'a>(
 /// [`validate_one_app_data_update`] so the core logic stays shared with
 /// the standalone-proposal path in `validate_proposal`.
 ///
+/// Returns the state each touched component holds after the proposals,
+/// which every post-commit read of the commit uses. They come from the
+/// proposals validated here, not from the staged commit's dictionary: see
+/// [`read_post_commit_component_bytes`](xmtp_mls_group_state::app_data::component_source::read_post_commit_component_bytes).
+///
 /// # Registry semantics
 ///
 /// `registry` is the committed registry shared with the other component checks.
@@ -1488,10 +1494,10 @@ pub fn validate_app_data_update_proposals_in_commit(
     immutable_metadata: &GroupMetadata,
     mutable_metadata: &GroupMutableMetadata,
     registry: &xmtp_mls_group_state::app_data::component_registry::ComponentRegistry,
-) -> Result<(), CommitRuleError> {
+) -> Result<AppDataPostStates, CommitRuleError> {
     use xmtp_mls_group_state::app_data::{
         component_id::ComponentId,
-        component_source::{read_from_app_data_dict, read_from_app_data_dict_from_extensions},
+        component_source::{read_from_app_data_dict, read_post_commit_component_bytes},
         validation::ActorAuthority,
     };
 
@@ -1509,7 +1515,7 @@ pub fn validate_app_data_update_proposals_in_commit(
     // bypass the loop.
     let mut proposals = staged_commit.app_data_update_proposals().peekable();
     if proposals.peek().is_none() {
-        return Ok(());
+        return Ok(AppDataPostStates::new());
     }
 
     // A single commit's bootstrap can carry multiple AppDataUpdate proposals
@@ -1532,23 +1538,16 @@ pub fn validate_app_data_update_proposals_in_commit(
             )?);
         }
     }
-    // Staging built the staged commit's dictionary with the same apply, so
-    // each state the commit leaves is read from it.
-    let post_commit = staged_commit.group_context().extensions();
     // The self-owned policy tests a deleted key against the membership
     // after the commit.
-    let membership = membership_inbox_ids(read_from_app_data_dict_from_extensions(
+    let membership = read_post_commit_component_bytes(
         ComponentId::GROUP_MEMBERSHIP,
-        post_commit,
-    ));
-    // The commit's states are read from the staged commit below, so the
-    // working set is never encoded.
-    let mut set = WorkingSet::new(Cow::Borrowed(registry), |component_id| {
-        read_from_app_data_dict(component_id, openmls_group)
-    });
-    validate_sequence_in(
-        &mut set,
-        &mut ComponentWriteValidator::new(registry),
+        openmls_group,
+        staged_commit,
+        registry,
+    )
+    .map_err(|_| CommitRuleError::InsufficientPermissions)?;
+    validate_app_data_commit(
         proposals.iter().map(|(queued, leaf)| {
             let proposal = queued.app_data_update_proposal();
             let proposer = &participants[leaf];
@@ -1559,27 +1558,37 @@ pub fn validate_app_data_update_proposals_in_commit(
                 proposer_inbox_id: &proposer.inbox_id,
             }
         }),
+        |component_id| read_from_app_data_dict(component_id, openmls_group),
+        openmls_group
+            .extensions()
+            .app_data_dictionary()
+            .map(|extension| extension.dictionary()),
+        registry,
         immutable_metadata.dm_members.as_ref(),
-        membership.as_ref(),
-    )?;
-
-    let writes_registry = proposals.iter().any(|(queued, _)| {
-        ComponentId::from(queued.app_data_update_proposal().component_id())
-            == ComponentId::COMPONENT_REGISTRY
-    });
-    if writes_registry {
-        validate_registry_after_commit(read_from_app_data_dict_from_extensions(
-            ComponentId::COMPONENT_REGISTRY,
-            post_commit,
-        ))?;
-    }
-    let before = openmls_group.extensions().app_data_dictionary();
-    let after = post_commit.app_data_dictionary();
-    validate_dictionary_growth(
-        dictionary_total(before.map(|e| e.dictionary())),
-        dictionary_total(after.map(|e| e.dictionary())),
-        MAX_DICTIONARY_BYTES,
+        membership_inbox_ids(membership.as_deref().map(Vec::as_slice)).as_ref(),
     )
+}
+
+/// Validate a commit's `AppDataUpdate` proposals in order with
+/// [`validate_app_data_update_sequence`], then the registry and the
+/// dictionary total the states it returns leave, and return those states.
+/// `committed` and `committed_dictionary` read the dictionary before the
+/// commit.
+fn validate_app_data_commit<'a, 'c>(
+    updates: impl IntoIterator<Item = AppDataUpdateInCommit<'a>>,
+    committed: impl Fn(ComponentId) -> Option<&'c [u8]>,
+    committed_dictionary: Option<&AppDataDictionary>,
+    registry: &ComponentRegistry,
+    dm_members: Option<&DmMembers<String>>,
+    membership: Option<&HashSet<InboxId>>,
+) -> Result<AppDataPostStates, CommitRuleError> {
+    let post_states =
+        validate_app_data_update_sequence(updates, committed, registry, dm_members, membership)?;
+    if let Some(post_registry) = post_states.get(&ComponentId::COMPONENT_REGISTRY) {
+        validate_registry_after_commit(post_registry.as_deref().map(Vec::as_slice))?;
+    }
+    validate_post_dictionary_size(committed_dictionary, &post_states, MAX_DICTIONARY_BYTES)?;
+    Ok(post_states)
 }
 
 /// Most bytes all components other than `GROUP_MEMBERSHIP` may hold together.

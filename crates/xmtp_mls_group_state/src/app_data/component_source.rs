@@ -56,13 +56,14 @@ use crate::{
         registry_table::lookup_component,
         typed::ComponentTypedError,
         validation::ComponentWriteValidator,
+        working_set::WorkingSet,
     },
     group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError, MetadataField},
     inbox_id::{InboxId, InboxIdError},
 };
 use openmls::{
     extensions::Extensions,
-    group::{GroupContext, MlsGroup as OpenMlsGroup},
+    group::{GroupContext, MlsGroup as OpenMlsGroup, StagedCommit},
     messages::proposals::AppDataUpdateOperation,
 };
 use tls_codec::{Deserialize, Serialize, VLBytes};
@@ -341,6 +342,42 @@ pub fn read_component_bytes(
     extensions: &Extensions<GroupContext>,
 ) -> Result<Option<&[u8]>, ComponentSourceError> {
     Ok(read_from_app_data_dict_from_extensions(id, extensions))
+}
+
+/// The value component `id` holds after `staged_commit`'s `AppDataUpdate`
+/// proposals, as commit validation judges them: each `Update` in
+/// `staged_commit.app_data_update_proposals()` applied in order to the
+/// pre-commit dictionary of `mls_group`, a `Remove` leaving `None`.
+///
+/// Those proposals are OpenMLS's proposal queue, which keeps the first of
+/// proposals with the same reference. The staged commit's own dictionary is
+/// built from the commit's proposal list, which can repeat a proposal, so it
+/// can differ from what validation judged. Post-commit checks read this
+/// value instead, as release clients do, so members reach the same verdict.
+///
+/// One [`WorkingSet`] holds the component, so the work is linear in the
+/// proposals' bytes. Returns `Err` when an `Update` does not apply, with the
+/// error [`apply_app_data_update_payload`] gives.
+///
+/// `registry` is the pre-commit `COMPONENT_REGISTRY`, which every
+/// component check of the commit shares. The value can be the commit-log
+/// signer's private key, so it is `Zeroizing`.
+pub fn read_post_commit_component_bytes(
+    id: ComponentId,
+    mls_group: &OpenMlsGroup,
+    staged_commit: &StagedCommit,
+    registry: &ComponentRegistry,
+) -> Result<Option<Zeroizing<Vec<u8>>>, ComponentSourceError> {
+    let mut set = WorkingSet::new(std::borrow::Cow::Borrowed(registry), |component| {
+        read_from_app_data_dict(component, mls_group)
+    });
+    for queued in staged_commit.app_data_update_proposals() {
+        let proposal = queued.app_data_update_proposal();
+        if proposal.component_id() == id.as_u16() {
+            set.apply(id, proposal.operation())?;
+        }
+    }
+    set.encode(id)
 }
 
 /// Look up the component's bytes in the OpenMLS AppData dictionary.
