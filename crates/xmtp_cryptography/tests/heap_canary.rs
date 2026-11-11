@@ -4,7 +4,7 @@
 // The heap-canary harness is Unix-only (`libc::memmem`).
 #![cfg(unix)]
 
-use std::hint::black_box;
+use std::{hint::black_box, mem::MaybeUninit};
 
 use xmtp_cryptography::secret::{
     Zeroizing,
@@ -20,6 +20,32 @@ const KEY: [u8; 32] = [
 
 fn key_vec() -> Vec<u8> {
     black_box(KEY.to_vec())
+}
+
+/// Bytes of stack below the caller that [`leave_key_in_dead_stack`] fills:
+/// more than the frames of a scan and [`copy_dead_stack`] take.
+const DEAD_STACK: usize = 64 * 1024;
+/// Bytes of unwritten stack that [`copy_dead_stack`] copies.
+const COPIED_STACK: usize = 4 * 1024;
+
+/// Fill the stack below the caller with the key, as earlier work on the
+/// thread can leave a secret there.
+#[inline(never)]
+fn leave_key_in_dead_stack() {
+    let mut stack = [0u8; DEAD_STACK];
+    for chunk in stack.chunks_exact_mut(KEY.len()) {
+        chunk.copy_from_slice(&KEY);
+    }
+    black_box(&mut stack);
+}
+
+/// Copy unwritten stack below the caller to the heap, as a move of a short
+/// variant of a large enum copies the unwritten rest of the enum.
+#[inline(never)]
+fn copy_dead_stack() -> Box<MaybeUninit<[u8; COPIED_STACK]>> {
+    let mut stack = MaybeUninit::uninit();
+    black_box(&mut stack);
+    Box::new(stack)
 }
 
 #[test]
@@ -121,5 +147,17 @@ async fn scan_async_counts_frees_on_other_workers() {
     })
     .await;
     assert_ne!(worker_thread, test_thread);
+    assert_eq!(hits, [1]);
+}
+
+/// A scan does not wipe the stack it starts with. Code under test that
+/// copies dead stack to the heap, as a move of a short enum variant does,
+/// frees a copy of a secret that earlier work left there, and the scan
+/// counts it.
+#[test]
+fn freed_copy_of_dead_stack_is_a_hit() {
+    let canary = Canary::new(&KEY);
+    leave_key_in_dead_stack();
+    let ((), hits) = scan(&[canary], || drop(black_box(copy_dead_stack())));
     assert_eq!(hits, [1]);
 }
