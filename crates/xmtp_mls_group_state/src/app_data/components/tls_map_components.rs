@@ -233,9 +233,10 @@ pub struct ComponentRegistryComponent;
 ///   (Poisoned entries under modifiable ids remain repairable — their
 ///   Delete passes this check and removes the raw entry at apply.)
 ///
-/// Shared by [`ComponentRegistryComponent::apply_update_payload`] and
-/// [`ComponentRegistryComponent::expand_to_changes`], so both call
-/// sites judge a delta's mutations identically. Scope caveat: this
+/// Shared by [`ComponentRegistryComponent::apply_update_payload`],
+/// [`ComponentRegistryComponent::expand_to_changes`], and the
+/// [`WorkingSet`](crate::app_data::working_set::WorkingSet), so every call
+/// site judges a delta's mutations identically. Scope caveat: this
 /// helper only sees `Update` payloads (the `TlsMapDelta`). The
 /// whole-registry `AppDataUpdateOperation::Remove` rejection in
 /// `expand_to_changes` is enforced only during commit validation
@@ -246,7 +247,7 @@ pub struct ComponentRegistryComponent;
 /// re-check because both current commit-processing paths validate
 /// before applying. The Remove ban is a validator-side guarantee, not
 /// an apply-time one.
-fn validate_registry_delta(
+pub(crate) fn validate_registry_delta(
     delta: &TlsMapDelta<ComponentId, VLBytes>,
 ) -> Result<(), ComponentTypedError> {
     for mutation in &delta.mutations {

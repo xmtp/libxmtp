@@ -4,6 +4,8 @@
 //! [`fields`] is the developer-facing view: typed metadata fields and user
 //! data read from one committed dictionary snapshot.
 //! [`typed_facade`] gives protocol code single typed component reads.
+//! [`working_set`] applies one commit's updates with each component decoded
+//! once.
 
 pub mod component_id;
 pub mod component_permissions;
@@ -21,3 +23,4 @@ pub mod registry_table;
 pub mod typed;
 pub mod typed_facade;
 pub mod validation;
+pub mod working_set;

@@ -11,7 +11,7 @@ use super::*;
 /// 2. On-dict [`ComponentRegistry`] entry, which `validator` decodes once —
 ///    covers components a *newer* release ships that this client has never
 ///    heard of; the registry's `component_type` tag is the type oracle.
-pub(super) fn resolved_type(
+pub(crate) fn resolved_type(
     id: ComponentId,
     validator: &mut ComponentWriteValidator<'_>,
 ) -> Result<ComponentType, ComponentSourceError> {
@@ -21,7 +21,7 @@ pub(super) fn resolved_type(
 /// Whether the field bounds cover component `id`: application components,
 /// `USER_DISPLAY_NAME`, `GROUP_IMAGE`, and `COMPONENT_REGISTRY`, whose
 /// application-range entries a DM participant may write.
-pub(super) fn is_field_bounded(id: ComponentId) -> bool {
+pub(crate) fn is_field_bounded(id: ComponentId) -> bool {
     id.is_app_range()
         || [
             ComponentId::USER_DISPLAY_NAME,
@@ -29,6 +29,13 @@ pub(super) fn is_field_bounded(id: ComponentId) -> bool {
             ComponentId::COMPONENT_REGISTRY,
         ]
         .contains(&id)
+}
+
+/// Whether an update payload of component `id` is held to the element
+/// bound: a field-bounded component, or `GROUP_MEMBERSHIP`, whose payload
+/// entries are bounded so a stored entry never blocks commits.
+pub(crate) fn has_payload_bound(id: ComponentId) -> bool {
+    is_field_bounded(id) || id == ComponentId::GROUP_MEMBERSHIP
 }
 
 /// Reject an `AppDataUpdate::Update` payload for component `id` that names
@@ -42,12 +49,22 @@ pub(super) fn check_update_payload_bounds(
     payload: &[u8],
     validator: &mut ComponentWriteValidator<'_>,
 ) -> Result<(), ComponentSourceError> {
-    // GROUP_MEMBERSHIP: payload entries only, so a stored entry never blocks commits.
-    if !is_field_bounded(id) && id != ComponentId::GROUP_MEMBERSHIP {
+    if !has_payload_bound(id) {
         return Ok(());
     }
+    check_payload_element_bound(id, resolved_type(id, validator)?, payload)
+}
+
+/// [`check_update_payload_bounds`] for a component whose type `ty` is
+/// already resolved.
+// implements: META-068
+pub(crate) fn check_payload_element_bound(
+    id: ComponentId,
+    ty: ComponentType,
+    payload: &[u8],
+) -> Result<(), ComponentSourceError> {
     // A removal by hash names no key bytes.
-    let longest = match resolved_type(id, validator)? {
+    let longest = match ty {
         ComponentType::Bytes | ComponentType::String => Some(payload.len()),
         ComponentType::TlsSetBytes => TlsSetDelta::<VLBytes>::tls_deserialize_exact(payload)?
             .mutations
@@ -105,7 +122,7 @@ where
 /// [`MAX_FIELD_SNAPSHOT_BYTES`]. `InboxId` and `ComponentId` keys have a
 /// fixed size, so only byte keys and values are measured element by element.
 // implements: META-068
-pub(super) fn check_field_bounds(
+pub(crate) fn check_field_bounds(
     id: ComponentId,
     ty: ComponentType,
     value: &[u8],

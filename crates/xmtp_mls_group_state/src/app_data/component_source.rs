@@ -65,7 +65,11 @@ use xmtp_proto::xmtp::mls::message_contents::ComponentType;
 mod bounds;
 mod metadata_reads;
 
-use bounds::{check_field_bounds, check_update_payload_bounds, is_field_bounded, resolved_type};
+use bounds::check_update_payload_bounds;
+pub(crate) use bounds::{
+    check_field_bounds, check_payload_element_bound, has_payload_bound, is_field_bounded,
+    resolved_type,
+};
 #[cfg(test)]
 use metadata_reads::encode_inbox_id_set;
 pub use metadata_reads::{
@@ -508,7 +512,10 @@ pub fn expand_app_data_update_to_changes_with_validator(
 /// Reject a `GROUP_ROOT_KEY` value that is not 32 bytes, the length the
 /// well-known component table gives the group root.
 // implements: META-010
-fn check_group_root_length(id: ComponentId, value: &[u8]) -> Result<(), ComponentSourceError> {
+pub(crate) fn check_group_root_length(
+    id: ComponentId,
+    value: &[u8],
+) -> Result<(), ComponentSourceError> {
     if id == ComponentId::GROUP_ROOT_KEY && value.len() != GROUP_ROOT_BYTES {
         return Err(ComponentSourceError::MalformedComponentValue {
             component_id: id,
