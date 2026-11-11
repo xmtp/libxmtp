@@ -5,7 +5,7 @@
 //! [`TlsMap`] maintains entries in sorted key order so that serialization is
 //! byte-identical across implementations. [`TlsMapDelta`] provides an atomic
 //! mutation batch (insert / update / delete) that can be serialized independently
-//! and applied to a map with automatic rollback on failure.
+//! and applied to a map, which a failed delta leaves unchanged.
 //!
 //! # Complexity
 //!
@@ -16,15 +16,44 @@
 //! large datasets — use [`std::collections::BTreeMap`] or [`std::collections::HashMap`]
 //! instead.
 //!
+//! [`TlsMap::apply_delta`] does not shift entries per mutation: it collects a
+//! delta's changes and merges them into the entries once, so a delta of `m`
+//! mutations to a map of `n` entries costs **O(m log(n + m) + n)**.
+//!
 //! In testing, a Vec and a BTreeMap were used to compare performance.
 //! The Vec was faster even for large maps at up to 50k entries for all
 //! operations except for insert and remove which were only half as fast.
 //! The Vec implementation is more memory efficient and significantly
 //! faster at deserialization.
 
+use std::collections::BTreeMap;
 use std::io::{Read, Write};
 
 use tls_codec::{Deserialize, Serialize, Size};
+
+#[cfg(test)]
+thread_local! {
+    /// Entries this thread wrote to a new position in an entry vector.
+    static ENTRY_MOVES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Count `moved` entries written to a new position. Only test builds keep
+/// the count; `count_entry_moves` reads it.
+#[inline]
+fn count_moves(moved: usize) {
+    #[cfg(test)]
+    ENTRY_MOVES.set(ENTRY_MOVES.get() + moved as u64);
+    #[cfg(not(test))]
+    let _ = moved;
+}
+
+/// Run `f` and return how many entries it wrote to a new position.
+#[cfg(test)]
+pub(crate) fn count_entry_moves<R>(f: impl FnOnce() -> R) -> (R, u64) {
+    let before = ENTRY_MOVES.get();
+    let result = f();
+    (result, ENTRY_MOVES.get() - before)
+}
 
 /// Error type for [`TlsMap`] operations.
 #[derive(Debug, thiserror::Error)]
@@ -177,6 +206,7 @@ where
         match self.entries.binary_search_by(|e| e.key.cmp(&key)) {
             Ok(_) => Err(TlsMapError::KeyExists),
             Err(idx) => {
+                count_moves(self.entries.len() - idx + 1);
                 self.entries.insert(idx, TlsMapEntry { key, value });
                 Ok(())
             }
@@ -220,7 +250,10 @@ where
     pub fn set(&mut self, key: K, value: V) {
         match self.entries.binary_search_by(|e| e.key.cmp(&key)) {
             Ok(idx) => self.entries[idx].value = value,
-            Err(idx) => self.entries.insert(idx, TlsMapEntry { key, value }),
+            Err(idx) => {
+                count_moves(self.entries.len() - idx + 1);
+                self.entries.insert(idx, TlsMapEntry { key, value });
+            }
         }
     }
 
@@ -237,7 +270,10 @@ where
     #[inline]
     pub fn remove(&mut self, key: &K) -> Result<V, TlsMapError> {
         match self.entries.binary_search_by(|e| e.key.cmp(key)) {
-            Ok(idx) => Ok(self.entries.remove(idx).value),
+            Ok(idx) => {
+                count_moves(self.entries.len() - idx - 1);
+                Ok(self.entries.remove(idx).value)
+            }
             Err(_) => Err(TlsMapError::KeyNotFound),
         }
     }
@@ -370,16 +406,6 @@ where
 
 // -- Delta operations --
 
-/// Undo action for rolling back a mutation during [`TlsMap::apply_delta`].
-enum UndoAction<K, V> {
-    /// Undo an insert by removing the key.
-    Remove(K),
-    /// Undo an update by restoring the previous value.
-    Restore(K, V),
-    /// Undo a delete by re-inserting the key-value pair.
-    Insert(K, V),
-}
-
 /// A single mutation to apply to a [`TlsMap`].
 ///
 /// Wire format: `u8(tag) || K(tls) [|| V(tls)]` where tag 0 = Insert, 1 = Update, 2 = Delete.
@@ -465,9 +491,16 @@ impl<K, V> Default for TlsMapDelta<K, V> {
 
 impl<K, V> TlsMap<K, V>
 where
-    K: Ord + Eq + Clone,
+    K: Ord + Eq,
 {
     /// Apply a delta atomically. If any mutation fails, the map is unchanged.
+    ///
+    /// Mutations apply in order, each to the result of the ones before it,
+    /// and the first one that fails decides the error: an insert of a
+    /// present key is [`TlsMapError::KeyExists`], and an update or delete of
+    /// an absent key is [`TlsMapError::KeyNotFound`]. The changed keys
+    /// collect in an overlay that is merged into the entries once, after
+    /// every mutation succeeds.
     ///
     /// ```
     /// use xmtp_mls_tls_collections::tls_map::{TlsMap, TlsMapDelta};
@@ -486,55 +519,53 @@ where
     /// ```
     // implements: META-013
     pub fn apply_delta(&mut self, delta: TlsMapDelta<K, V>) -> Result<(), TlsMapError> {
-        let mut undo_stack: Vec<UndoAction<K, V>> = Vec::with_capacity(delta.mutations.len());
-
+        // Each changed key's value after the mutations so far; `None` once
+        // deleted.
+        let mut changed = BTreeMap::<K, Option<V>>::new();
         for mutation in delta.mutations {
-            match mutation {
-                TlsMapMutation::Insert { key, value } => {
-                    if let Err(e) = self.insert(key.clone(), value) {
-                        self.rollback(undo_stack);
-                        return Err(e);
-                    }
-                    undo_stack.push(UndoAction::Remove(key));
-                }
-                TlsMapMutation::Update { key, mut value } => match self.get_mut(&key) {
-                    Some(old) => {
-                        std::mem::swap(old, &mut value);
-                        undo_stack.push(UndoAction::Restore(key, value));
-                    }
-                    None => {
-                        self.rollback(undo_stack);
-                        return Err(TlsMapError::KeyNotFound);
-                    }
-                },
-                TlsMapMutation::Delete { key } => match self.remove(&key) {
-                    Ok(old) => {
-                        undo_stack.push(UndoAction::Insert(key, old));
-                    }
-                    Err(e) => {
-                        self.rollback(undo_stack);
-                        return Err(e);
-                    }
-                },
+            let (key, value, must_exist) = match mutation {
+                TlsMapMutation::Insert { key, value } => (key, Some(value), false),
+                TlsMapMutation::Update { key, value } => (key, Some(value), true),
+                TlsMapMutation::Delete { key } => (key, None, true),
+            };
+            let present = changed
+                .get(&key)
+                .map_or_else(|| self.contains_key(&key), Option::is_some);
+            if present != must_exist {
+                return Err(if present {
+                    TlsMapError::KeyExists
+                } else {
+                    TlsMapError::KeyNotFound
+                });
             }
+            changed.insert(key, value);
         }
-
+        self.merge(changed);
         Ok(())
     }
 
-    /// Replay undo actions in reverse to restore the map to its prior state.
-    fn rollback(&mut self, undo_stack: Vec<UndoAction<K, V>>) {
-        for action in undo_stack.into_iter().rev() {
-            match action {
-                UndoAction::Remove(key) => {
-                    // ignore the error as it only happens if the key is not present
-                    let _ = self.remove(&key);
-                }
-                UndoAction::Restore(key, value) | UndoAction::Insert(key, value) => {
-                    self.set(key, value);
-                }
+    /// Merge `changed` into the entries in one pass: a changed key's value
+    /// replaces its entry, and `None` drops the entry.
+    fn merge(&mut self, changed: BTreeMap<K, Option<V>>) {
+        if changed.is_empty() {
+            return;
+        }
+        let mut entries = std::mem::take(&mut self.entries).into_iter().peekable();
+        let mut merged = Vec::with_capacity(entries.len() + changed.len());
+        for (key, value) in changed {
+            // Keep the entries before the changed key.
+            while let Some(entry) = entries.next_if(|entry| entry.key < key) {
+                merged.push(entry);
+            }
+            // Drop the entry that the change replaces or deletes.
+            entries.next_if(|entry| entry.key == key);
+            if let Some(value) = value {
+                merged.push(TlsMapEntry { key, value });
             }
         }
+        merged.extend(entries);
+        count_moves(merged.len());
+        self.entries = merged;
     }
 }
 

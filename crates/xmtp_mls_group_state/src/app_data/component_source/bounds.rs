@@ -8,14 +8,14 @@ use super::*;
 /// 1. In-code [`component_type`] mapping — covers well-known XMTP ids,
 ///    including those with no typed decoder (immutable seeds like
 ///    CREATOR_INBOX_ID — bootstrap-only first-write path).
-/// 2. On-dict [`ComponentRegistry`] entry — covers components a *newer*
-///    release ships that this client has never heard of; the registry's
-///    `component_type` tag is the type oracle.
+/// 2. On-dict [`ComponentRegistry`] entry, which `validator` decodes once —
+///    covers components a *newer* release ships that this client has never
+///    heard of; the registry's `component_type` tag is the type oracle.
 pub(super) fn resolved_type(
     id: ComponentId,
-    registry: &ComponentRegistry,
+    validator: &mut ComponentWriteValidator<'_>,
 ) -> Result<ComponentType, ComponentSourceError> {
-    component_type(id).map_or_else(|| registered_component_type(id, registry), Ok)
+    component_type(id).map_or_else(|| registered_component_type(id, validator), Ok)
 }
 
 /// Whether the field bounds cover component `id`: application components,
@@ -40,14 +40,14 @@ pub(super) fn is_field_bounded(id: ComponentId) -> bool {
 pub(super) fn check_update_payload_bounds(
     id: ComponentId,
     payload: &[u8],
-    registry: &ComponentRegistry,
+    validator: &mut ComponentWriteValidator<'_>,
 ) -> Result<(), ComponentSourceError> {
     // GROUP_MEMBERSHIP: payload entries only, so a stored entry never blocks commits.
     if !is_field_bounded(id) && id != ComponentId::GROUP_MEMBERSHIP {
         return Ok(());
     }
     // A removal by hash names no key bytes.
-    let longest = match resolved_type(id, registry)? {
+    let longest = match resolved_type(id, validator)? {
         ComponentType::Bytes | ComponentType::String => Some(payload.len()),
         ComponentType::TlsSetBytes => TlsSetDelta::<VLBytes>::tls_deserialize_exact(payload)?
             .mutations
@@ -172,10 +172,10 @@ fn check_element_bound(id: ComponentId, len: usize) -> Result<(), ComponentSourc
 /// from being applied opaquely.
 fn registered_component_type(
     id: ComponentId,
-    registry: &ComponentRegistry,
+    validator: &mut ComponentWriteValidator<'_>,
 ) -> Result<ComponentType, ComponentSourceError> {
-    let meta = registry
-        .get(&id)
+    let meta = validator
+        .entry(id)
         .map_err(|e| ComponentSourceError::MalformedComponentValue {
             component_id: id,
             reason: format!("registry lookup: {e}"),

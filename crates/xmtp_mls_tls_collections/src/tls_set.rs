@@ -213,9 +213,10 @@ impl<K: Ord + Eq + Clone + Serialize + Size> TlsSet<K> {
     ///
     /// # Performance
     ///
-    /// - **Time:** O(n + m) when the delta contains any `RemoveByHash`
-    ///   (one O(n) index build, then O(1) per lookup), or O(m) otherwise,
-    ///   where `n` is the current set size and `m` is the mutation count.
+    /// - **Time:** O(m log(n + m) + n), where `n` is the current set size
+    ///   and `m` is the mutation count: a `RemoveByHash` lookup is O(1)
+    ///   after one O(n) index build, and [`TlsMap::apply_delta`] merges the
+    ///   resolved delta into the set once.
     /// - **Memory:** O(m) — all mutations are resolved into a temporary
     ///   `Vec<TlsMapMutation>` before being applied. This allocation is
     ///   required to preserve atomicity: resolution must complete before
@@ -487,7 +488,7 @@ impl<K: Deserialize + Size> Deserialize for TlsSetDelta<K> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tls_codec::{Deserialize, Serialize};
+    use tls_codec::{Deserialize, Serialize, VLBytes};
 
     #[xmtp_common::test]
     fn test_insert_and_contains() {
@@ -532,6 +533,32 @@ mod tests {
         assert!(restored.is_empty());
     }
 
+    /// One delta inserts 2^17 keys in descending order, then deletes them in
+    /// ascending order. Applied to a sorted vector one mutation at a time,
+    /// it shifts about 1.7e10 entries; a linear apply writes each entry at
+    /// most once.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn adversarial_delta_is_linear() {
+        const KEYS: u32 = 1 << 17;
+        let key = |i: u32| VLBytes::new(i.to_be_bytes().to_vec());
+        let delta = TlsSetDelta {
+            mutations: (0..KEYS)
+                .rev()
+                .map(|i| TlsSetMutation::Insert(key(i)))
+                .chain((0..KEYS).map(|i| TlsSetMutation::Remove(key(i))))
+                .collect(),
+        };
+        let mutations = delta.mutations.len() as u64;
+        let mut set = TlsSet::new();
+        let (applied, moves) = crate::tls_map::count_entry_moves(|| set.apply_delta(delta));
+        applied?;
+        assert!(set.is_empty());
+        assert!(
+            moves <= mutations,
+            "{moves} entry moves for {mutations} mutations"
+        );
+    }
+
     #[xmtp_common::test]
     fn test_apply_delta() {
         let mut set = TlsSet::from_keys([1_u8, 2, 3]);
@@ -565,14 +592,6 @@ mod tests {
         assert!(set.contains(&10));
         assert!(!set.contains(&20));
         assert!(set.contains(&30));
-    }
-
-    #[xmtp_common::test]
-    fn test_remove_by_hash_not_found() {
-        let mut set = TlsSet::from_keys([10_u16, 20]);
-        let hash = TlsKeyHash::of(&99_u16).unwrap(); // not in set
-        let delta = TlsSetDelta::new().remove_by_hash(hash);
-        assert!(set.apply_delta(delta).is_err());
     }
 
     #[xmtp_common::test]

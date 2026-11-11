@@ -43,6 +43,7 @@ use crate::{
         components::type_dispatch::{apply_update_payload_for_type, expand_to_changes_for_type},
         registry_table::lookup_component,
         typed::ComponentTypedError,
+        validation::ComponentWriteValidator,
     },
     group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError, MetadataField},
     inbox_id::{InboxId, InboxIdError},
@@ -463,6 +464,22 @@ pub fn expand_app_data_update_to_changes(
     old_value: Option<&[u8]>,
     registry: &ComponentRegistry,
 ) -> Result<Zeroizing<Vec<ExpandedComponentChange>>, ComponentSourceError> {
+    expand_app_data_update_to_changes_with_validator(
+        component_id,
+        operation,
+        old_value,
+        &mut ComponentWriteValidator::new(registry),
+    )
+}
+
+/// [`expand_app_data_update_to_changes`], resolving an unknown component's
+/// type from the registry entry that `validator` decodes once.
+pub fn expand_app_data_update_to_changes_with_validator(
+    component_id: ComponentId,
+    operation: &AppDataUpdateOperation,
+    old_value: Option<&[u8]>,
+    validator: &mut ComponentWriteValidator<'_>,
+) -> Result<Zeroizing<Vec<ExpandedComponentChange>>, ComponentSourceError> {
     if let Some(component) = lookup_component(component_id) {
         return component
             .expand_to_changes(operation, old_value)
@@ -475,7 +492,7 @@ pub fn expand_app_data_update_to_changes(
     // `TlsMap` deltas — surfaces a proper per-element change list to the
     // validator. Old and new clients converge on the same dict state for
     // the same wire bytes.
-    let ty = resolved_type(component_id, registry)?;
+    let ty = resolved_type(component_id, validator)?;
     let changes = Zeroizing::new(expand_to_changes_for_type(
         component_id,
         ty,
@@ -528,7 +545,23 @@ pub fn apply_app_data_update_payload(
     old_value: Option<&[u8]>,
     registry: &ComponentRegistry,
 ) -> Result<Zeroizing<Vec<u8>>, ComponentSourceError> {
-    check_update_payload_bounds(id, payload, registry)?;
+    apply_app_data_update_payload_with_validator(
+        id,
+        payload,
+        old_value,
+        &mut ComponentWriteValidator::new(registry),
+    )
+}
+
+/// [`apply_app_data_update_payload`], resolving the component's type from
+/// the registry entry that `validator` decodes once.
+pub fn apply_app_data_update_payload_with_validator(
+    id: ComponentId,
+    payload: &[u8],
+    old_value: Option<&[u8]>,
+    validator: &mut ComponentWriteValidator<'_>,
+) -> Result<Zeroizing<Vec<u8>>, ComponentSourceError> {
+    check_update_payload_bounds(id, payload, validator)?;
     // Immutability gate. Reject only on overwrite — a fresh insert
     // (no prior value) is the bootstrap commit's first write of an
     // immutable seed and must succeed for honest receivers to reach
@@ -544,11 +577,11 @@ pub fn apply_app_data_update_payload(
     let new_value = Zeroizing::new(match lookup_component(id) {
         Some(component) => component.apply_update_payload(payload, old_value)?,
         None => {
-            apply_update_payload_for_type(id, resolved_type(id, registry)?, payload, old_value)?
+            apply_update_payload_for_type(id, resolved_type(id, validator)?, payload, old_value)?
         }
     });
     if is_field_bounded(id) {
-        check_field_bounds(id, resolved_type(id, registry)?, &new_value)?;
+        check_field_bounds(id, resolved_type(id, validator)?, &new_value)?;
     }
     check_group_root_length(id, &new_value)?;
     Ok(new_value)

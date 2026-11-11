@@ -25,14 +25,14 @@ use xmtp_mls_group_state::app_data::components::metadata_attributes::{
     MAX_APP_DATA_LENGTH, MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH,
     MAX_GROUP_NAME_LENGTH,
 };
-use xmtp_mls_group_state::app_data::validation::ActorAuthority;
+use xmtp_mls_group_state::app_data::validation::{ActorAuthority, count_validation_work};
 use xmtp_mls_group_state::group_metadata::DmMembers;
 use xmtp_mls_group_state::inbox_id::InboxId;
 use xmtp_mls_tls_collections::tls_map::{TlsMap, TlsMapDelta, TlsMapMutation};
 use xmtp_mls_tls_collections::tls_set::{TlsKeyHash, TlsSet, TlsSetDelta};
 use xmtp_proto::xmtp::mls::message_contents::{
     ComponentType, MetadataPolicy as MetadataPolicyProto,
-    metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
+    metadata_policy::{AndCondition, Kind as MetadataPolicyKind, MetadataBasePolicy},
 };
 
 use super::{
@@ -1816,4 +1816,118 @@ fn dm_members_writes_are_rejected_in_every_conversation() {
             }
         }
     }
+}
+
+// ------------------------------------------------------------------------
+// Validation cost
+// ------------------------------------------------------------------------
+
+/// One proposal updates one key 10,000 times under an `And` of 1,000
+/// `Allow` policies. Its registry entry is decoded once and each policy
+/// question is answered once, not once per mutation.
+#[xmtp_common::test(unwrap_try = true)]
+fn repeated_updates_reuse_registry_entry_and_verdicts() {
+    // Three operations, four role pairs, and the self-or-non-member answer.
+    const POLICY_QUESTIONS: u64 = 3 * 4 * 2;
+    let wide = MetadataPolicyProto {
+        kind: Some(MetadataPolicyKind::AndCondition(AndCondition {
+            policies: vec![allow(); 1_000],
+        })),
+    };
+    let registry = registry_with(
+        PROFILE,
+        allow(),
+        wide,
+        deny(),
+        ComponentType::TlsMapBytesBytes,
+    );
+    let empty = || VLBytes::new(Vec::new());
+    let payload = (0..10_000)
+        .fold(TlsMapDelta::new().insert(empty(), empty()), |delta, _| {
+            delta.update(empty(), empty())
+        })
+        .tls_serialize_detached()?;
+    let operation = AppDataUpdateOperation::Update(payload.into());
+    let (validated, work) = count_validation_work(|| {
+        validate_app_data_update_sequence(
+            [AppDataUpdateInCommit {
+                component_id: PROFILE,
+                operation: &operation,
+                actor: member(),
+                proposer_inbox_id: "inbox_alice",
+            }],
+            |_| None,
+            &registry,
+            None,
+            None,
+        )
+    });
+    validated?;
+    assert!(work.registry_decodes <= 1, "{work:?}");
+    assert!(work.policy_evaluations <= POLICY_QUESTIONS, "{work:?}");
+}
+
+/// A verdict reused across a commit's proposals keeps the self-or-non-member
+/// answer apart: a member's own delete and a non-member's delete are
+/// allowed, and a later delete of another member's entry is still denied.
+// verifies: PERM-027
+#[xmtp_common::test(unwrap_try = true)]
+fn reused_verdicts_keep_self_and_non_member_deletes_apart() {
+    let (alice, bob, gone) = (fake_inbox(1), fake_inbox(2), fake_inbox(3));
+    let proposer = alice.to_hex();
+    let registry = profile_registry();
+    let committed = profile_snapshot(&[(alice, "Alice"), (bob, "Bob"), (gone, "Gone")]);
+    let members = HashSet::from([alice, bob]);
+    let delete = |key| profile_delta(TlsMapMutation::Delete { key });
+    let (own, other, stale) = (delete(alice), delete(bob), delete(gone));
+    let commit = |operations: &[&AppDataUpdateOperation]| {
+        validate_app_data_update_sequence(
+            operations.iter().map(|&operation| AppDataUpdateInCommit {
+                component_id: PROFILE,
+                operation,
+                actor: member(),
+                proposer_inbox_id: &proposer,
+            }),
+            |_| Some(committed.as_slice()),
+            &registry,
+            None,
+            Some(&members),
+        )
+    };
+    commit(&[&own, &stale])?;
+    for allowed in [&own, &stale] {
+        assert!(matches!(
+            commit(&[allowed, &other]),
+            Err(CommitRuleError::InsufficientPermissions)
+        ));
+    }
+}
+
+/// A verdict reached for an admin's proposal is not reused for a later
+/// member's proposal on the same component in the same commit.
+// verifies: PERM-011
+#[xmtp_common::test(unwrap_try = true)]
+fn reused_verdicts_keep_actors_apart() {
+    let id = ComponentId::new(0xC200);
+    let registry = registry_with(id, deny(), admin_only(), deny(), ComponentType::Bytes);
+    let operation = AppDataUpdateOperation::Update(b"new".to_vec().into());
+    let commit = |actors: [ActorAuthority; 2]| {
+        validate_app_data_update_sequence(
+            actors.map(|actor| AppDataUpdateInCommit {
+                component_id: id,
+                operation: &operation,
+                actor,
+                proposer_inbox_id: "inbox_alice",
+            }),
+            |_| Some(b"old".as_slice()),
+            &registry,
+            None,
+            None,
+        )
+    };
+    commit([admin(), admin()])?;
+    assert!(matches!(
+        commit([admin(), member()]),
+        Err(CommitRuleError::InsufficientPermissions)
+    ));
 }

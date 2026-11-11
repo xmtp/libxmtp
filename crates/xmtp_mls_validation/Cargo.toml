@@ -55,6 +55,8 @@ wasm-bindgen-test.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_cryptography = { workspace = true, features = ["test-utils"] }
 xmtp_id = { workspace = true, features = ["test-utils"] }
+# Counts registry decodes and policy evaluations in the cost tests.
+xmtp_mls_group_state = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 criterion.workspace = true

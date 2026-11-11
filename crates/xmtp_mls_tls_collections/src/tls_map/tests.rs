@@ -142,29 +142,6 @@ macro_rules! tls_map_tests {
                     }
                 }
 
-                #[test]
-                // verifies: META-013
-                fn delta_rollback_on_failure(
-                    pairs in proptest::collection::vec(
-                        (any::<$K>(), any::<$V>()), 1..std::cmp::min($n, 200)
-                    ),
-                    bad_key: $K,
-                ) {
-                    let mut map = build_map(pairs.into_iter());
-                    let _ = map.remove(&bad_key);
-                    prop_assume!(!map.is_empty());
-                    let (known_key, old_value) = map.iter().next().unwrap();
-                    let known_key = known_key.clone();
-                    let changed_value = ($mutate_v)(old_value.clone());
-                    let snapshot = map.clone();
-
-                    let delta = TlsMapDelta::new()
-                        .update(known_key, changed_value)
-                        .update(bad_key, <$V>::default());
-                    prop_assert!(map.apply_delta(delta).is_err());
-                    prop_assert_eq!(map, snapshot);
-                }
-
                 /// Reject bytes where two entries are serialized in descending key order.
                 #[test]
                 // verifies: META-012
@@ -208,58 +185,6 @@ macro_rules! tls_map_tests {
                     bytes.extend_from_slice(&content);
 
                     prop_assert!(TlsMap::<$K, $V>::tls_deserialize_exact(&bytes).is_err());
-                }
-
-                /// Insert new keys, update some existing keys, update+delete others.
-                #[test]
-                // verifies: META-013
-                fn delta_apply_sequence(
-                    existing in proptest::collection::hash_map(
-                        any::<$K>(), any::<$V>(), 2..std::cmp::min($n, 50)
-                    ),
-                    new_entries in proptest::collection::hash_map(
-                        any::<$K>(), any::<$V>(), 1..std::cmp::min($n, 50)
-                    ),
-                    updated_value in any::<$V>(),
-                ) {
-                    let new_entries: std::collections::HashMap<_, _> = new_entries
-                        .into_iter()
-                        .filter(|(k, _)| !existing.contains_key(k))
-                        .collect();
-                    if new_entries.is_empty() { return Ok(()); }
-
-                    // Split existing keys: first half update-only, second half update+delete
-                    let existing_keys: Vec<_> = existing.keys().cloned().collect();
-                    let mid = existing_keys.len() / 2;
-                    let (update_only, update_and_delete) = existing_keys.split_at(mid);
-                    if update_only.is_empty() || update_and_delete.is_empty() { return Ok(()); }
-
-                    let mut map: TlsMap<$K, $V> = existing.iter()
-                        .map(|(k, v)| (k.clone(), v.clone()))
-                        .collect();
-
-                    let mut delta = TlsMapDelta::new();
-                    for (k, v) in &new_entries {
-                        delta = delta.insert(k.clone(), v.clone());
-                    }
-                    for k in &existing_keys {
-                        delta = delta.update(k.clone(), updated_value.clone());
-                    }
-                    for k in update_and_delete {
-                        delta = delta.delete(k.clone());
-                    }
-
-                    map.apply_delta(delta).unwrap();
-                    prop_assert_eq!(map.len(), new_entries.len() + update_only.len());
-                    for (k, v) in &new_entries {
-                        prop_assert_eq!(map.get(k), Some(v));
-                    }
-                    for k in update_only {
-                        prop_assert_eq!(map.get(k), Some(&updated_value));
-                    }
-                    for k in update_and_delete {
-                        prop_assert!(!map.contains_key(k));
-                    }
                 }
 
                 /// Nested map with known outer key type, parameterized inner.
@@ -380,3 +305,80 @@ tls_map_tests!(vec_vec, Vec<u8>, Vec<u8>, 1000, |v: Vec<u8>| {
     v.push(2);
     v
 });
+
+/// Apply one mutation to the model map, or name the error it fails with.
+fn apply_to_model(
+    model: &mut std::collections::BTreeMap<u8, u8>,
+    mutation: &TlsMapMutation<u8, u8>,
+) -> Result<(), &'static str> {
+    match *mutation {
+        TlsMapMutation::Insert { key, value } => match model.entry(key) {
+            std::collections::btree_map::Entry::Occupied(_) => Err("KeyExists"),
+            std::collections::btree_map::Entry::Vacant(slot) => {
+                slot.insert(value);
+                Ok(())
+            }
+        },
+        TlsMapMutation::Update { key, value } => match model.get_mut(&key) {
+            Some(slot) => {
+                *slot = value;
+                Ok(())
+            }
+            None => Err("KeyNotFound"),
+        },
+        TlsMapMutation::Delete { key } => model.remove(&key).map(drop).ok_or("KeyNotFound"),
+    }
+}
+
+fn error_name(error: TlsMapError) -> &'static str {
+    match error {
+        TlsMapError::KeyExists => "KeyExists",
+        TlsMapError::KeyNotFound => "KeyNotFound",
+        TlsMapError::Codec(_) => "Codec",
+    }
+}
+
+proptest! {
+    /// A delta has the result of applying its mutations one at a time to a
+    /// copy of the map: the same final map, the error of the first mutation
+    /// that fails, and an unchanged map on error. Each step picks a mutation
+    /// that succeeds or fails against the copy, so failures land anywhere in
+    /// the delta and keys repeat within it.
+    #[test]
+    // verifies: META-013
+    fn delta_matches_sequential_model(
+        base in proptest::collection::btree_map(0u8..32, any::<u8>(), 0..32),
+        steps in proptest::collection::vec(
+            (0u8..32, any::<u8>(), proptest::bool::weighted(0.97), any::<bool>()),
+            0..=64,
+        ),
+    ) {
+        let mut model = base.clone();
+        let mut expected = Ok(());
+        let mut delta = TlsMapDelta::new();
+        for (key, value, succeeds, update) in steps {
+            // An update or delete succeeds on a present key, an insert on an
+            // absent one.
+            let mutation = if model.contains_key(&key) == succeeds {
+                if update {
+                    TlsMapMutation::Update { key, value }
+                } else {
+                    TlsMapMutation::Delete { key }
+                }
+            } else {
+                TlsMapMutation::Insert { key, value }
+            };
+            if expected.is_ok() {
+                expected = apply_to_model(&mut model, &mutation);
+            }
+            delta.mutations.push(mutation);
+        }
+        if expected.is_err() {
+            model = base.clone();
+        }
+
+        let mut map = TlsMap::from_pairs(base);
+        prop_assert_eq!(map.apply_delta(delta).map_err(error_name), expected);
+        prop_assert_eq!(map.into_iter().collect::<Vec<_>>(), model.into_iter().collect::<Vec<_>>());
+    }
+}
