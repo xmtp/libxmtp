@@ -509,3 +509,181 @@ async fn test_omission_does_not_stall_a_conflicting_intent()
     }
     Ok(())
 }
+
+/// A peer whose catalogue has one application map, typed by its registry
+/// entry, that any member may write.
+async fn peer_with_application_map(id: ComponentId) -> EngineTestPeer {
+    EngineTestPeer::new_with(|o| {
+        o.configure(|c| {
+            c.application_components = vec![definition(
+                id.as_u16(),
+                ComponentType::TlsMapBytesBytes,
+                MetadataBasePolicy::Allow,
+                true,
+                false,
+            )]
+        })
+    })
+    .await
+}
+
+/// An `Update` payload of `delta` for a byte-keyed map.
+fn map_update(delta: TlsMapDelta<VLBytes, VLBytes>) -> AppDataUpdateOperation {
+    AppDataUpdateOperation::Update(delta.tls_serialize_detached().unwrap().into())
+}
+
+/// A member stores a standalone Update of a key that another pending
+/// proposal inserts, in an application map typed by its registry entry: on
+/// receipt the Update is not judged against the committed map, where the
+/// key is absent. The commit that carries the insert first applies both.
+// verifies: META-068
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_update_of_a_key_a_pending_insert_creates_is_stored()
+-> Result<(), Box<dyn std::error::Error>> {
+    let id = ComponentId::new(0xC1A0);
+    let alix = peer_with_application_map(id).await;
+    let bo = EngineTestPeer::new().await;
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.wait_for_welcomes().await?.remove(0);
+    let key = || VLBytes::new(b"k".to_vec());
+    let insert = TlsMapDelta::new().insert(key(), VLBytes::new(b"a".to_vec()));
+    propose_raw(&bo_group, id, map_update(insert)).await?;
+    let update = TlsMapDelta::new().update(key(), VLBytes::new(b"b".to_vec()));
+    propose_raw(&bo_group, id, map_update(update)).await?;
+    group.sync().await?;
+    assert_eq!(
+        group.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?,
+        2,
+        "the member refused the update of a key only a pending insert creates"
+    );
+
+    group.send_message(b"after", Default::default()).await?;
+    bo_group.sync().await?;
+    for member in [&group, &bo_group] {
+        let map = TlsMap::<VLBytes, VLBytes>::tls_deserialize_exact(value(member, id)?.unwrap())?;
+        assert_eq!(map.get(&key()), Some(&VLBytes::new(b"b".to_vec())));
+    }
+    Ok(())
+}
+
+/// Staging never resolves a component's type for a `Remove`. So a commit
+/// that removes an application component whose registry entry an earlier
+/// commit deleted fails validation, not staging: the write is denied by
+/// default. Every member rejects it with `InsufficientPermissions` and
+/// evicts the pending proposals it carried.
+// verifies: PERM-012
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_remove_of_an_unregistered_component_fails_validation()
+-> Result<(), Box<dyn std::error::Error>> {
+    use crate::groups::{
+        app_data::accumulate_app_data_updates, mls_ext::commit_without_group_info,
+    };
+    use openmls::messages::proposals::AppDataUpdateProposal;
+    use openmls_traits::OpenMlsProvider as _;
+
+    let id = ComponentId::new(0xC1A1);
+    let alix = peer_with_application_map(id).await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await?;
+    let entry = TlsMapDelta::<VLBytes, VLBytes>::new()
+        .insert(VLBytes::new(b"k".to_vec()), VLBytes::new(b"v".to_vec()));
+    write(&group, id, entry.tls_serialize_detached()?).await?;
+    // Bo, a super admin whose catalogue lacks the map, deletes its registry
+    // entry. Its commits do not register the map again.
+    group
+        .update_admin_list(UpdateAdminListType::AddSuper, bo.inbox_id().to_string())
+        .await?;
+    let bo_group = bo.wait_for_welcomes().await?.remove(0);
+    let caro_group = caro.wait_for_welcomes().await?.remove(0);
+    bo_group.sync().await?;
+    let unregister = TlsMapDelta::<ComponentId, VLBytes>::new().delete(id);
+    write(
+        &bo_group,
+        ComponentId::COMPONENT_REGISTRY,
+        unregister.tls_serialize_detached()?,
+    )
+    .await?;
+    let pending = |member: &MlsGroup<_>| {
+        member.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))
+    };
+    let name = AppDataUpdateOperation::Update(insert_name(bo.inbox_id(), b"Bo").into());
+    propose_raw(&bo_group, ComponentId::USER_DISPLAY_NAME, name).await?;
+    for member in [&group, &bo_group, &caro_group] {
+        member.sync().await?;
+        let registered = member.with_group_snapshot(|mls| {
+            Ok(load_component_registry(mls)?.get(&id).unwrap().is_some())
+        })?;
+        assert!(!registered, "the registry entry is still present");
+        assert!(value(member, id)?.is_some());
+        assert_eq!(pending(member)?, 1, "a member did not store the name");
+    }
+    let epoch = group.epoch().await?;
+
+    // Caro commits the name by reference with an inline Remove of the map.
+    // Its dictionary is built here, not by its own staging.
+    let signer = &caro.context.identity().installation_keys;
+    let commit = state_write(caro.context.mls_storage(), |tx| {
+        tx.with_group(caro_group.group_id, |mls, storage| {
+            let (bundle, _, _) = generate_prepared_commit(storage, mls, |group, provider| {
+                let pending: Vec<_> = group
+                    .pending_proposals()
+                    .filter_map(|queued| match queued.proposal() {
+                        Proposal::AppDataUpdate(p) => {
+                            Some((p.component_id(), p.operation().clone()))
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                let updates =
+                    accumulate_app_data_updates(group, pending.iter().map(|(id, op)| (*id, op)))?;
+                let mut updater = group.app_data_dictionary_updater();
+                for (component, state) in updates.into_iter().flatten() {
+                    match state {
+                        Some(bytes) => {
+                            updater.set(ComponentData::from_parts(component, bytes.into()))
+                        }
+                        None => updater.remove(&component),
+                    }
+                }
+                updater.remove(&id.as_u16());
+                let updates = updater.changes();
+                let remove = AppDataUpdateProposal::remove(id.as_u16());
+                let mut stage = commit_without_group_info(group, provider.storage(), |builder| {
+                    builder
+                        .consume_proposal_store(true)
+                        .add_proposal(Proposal::AppDataUpdate(Box::new(remove)))
+                })
+                .unwrap();
+                stage.with_app_data_dictionary_updates(updates);
+                let bundle = stage
+                    .build(provider.rand(), provider.crypto(), signer, |_| true)
+                    .unwrap()
+                    .stage_commit(provider)
+                    .unwrap();
+                Ok::<_, GroupError>(bundle)
+            })?;
+            let (commit, _, _) = bundle.into_messages();
+            Ok::<_, GroupError>(Continue(commit.tls_serialize_detached()?))
+        })
+    })?
+    .into_continued();
+    let messages = caro_group.prepare_group_messages(vec![(commit.as_slice(), false)])?;
+    caro.context.api().send_group_messages(messages).await?;
+
+    for member in [&group, &bo_group] {
+        member.sync().await?;
+        assert_eq!(member.epoch().await?, epoch, "a member applied the commit");
+        assert_eq!(
+            last_rejection(member)?.map(|rejection| rejection.code),
+            Some("commit_validation_failure".to_string())
+        );
+        assert_eq!(pending(member)?, 0, "the carried proposal was not evicted");
+        assert!(value(member, id)?.is_some());
+    }
+    Ok(())
+}
