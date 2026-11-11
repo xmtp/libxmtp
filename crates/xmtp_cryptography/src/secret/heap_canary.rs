@@ -36,6 +36,11 @@
 //!   Never forward `realloc` to `System.realloc`: the old block would be freed
 //!   without a scan.
 //! - Stack and register copies are invisible to a heap scan.
+//! - Arming first zeroes [`STACK_SCRUB_BYTES`] of stack below the caller.
+//!   Building the canaries and the test's setup leave secret bytes in dead
+//!   stack memory, and code under test that moves a value with padding or a
+//!   short enum variant onto the heap copies dead stack bytes with it, so a
+//!   scan would otherwise count bytes the code under test never copied.
 //! - Unix only: the scanner needs `libc::memmem`.
 //! - One scan at a time per process. A scan that starts while another is
 //!   armed panics at once instead of waiting: an armed async scan may itself be
@@ -54,6 +59,8 @@ use super::Zeroize;
 
 /// Most canaries one scan can arm.
 pub const MAX_CANARIES: usize = 8;
+/// Bytes of stack below a scan's caller that arming zeroes.
+pub const STACK_SCRUB_BYTES: usize = 64 * 1024;
 /// Shortest secret a canary accepts.
 pub const MIN_SECRET_LEN: usize = 16;
 /// Longest secret a canary accepts.
@@ -371,6 +378,7 @@ impl Drop for Armed {
 ///
 /// If `canaries` is empty or holds more than [`MAX_CANARIES`].
 pub fn scan<T>(canaries: &[Canary], f: impl FnOnce() -> T) -> (T, Vec<usize>) {
+    scrub_stack();
     let armed = Armed::arm(canaries);
     let output = f();
     (output, armed.finish())
@@ -383,9 +391,19 @@ pub fn scan<T>(canaries: &[Canary], f: impl FnOnce() -> T) -> (T, Vec<usize>) {
 ///
 /// If `canaries` is empty or holds more than [`MAX_CANARIES`].
 pub async fn scan_async<T>(canaries: &[Canary], f: impl Future<Output = T>) -> (T, Vec<usize>) {
+    scrub_stack();
     let armed = Armed::arm(canaries);
     let output = f.await;
     (output, armed.finish())
+}
+
+/// Zero [`STACK_SCRUB_BYTES`] of the stack below the caller, where the code
+/// a scan runs keeps its frames.
+#[inline(never)]
+fn scrub_stack() {
+    let mut scratch = [0u8; STACK_SCRUB_BYTES];
+    scratch.zeroize();
+    std::hint::black_box(&scratch);
 }
 
 /// Install the heap-canary [`Scanner`] as this binary's global allocator.
