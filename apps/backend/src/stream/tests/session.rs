@@ -680,6 +680,54 @@ async fn update_count_is_rejected_before_decode() {
     server.stop().await?;
 }
 
+/// An `Update` over a count fails with `INVALID_ARGUMENT` even when the
+/// update bucket is empty, and is recorded as an invalid update.
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: API-306
+async fn update_count_wins_over_an_empty_bucket() {
+    let Some(metrics) = support::metrics::isolated(
+        "stream::tests::session::update_count_wins_over_an_empty_bucket",
+    ) else {
+        return;
+    };
+    let server = TestServer::new(|config| {
+        config.limits.max_update_adds = 4;
+        config.limits.max_update_burst = 1;
+        config.limits.max_update_frames_per_second = 1;
+    })
+    .await?;
+    let mut stream = Native::open(&server).await?;
+    stream.update(1, vec![], vec![]).await?;
+    assert!(matches!(stream.next().await?, Frame::Applied(_)));
+    stream
+        .update(2, vec![api::TopicQuery::default(); 5], vec![])
+        .await?;
+    let error = terminal(&mut stream.output).await?.unwrap();
+    assert_eq!(error.code(), Code::InvalidArgument, "{error:?}");
+    drop(stream);
+    xmtp_common::wait_for_eq(
+        || async {
+            support::metrics::value(
+                &metrics,
+                "xmtp_stream_ended_total",
+                &[("reason", "invalid")],
+            )
+        },
+        1.0,
+    )
+    .await?;
+    let value = |name, label| support::metrics::value(&metrics, name, &[label]);
+    assert_eq!(
+        value("xmtp_stream_updates_total", ("outcome", "invalid")),
+        1.0
+    );
+    assert_eq!(
+        value("xmtp_stream_frames_received_total", ("frame", "update")),
+        2.0
+    );
+    server.stop().await?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn one_connection_request_pool_remains_available_while_tailer_runs() {
     let server = TestServer::new(|config| {

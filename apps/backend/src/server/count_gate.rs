@@ -12,7 +12,9 @@
 //! with the same bytes, trailers, and body error, so tonic keeps the status it
 //! gives without the gate.
 
-use crate::{api::publish_error::Reason, config::LimitsConfig, service::publish_invalid};
+use crate::{
+    api::publish_error::Reason, config::LimitsConfig, service::publish_invalid, telemetry,
+};
 use bytes::Bytes;
 use futures::future::BoxFuture;
 use http::{HeaderMap, Request, Response};
@@ -166,7 +168,7 @@ const ROUTES: &[GatedRoute] = &[
     GatedRoute {
         path: "/xmtp.backend.v1.SubscriptionService/Subscribe",
         stream: true,
-        reject: invalid_argument,
+        reject: update_invalid,
         counts: &[
             // SubscribeRequest.update, Update.adds
             Count {
@@ -195,6 +197,14 @@ fn publish_too_large(message: &'static str) -> Status {
 }
 
 fn invalid_argument(message: &'static str) -> Status {
+    Status::invalid_argument(message)
+}
+
+/// The `Subscribe` rejection. The frame is an `Update` the session never
+/// sees, so it is recorded here as the session records an invalid update.
+fn update_invalid(message: &'static str) -> Status {
+    telemetry::stream_frame_received(telemetry::Frame::Update);
+    telemetry::stream_updated(telemetry::UpdateOutcome::Invalid);
     Status::invalid_argument(message)
 }
 
@@ -437,9 +447,11 @@ fn over<'a>(route: &'a GatedRoute, message: &[u8], limits: &LimitsConfig) -> Opt
 /// it is complete, holding at most `PREFIX_BYTES + max_request_bytes` bytes,
 /// and is then counted before tonic gets it. A message over a count of the
 /// route is never forwarded: the body ends with the route's rejection in its
-/// place, which tonic hands the handler as the stream's error. Every message
-/// before it, and every other byte, trailer, and body error, reaches tonic
-/// unchanged.
+/// place, which tonic hands the handler as the stream's error. A prefix tonic
+/// refuses is forwarded alone and the body then ends, as on a unary route,
+/// so tonic decodes no message after it even when it is polled again. Every
+/// message before these, and the bytes, trailers, or body error the body
+/// ends with, reach tonic unchanged.
 // implements: API-306
 struct Counted {
     body: Body,
@@ -451,18 +463,9 @@ struct Counted {
     length: Option<usize>,
     /// Frames to give tonic before the body is read again.
     ready: VecDeque<Result<Frame<Bytes>, Status>>,
-    reading: Reading,
-}
-
-/// What [`Counted`] does with the next frame of the body.
-enum Reading {
-    /// Count each message as it completes.
-    Messages,
-    /// Forward each frame unchanged: the body has trailers or failed, or
-    /// tonic refuses the current message from its prefix and reads no further.
-    Raw,
-    /// End: the body has ended, or a message was over a count.
-    Ended,
+    /// The body is read no further: it ended, failed, or had trailers, or a
+    /// message was over a count or had a prefix tonic refuses.
+    ended: bool,
 }
 
 impl Counted {
@@ -474,7 +477,7 @@ impl Counted {
             held: Vec::new(),
             length: None,
             ready: VecDeque::new(),
-            reading: Reading::Messages,
+            ended: false,
         }
     }
 
@@ -495,8 +498,7 @@ impl Counted {
                     // Tonic refuses this message from its prefix, as in
                     // `first_message`.
                     if flag != 0 || length > self.limits.max_request_bytes {
-                        self.held.extend_from_slice(data);
-                        self.release(None);
+                        self.finish(None);
                         return;
                     }
                     self.length = Some(length);
@@ -514,22 +516,21 @@ impl Counted {
             if let Some(count) = over(self.route, &message[PREFIX_BYTES..], &self.limits) {
                 self.ready
                     .push_back(Err((self.route.reject)(count.message)));
-                self.reading = Reading::Ended;
+                self.ended = true;
                 return;
             }
             self.ready.push_back(Ok(Frame::data(message.into())));
         }
     }
 
-    /// Queue the held bytes and then `end`, and forward the rest of the body
-    /// unchanged.
-    fn release(&mut self, end: Option<Result<Frame<Bytes>, Status>>) {
+    /// Queue the held bytes and then `end`, and read the body no further.
+    fn finish(&mut self, end: Option<Result<Frame<Bytes>, Status>>) {
         if !self.held.is_empty() {
             let held = std::mem::take(&mut self.held);
             self.ready.push_back(Ok(Frame::data(held.into())));
         }
         self.ready.extend(end);
-        self.reading = Reading::Raw;
+        self.ended = true;
     }
 }
 
@@ -546,21 +547,16 @@ impl http_body::Body for Counted {
             if let Some(frame) = this.ready.pop_front() {
                 return Poll::Ready(Some(frame));
             }
-            match this.reading {
-                Reading::Messages => {}
-                Reading::Raw => return Pin::new(&mut this.body).poll_frame(cx),
-                Reading::Ended => return Poll::Ready(None),
+            if this.ended {
+                return Poll::Ready(None);
             }
             match ready!(Pin::new(&mut this.body).poll_frame(cx)) {
                 Some(Ok(frame)) => match frame.into_data() {
                     Ok(data) => this.count(&data),
-                    Err(frame) => this.release(Some(Ok(frame))),
+                    Err(frame) => this.finish(Some(Ok(frame))),
                 },
-                Some(Err(status)) => this.release(Some(Err(status))),
-                None => {
-                    this.release(None);
-                    this.reading = Reading::Ended;
-                }
+                Some(Err(status)) => this.finish(Some(Err(status))),
+                None => this.finish(None),
             }
         }
     }
