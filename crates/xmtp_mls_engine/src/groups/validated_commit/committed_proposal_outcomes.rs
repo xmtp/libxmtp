@@ -254,3 +254,50 @@ async fn validate_proposal_rejects_every_unsupported_type() {
         assert!(error.is_safe_rejection(), "{kind:?}");
     }
 }
+
+/// A commit can carry thousands of proposals from one member. The proposal
+/// changes resolve that member's leaf, credential and roles once, not once
+/// per proposal.
+#[xmtp_common::test(unwrap_try = true)]
+async fn proposal_changes_resolve_each_proposer_once() {
+    use xmtp_mls_validation::commit::count_participant_lookups;
+    const PROPOSALS: usize = 2_000;
+    let alix = EngineTestPeer::new().await;
+    let conversation = alix.create_group(None, None)?;
+    let provider = alix.context.mls_provider();
+    let signer = &alix.context.identity().installation_keys;
+    let mut group = OpenMlsGroup::load(
+        alix.context.mls_storage(),
+        &conversation.group_id.to_openmls(),
+    )??;
+    let name = ComponentId::GROUP_NAME.as_u16();
+    let updates: Vec<_> = (0..PROPOSALS)
+        .map(|n| AppDataUpdateProposal::update(name, format!("name {n}").into_bytes()))
+        .collect();
+    let dictionary = accumulate_app_data_updates(
+        &group,
+        updates
+            .iter()
+            .map(|update| (update.component_id(), update.operation())),
+    )?;
+    let proposals = updates
+        .into_iter()
+        .map(|update| Proposal::AppDataUpdate(Box::new(update)));
+    let mut stage = crate::groups::mls_ext::commit_without_group_info(
+        &mut group,
+        provider.storage(),
+        |builder| builder.add_proposals(proposals),
+    )?;
+    stage.with_app_data_dictionary_updates(dictionary);
+    stage
+        .build(provider.rand(), provider.crypto(), signer, |_| true)?
+        .stage_commit(&provider)?;
+    let staged = group.pending_commit()?;
+    assert_eq!(staged.queued_proposals().count(), PROPOSALS);
+
+    let (immutable, mutable) = read_committed_metadata(&group)?;
+    let (changes, lookups) =
+        count_participant_lookups(|| get_proposal_changes(staged, &group, &immutable, &mutable));
+    changes?;
+    assert_eq!(lookups, 1, "the proposer was resolved once per proposal");
+}

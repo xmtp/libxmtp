@@ -5,7 +5,7 @@
 //! identities. `xmtp_mls` runs them inside `ValidatedCommit` and adds the
 //! identity and installation checks that need stored state.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, hash_map::Entry};
 
 use openmls::{
     credentials::{BasicCredential, Credential as OpenMlsCredential, errors::BasicCredentialError},
@@ -446,16 +446,22 @@ pub fn get_proposal_changes(
     let mut removed_inbox_proposers: HashMap<String, CommitParticipant> = HashMap::new();
 
     let mut membership_deletes = Vec::new();
+    // A commit can carry many proposals from one member, so each proposer's
+    // leaf is resolved once.
+    let mut proposers: HashMap<LeafNodeIndex, CommitParticipant> = HashMap::new();
 
     for proposal in staged_commit.queued_proposals() {
         // Extract the proposer for this proposal
         let proposer = match proposal.sender() {
-            Sender::Member(leaf_index) => extract_commit_participant(
-                leaf_index,
-                openmls_group,
-                immutable_metadata,
-                mutable_metadata,
-            )?,
+            Sender::Member(leaf_index) => match proposers.entry(*leaf_index) {
+                Entry::Occupied(entry) => entry.into_mut(),
+                Entry::Vacant(entry) => entry.insert(extract_commit_participant(
+                    leaf_index,
+                    openmls_group,
+                    immutable_metadata,
+                    mutable_metadata,
+                )?),
+            },
             _ => return Err(CommitRuleError::ActorNotMember),
         };
 
@@ -489,7 +495,7 @@ pub fn get_proposal_changes(
                 if proposer.inbox_id == participant.inbox_id {
                     self_added_installations.insert(participant.installation_id.clone());
                 }
-                added_inbox_proposers.insert(participant.inbox_id.clone(), proposer);
+                added_inbox_proposers.insert(participant.inbox_id.clone(), proposer.clone());
                 credentials_to_verify.push(participant);
             }
             // For Remove Proposals, all we need to do is validate that the installation_id is in the expected diff
@@ -500,7 +506,7 @@ pub fn get_proposal_changes(
                 let installation_id = leaf_node.signature_key.to_vec();
                 let inbox_id = inbox_id_from_credential(&leaf_node.credential)?;
                 removed_installations.insert(installation_id);
-                removed_inbox_proposers.insert(inbox_id, proposer);
+                removed_inbox_proposers.insert(inbox_id, proposer.clone());
             }
             Proposal::AppDataUpdate(update)
                 if ComponentId::from(update.component_id()) == ComponentId::GROUP_MEMBERSHIP =>
@@ -1510,6 +1516,21 @@ fn validate_registry_after_commit(post_registry: Option<&[u8]>) -> Result<(), Co
         })
 }
 
+#[cfg(any(test, feature = "test-utils"))]
+thread_local! {
+    /// Leaves this thread resolved to a [`CommitParticipant`].
+    static PARTICIPANT_LOOKUPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Run `f` and count the leaves it resolves to a [`CommitParticipant`].
+#[cfg(any(test, feature = "test-utils"))]
+pub fn count_participant_lookups<R>(f: impl FnOnce() -> R) -> (R, usize) {
+    let before = PARTICIPANT_LOOKUPS.with(std::cell::Cell::get);
+    let result = f();
+    let lookups = PARTICIPANT_LOOKUPS.with(std::cell::Cell::get) - before;
+    (result, lookups)
+}
+
 /// Extracts the [`CommitParticipant`] from the [`LeafNodeIndex`]
 pub fn extract_commit_participant(
     leaf_index: &LeafNodeIndex,
@@ -1517,6 +1538,8 @@ pub fn extract_commit_participant(
     immutable_metadata: &GroupMetadata,
     mutable_metadata: &GroupMutableMetadata,
 ) -> Result<CommitParticipant, CommitRuleError> {
+    #[cfg(any(test, feature = "test-utils"))]
+    PARTICIPANT_LOOKUPS.with(|lookups| lookups.set(lookups.get() + 1));
     if let Some(leaf_node) = group.member_at(*leaf_index) {
         let installation_id = leaf_node.signature_key.to_vec();
         let inbox_id = inbox_id_from_credential(&leaf_node.credential)?;
@@ -1780,13 +1803,14 @@ pub fn extract_committer_and_proposers(
     immutable_metadata: &GroupMetadata,
     mutable_metadata: &GroupMutableMetadata,
 ) -> Result<(CommitParticipant, Vec<CommitParticipant>), CommitRuleError> {
-    // Collect all unique proposers from the proposals
+    // Collect all unique proposers from the proposals, in commit order
+    let mut seen = HashSet::new();
     let mut proposer_leaf_indices: Vec<&LeafNodeIndex> = Vec::new();
     for proposal in staged_commit.queued_proposals() {
         match proposal.sender() {
             Sender::Member(member_leaf_node_index) => {
                 // Only add if not already in the list
-                if !proposer_leaf_indices.contains(&member_leaf_node_index) {
+                if seen.insert(member_leaf_node_index) {
                     proposer_leaf_indices.push(member_leaf_node_index);
                 }
             }
