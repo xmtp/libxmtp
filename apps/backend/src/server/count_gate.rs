@@ -2,12 +2,15 @@
 //!
 //! Prost builds every entry of a repeated field before a handler can count
 //! the entries, and an empty entry is two bytes on the wire. On each gated
-//! route this layer holds the first gRPC message of the body, walks its wire
-//! format, and rejects a request with more entries than a bound before any
-//! entry is decoded. It also rejects a body that carries a second message,
-//! because tonic decodes every message of a unary body. Every other request
-//! reaches tonic with the same bytes, trailers, and body error, so tonic keeps
-//! the status it gives without the gate.
+//! unary route this layer holds the first gRPC message of the body, walks its
+//! wire format, and rejects a request with more entries than a bound before
+//! any entry is decoded. It also rejects a body that carries a second message,
+//! because tonic decodes every message of a unary body. On a gated stream
+//! route the handler starts at once, and the layer counts each message of the
+//! body as it completes and ends the body with the rejection in place of the
+//! first message over a bound. Every other request or message reaches tonic
+//! with the same bytes, trailers, and body error, so tonic keeps the status it
+//! gives without the gate.
 
 use crate::{api::publish_error::Reason, config::LimitsConfig, service::publish_invalid};
 use bytes::Bytes;
@@ -17,8 +20,10 @@ use http_body::Frame;
 use http_body_util::{BodyExt, StreamBody};
 use prost::encoding::{DecodeContext, WireType, decode_key, decode_varint, skip_field};
 use std::{
+    collections::VecDeque,
+    pin::Pin,
     sync::Arc,
-    task::{Context, Poll},
+    task::{Context, Poll, ready},
 };
 use tonic::{Status, body::Body};
 use tower::{Layer, Service};
@@ -46,6 +51,9 @@ struct Count {
 
 struct GatedRoute {
     path: &'static str,
+    /// Whether the client streams the request. A stream route's messages
+    /// are counted one at a time while the handler runs.
+    stream: bool,
     counts: &'static [Count],
     reject: fn(&'static str) -> Status,
 }
@@ -54,10 +62,11 @@ struct GatedRoute {
 /// or for `QueryNewest` the larger of its two topic limits, so the gate never
 /// rejects a request those bounds admit. A repeated field added under one of
 /// these messages needs its own count here.
-// implements: API-304, PUSH-264
+// implements: API-304, API-306, PUSH-264
 const ROUTES: &[GatedRoute] = &[
     GatedRoute {
         path: "/xmtp.backend.v1.PublishService/Publish",
+        stream: false,
         reject: publish_too_large,
         counts: &[
             // PublishRequest.envelopes
@@ -77,6 +86,7 @@ const ROUTES: &[GatedRoute] = &[
     },
     GatedRoute {
         path: "/xmtp.backend.v1.NotificationService/UpdateSubscriptions",
+        stream: false,
         reject: invalid_argument,
         counts: &[
             // UpdateSubscriptionsRequest.adds and UpdateSubscriptionsRequest.removes
@@ -95,6 +105,7 @@ const ROUTES: &[GatedRoute] = &[
     },
     GatedRoute {
         path: "/xmtp.backend.v1.QueryService/Query",
+        stream: false,
         reject: invalid_argument,
         // QueryRequest.queries
         counts: &[Count {
@@ -105,6 +116,7 @@ const ROUTES: &[GatedRoute] = &[
     },
     GatedRoute {
         path: "/xmtp.backend.v1.QueryService/QueryNewest",
+        stream: false,
         reject: invalid_argument,
         // QueryNewestRequest.topics. The handler applies the smaller limit of
         // a full-envelope request after decoding.
@@ -120,6 +132,7 @@ const ROUTES: &[GatedRoute] = &[
     },
     GatedRoute {
         path: "/xmtp.backend.v1.IdentityService/GetInboxIds",
+        stream: false,
         reject: invalid_argument,
         // GetInboxIdsRequest.requests
         counts: &[Count {
@@ -130,6 +143,7 @@ const ROUTES: &[GatedRoute] = &[
     },
     GatedRoute {
         path: "/xmtp.backend.v1.IdentityService/VerifySmartContractWalletSignatures",
+        stream: false,
         reject: invalid_argument,
         // VerifySmartContractWalletSignaturesRequest.signatures
         counts: &[Count {
@@ -140,6 +154,7 @@ const ROUTES: &[GatedRoute] = &[
     },
     GatedRoute {
         path: "/xmtp.backend.v1.SubscriptionService/SubscribeStatic",
+        stream: false,
         reject: invalid_argument,
         // SubscribeStaticRequest.topics
         counts: &[Count {
@@ -148,10 +163,31 @@ const ROUTES: &[GatedRoute] = &[
             message: "invalid static topic count",
         }],
     },
+    GatedRoute {
+        path: "/xmtp.backend.v1.SubscriptionService/Subscribe",
+        stream: true,
+        reject: invalid_argument,
+        counts: &[
+            // SubscribeRequest.update, Update.adds
+            Count {
+                path: &[&[1], &[2]],
+                limit: |limits| limits.max_update_adds,
+                message: UPDATE_COUNT,
+            },
+            // SubscribeRequest.update, Update.removes
+            Count {
+                path: &[&[1], &[3]],
+                limit: |limits| limits.max_update_removes,
+                message: UPDATE_COUNT,
+            },
+        ],
+    },
 ];
 
 /// The rejection the read and lookup handlers give for too many entries.
 const ITEM_LIMIT: &str = "request exceeds item limit";
+/// The rejection the `Subscribe` handler gives for too many update entries.
+const UPDATE_COUNT: &str = "invalid update id or item count";
 
 /// The whole-request publish rejection: too large, with no envelope index.
 fn publish_too_large(message: &'static str) -> Status {
@@ -198,15 +234,22 @@ where
         self.inner.poll_ready(cx)
     }
 
-    /// A request on another route goes to tonic unread. On a gated route the
-    /// gate holds the first message, checks every count of the route, and
-    /// then reads to the end of the body; tonic gets the request only when no
-    /// count is exceeded and no second message follows. A rejection goes back
-    /// before tonic decodes any message, and the unread body is dropped.
+    /// A request on another route goes to tonic unread. A request on a
+    /// stream route goes to tonic at once, with its body read through
+    /// [`Counted`]. On a gated unary route the gate holds the first message,
+    /// checks every count of the route, and then reads to the end of the
+    /// body; tonic gets the request only when no count is exceeded and no
+    /// second message follows. A rejection goes back before tonic decodes any
+    /// message, and the unread body is dropped.
     fn call(&mut self, request: Request<Body>) -> Self::Future {
         let Some(route) = gated(&request) else {
             return Box::pin(self.inner.call(request));
         };
+        if route.stream {
+            let limits = self.limits.clone();
+            let request = request.map(|body| Body::new(Counted::new(route, limits, body)));
+            return Box::pin(self.inner.call(request));
+        }
         // The readied service takes this request; the clone takes the next.
         let ready = self.inner.clone();
         let mut inner = std::mem::replace(&mut self.inner, ready);
@@ -242,9 +285,7 @@ async fn admit(route: &GatedRoute, body: &mut Body, limits: &LimitsConfig) -> Re
         First::Forward { bytes, end } => return Ok(replay(bytes, end)),
         First::Message { bytes, overflow } => (bytes, overflow),
     };
-    if let Some(count) = route.counts.iter().find(|count| {
-        exceeds(&message[PREFIX_BYTES..], count.path, (count.limit)(limits)) == Some(true)
-    }) {
+    if let Some(count) = over(route, &message[PREFIX_BYTES..], limits) {
         return Err((route.reject)(count.message));
     }
     let rest = if overflow {
@@ -382,6 +423,147 @@ fn replay(bytes: Bytes, end: End) -> Body {
     Body::new(StreamBody::new(futures::stream::iter(
         data.into_iter().chain(end),
     )))
+}
+
+/// The first count of `route` that `message`, without its prefix, exceeds.
+fn over<'a>(route: &'a GatedRoute, message: &[u8], limits: &LimitsConfig) -> Option<&'a Count> {
+    route
+        .counts
+        .iter()
+        .find(|count| exceeds(message, count.path, (count.limit)(limits)) == Some(true))
+}
+
+/// The body of a stream route as tonic reads it. Each message is held until
+/// it is complete, holding at most `PREFIX_BYTES + max_request_bytes` bytes,
+/// and is then counted before tonic gets it. A message over a count of the
+/// route is never forwarded: the body ends with the route's rejection in its
+/// place, which tonic hands the handler as the stream's error. Every message
+/// before it, and every other byte, trailer, and body error, reaches tonic
+/// unchanged.
+// implements: API-306
+struct Counted {
+    body: Body,
+    route: &'static GatedRoute,
+    limits: Arc<LimitsConfig>,
+    /// The bytes of the current message read so far, prefix included.
+    held: Vec<u8>,
+    /// The length of the current message, once its prefix is held.
+    length: Option<usize>,
+    /// Frames to give tonic before the body is read again.
+    ready: VecDeque<Result<Frame<Bytes>, Status>>,
+    reading: Reading,
+}
+
+/// What [`Counted`] does with the next frame of the body.
+enum Reading {
+    /// Count each message as it completes.
+    Messages,
+    /// Forward each frame unchanged: the body has trailers or failed, or
+    /// tonic refuses the current message from its prefix and reads no further.
+    Raw,
+    /// End: the body has ended, or a message was over a count.
+    Ended,
+}
+
+impl Counted {
+    fn new(route: &'static GatedRoute, limits: Arc<LimitsConfig>, body: Body) -> Self {
+        Self {
+            body,
+            route,
+            limits,
+            held: Vec::new(),
+            length: None,
+            ready: VecDeque::new(),
+            reading: Reading::Messages,
+        }
+    }
+
+    /// Queue each message that `data` completes, or the rejection in place
+    /// of the first one over a count, and hold the rest.
+    fn count(&mut self, mut data: &[u8]) {
+        while !data.is_empty() {
+            let need = match self.length {
+                Some(length) => PREFIX_BYTES + length,
+                None => {
+                    let take = (PREFIX_BYTES - self.held.len()).min(data.len());
+                    self.held.extend_from_slice(&data[..take]);
+                    data = &data[take..];
+                    let Some(&[flag, a, b, c, d]) = self.held.first_chunk::<PREFIX_BYTES>() else {
+                        return;
+                    };
+                    let length = u32::from_be_bytes([a, b, c, d]) as usize;
+                    // Tonic refuses this message from its prefix, as in
+                    // `first_message`.
+                    if flag != 0 || length > self.limits.max_request_bytes {
+                        self.held.extend_from_slice(data);
+                        self.release(None);
+                        return;
+                    }
+                    self.length = Some(length);
+                    PREFIX_BYTES + length
+                }
+            };
+            let take = (need - self.held.len()).min(data.len());
+            append(&mut self.held, &data[..take], need);
+            data = &data[take..];
+            if self.held.len() < need {
+                return;
+            }
+            self.length = None;
+            let message = std::mem::take(&mut self.held);
+            if let Some(count) = over(self.route, &message[PREFIX_BYTES..], &self.limits) {
+                self.ready
+                    .push_back(Err((self.route.reject)(count.message)));
+                self.reading = Reading::Ended;
+                return;
+            }
+            self.ready.push_back(Ok(Frame::data(message.into())));
+        }
+    }
+
+    /// Queue the held bytes and then `end`, and forward the rest of the body
+    /// unchanged.
+    fn release(&mut self, end: Option<Result<Frame<Bytes>, Status>>) {
+        if !self.held.is_empty() {
+            let held = std::mem::take(&mut self.held);
+            self.ready.push_back(Ok(Frame::data(held.into())));
+        }
+        self.ready.extend(end);
+        self.reading = Reading::Raw;
+    }
+}
+
+impl http_body::Body for Counted {
+    type Data = Bytes;
+    type Error = Status;
+
+    fn poll_frame(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Bytes>, Status>>> {
+        let this = &mut *self;
+        loop {
+            if let Some(frame) = this.ready.pop_front() {
+                return Poll::Ready(Some(frame));
+            }
+            match this.reading {
+                Reading::Messages => {}
+                Reading::Raw => return Pin::new(&mut this.body).poll_frame(cx),
+                Reading::Ended => return Poll::Ready(None),
+            }
+            match ready!(Pin::new(&mut this.body).poll_frame(cx)) {
+                Some(Ok(frame)) => match frame.into_data() {
+                    Ok(data) => this.count(&data),
+                    Err(frame) => this.release(Some(Ok(frame))),
+                },
+                Some(Err(status)) => this.release(Some(Err(status))),
+                None => {
+                    this.release(None);
+                    this.reading = Reading::Ended;
+                }
+            }
+        }
+    }
 }
 
 /// Whether `message` holds more than `limit` entries at `path`, summed over

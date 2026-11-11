@@ -4,7 +4,7 @@ use crate::api::{
 use crate::test_support as support;
 use support::{
     TestServer,
-    native::{Native, envelope, terminal},
+    native::{Native, envelope, framed, raw_unary, terminal},
 };
 use tonic::Code;
 
@@ -651,6 +651,32 @@ async fn ping_and_update_use_independent_buckets() {
         1.0,
     )
     .await?;
+    server.stop().await?;
+}
+
+/// An `Update` with one add more than the limit fails the stream before it
+/// is decoded. A truncated add follows, so a frame that reached the decoder
+/// would fail with `INTERNAL` instead.
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: API-306
+async fn update_count_is_rejected_before_decode() {
+    let server = TestServer::new(|config| config.limits.max_update_adds = 4).await?;
+    let mut update = vec![0x08, 0x01]; // id 1
+    update.extend([0x12, 0x00].repeat(5)); // five empty adds
+    update.extend([0x12, 0x05]); // an add whose bytes never come
+    let mut request = vec![0x0a, update.len() as u8];
+    request.extend(update);
+    // The request body stays open, so only the backend can end the call.
+    let error = raw_unary(
+        &server,
+        "/xmtp.backend.v1.SubscriptionService/Subscribe",
+        &[],
+        framed(&request),
+        false,
+    )
+    .await?;
+    assert_eq!(error.code(), Code::InvalidArgument, "{error:?}");
+    assert_eq!(error.message(), "invalid update id or item count");
     server.stop().await?;
 }
 

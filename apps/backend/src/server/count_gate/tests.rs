@@ -459,13 +459,88 @@ async fn encoded_request_is_passed_untouched() {
     assert_eq!((newest.counts[0].limit)(&swapped), 9);
 }
 
-/// Repeated request fields the gate does not count, by route and field path.
-const UNCOUNTED: &[(&str, &[u32])] = &[
-    // SubscribeRequest.update, Update.adds and Update.removes: each frame is
-    // counted after decode, and the update bucket limits how often.
-    ("/xmtp.backend.v1.SubscriptionService/Subscribe", &[1, 2]),
-    ("/xmtp.backend.v1.SubscriptionService/Subscribe", &[1, 3]),
-];
+const SUBSCRIBE: &str = "/xmtp.backend.v1.SubscriptionService/Subscribe";
+
+/// A prefixed `SubscribeRequest` carrying one `Update`.
+fn update(id: u64, adds: usize, removes: usize) -> Vec<u8> {
+    let topic = api::Topic { topic: vec![1; 33] };
+    let update = api::subscribe_request::Update {
+        id,
+        adds: vec![
+            api::TopicQuery {
+                topic: Some(topic.clone()),
+                cursor: None,
+            };
+            adds
+        ],
+        removes: vec![topic; removes],
+    };
+    prefixed(
+        &api::SubscribeRequest {
+            request: Some(api::subscribe_request::Request::Update(update)),
+        }
+        .encode_to_vec(),
+    )
+}
+
+/// The handler of a stream route starts while the body is open and empty.
+/// It then gets each message once the message is complete, and the
+/// rejection in place of the first message over a count.
+#[xmtp_common::test(unwrap_try = true)]
+async fn stream_messages_are_counted_as_they_complete() {
+    let limits = LimitsConfig {
+        max_update_adds: 2,
+        max_update_removes: 3,
+        ..LimitsConfig::default()
+    };
+    let (handled, mut bodies) = futures::channel::mpsc::unbounded();
+    let gate = CountGateLayer {
+        limits: Arc::new(limits),
+    }
+    .layer(service_fn(move |request: Request<Body>| {
+        let handled = handled.clone();
+        async move {
+            handled.unbounded_send(request.into_body()).unwrap();
+            Ok::<_, Infallible>(Response::new(Body::empty()))
+        }
+    }));
+    // Message 1 spans two frames. The frame that ends message 2 carries
+    // message 3, which has one add more than the limit. Message 2 holds the
+    // removes limit, not the adds limit.
+    let (m1, m2, m3) = (update(1, 2, 0), update(2, 0, 3), update(3, 3, 0));
+    let m2_and_m3 = [&m2[..], &m3[..]].concat();
+    let one_remove_over = update(1, 0, 4);
+    for (frames, expected) in [
+        (
+            vec![&m1[..9], &m1[9..], &m2_and_m3[..]],
+            vec![
+                Seen::Data(m1.clone().into()),
+                Seen::Data(m2.clone().into()),
+                Seen::Error(tonic::Code::InvalidArgument, UPDATE_COUNT.into()),
+            ],
+        ),
+        (
+            vec![&one_remove_over[..]],
+            vec![Seen::Error(
+                tonic::Code::InvalidArgument,
+                UPDATE_COUNT.into(),
+            )],
+        ),
+    ] {
+        let (sender, input) = futures::channel::mpsc::unbounded();
+        let request = Request::post(SUBSCRIBE).body(Body::new(StreamBody::new(input)))?;
+        timeout(Duration::from_secs(5), gate.clone().oneshot(request)).await??;
+        let body = bodies.next().await?;
+        for frame in frames {
+            sender.unbounded_send(data(frame))?;
+        }
+        // The sender stays open, so the body ends only at the rejection.
+        assert_eq!(
+            timeout(Duration::from_secs(5), drain(body)).await?,
+            expected
+        );
+    }
+}
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn every_repeated_request_field_has_a_bound() {
@@ -511,6 +586,9 @@ async fn every_repeated_request_field_has_a_bound() {
             .flat_map(|service| service.method.iter().map(move |method| (service, method)))
     }) {
         let rpc = format!("/xmtp.backend.v1.{}/{}", service.name(), method.name());
+        for route in ROUTES.iter().filter(|route| route.path == rpc) {
+            assert_eq!(route.stream, method.client_streaming(), "{rpc}");
+        }
         let mut found = Vec::new();
         repeated(&messages, method.input_type(), &mut Vec::new(), &mut found);
         for path in found {
@@ -519,7 +597,7 @@ async fn every_repeated_request_field_has_a_bound() {
                 .filter(|route| route.path == rpc)
                 .flat_map(|route| route.counts)
                 .any(|count| covers(count, &path));
-            if !counted && !UNCOUNTED.contains(&(rpc.as_str(), path.as_slice())) {
+            if !counted {
                 uncounted.push(format!("{rpc} {path:?}"));
             }
         }
