@@ -1,6 +1,11 @@
 //! Envelope metadata, app-data slots, and metadata updates.
 
 use super::*;
+use openmls::{
+    ciphersuite::hash_ref::ProposalRef,
+    group::QueuedProposal,
+    messages::proposals::{AppDataUpdateOperation, AppDataUpdateProposal},
+};
 use xmtp_mls_validation::commit::CommitRuleError;
 
 impl<Context> MlsGroup<Context>
@@ -183,23 +188,13 @@ where
                     }
                 };
                 if let Some(staged_commit) = staged_commit {
-                    // A commit can carry a stored proposal inline. Match its
-                    // authenticated sender and payload as well as its reference.
-                    let rejected_refs: Vec<_> = group
-                        .pending_proposals()
-                        .filter(|pending| {
-                            matches!(
-                                pending.proposal(),
-                                openmls::prelude::Proposal::AppDataUpdate(_)
-                            ) && staged_commit.queued_proposals().any(|committed| {
-                                committed.proposal_reference_ref()
-                                    == pending.proposal_reference_ref()
-                                    || (committed.sender() == pending.sender()
-                                        && committed.proposal() == pending.proposal())
-                            })
-                        })
-                        .map(|proposal| proposal.proposal_reference_ref().clone())
-                        .collect();
+                    let rejected_refs: Vec<_> = carried_app_data_proposals(
+                        group.pending_proposals().map(proposal_parts),
+                        staged_commit.queued_proposals().map(proposal_parts),
+                    )
+                    .into_iter()
+                    .cloned()
+                    .collect();
                     if !rejected_refs.is_empty() {
                         tracing::warn!(
                             group_id = %self.group_id.short_hex(),
@@ -658,5 +653,220 @@ where
         }
 
         Ok(())
+    }
+}
+
+/// A queued proposal's reference, authenticated sender, and content.
+type ProposalParts<'a> = (&'a ProposalRef, &'a Sender, &'a Proposal);
+
+fn proposal_parts(queued: &QueuedProposal) -> ProposalParts<'_> {
+    (
+        queued.proposal_reference_ref(),
+        queued.sender(),
+        queued.proposal(),
+    )
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Proposal keys compared while finding the pending proposals a commit
+    /// carries.
+    static PROPOSAL_COMPARISONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+fn count_proposal_comparison() {
+    #[cfg(test)]
+    PROPOSAL_COMPARISONS.with(|count| count.set(count.get() + 1));
+}
+
+/// What finds a pending proposal among a commit's proposals: its reference,
+/// or its member sender and content. Tests count each equality check of two
+/// keys, the work a lookup does whatever holds the keys.
+#[derive(Hash)]
+enum CarriedKey<'a> {
+    Reference(&'a ProposalRef),
+    Content(LeafNodeIndex, (u16, Option<&'a [u8]>)),
+}
+
+impl PartialEq for CarriedKey<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        count_proposal_comparison();
+        match (self, other) {
+            (Self::Reference(a), Self::Reference(b)) => a == b,
+            (Self::Content(a, x), Self::Content(b, y)) => a == b && x == y,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for CarriedKey<'_> {}
+
+/// The references of the `pending` `AppDataUpdate` proposals that a commit's
+/// proposals, `committed`, carry. A commit can carry a stored proposal
+/// inline, so one with the same authenticated sender and content counts as
+/// well as one with the same reference. Each pending proposal is looked up,
+/// not compared with every committed one.
+fn carried_app_data_proposals<'p, 'c>(
+    pending: impl IntoIterator<Item = ProposalParts<'p>>,
+    committed: impl IntoIterator<Item = ProposalParts<'c>>,
+) -> Vec<&'p ProposalRef> {
+    let mut carried = HashSet::new();
+    // Other senders' proposals keep the pairwise comparison. A member stores
+    // no proposal from a non-member, so no pending proposal scans them.
+    let mut from_others = Vec::new();
+    for (reference, sender, proposal) in committed {
+        carried.insert(CarriedKey::Reference(reference));
+        if let Proposal::AppDataUpdate(update) = proposal {
+            match sender {
+                Sender::Member(leaf) => {
+                    carried.insert(CarriedKey::Content(*leaf, app_data_content(update)));
+                }
+                sender => from_others.push((sender, &**update)),
+            }
+        }
+    }
+    pending
+        .into_iter()
+        .filter(|(reference, sender, proposal)| {
+            let Proposal::AppDataUpdate(update) = proposal else {
+                return false;
+            };
+            carried.contains(&CarriedKey::Reference(reference))
+                || match sender {
+                    Sender::Member(leaf) => {
+                        carried.contains(&CarriedKey::Content(*leaf, app_data_content(update)))
+                    }
+                    sender => from_others.iter().any(|(other, content)| {
+                        count_proposal_comparison();
+                        other == sender && *content == &**update
+                    }),
+                }
+        })
+        .map(|(reference, _, _)| reference)
+        .collect()
+}
+
+/// An `AppDataUpdate` proposal's component and payload, `None` for a
+/// `Remove`: two proposals are equal exactly when these are.
+fn app_data_content(update: &AppDataUpdateProposal) -> (u16, Option<&[u8]>) {
+    let payload = match update.operation() {
+        AppDataUpdateOperation::Update(payload) => Some(payload.as_slice()),
+        AppDataUpdateOperation::Remove => None,
+    };
+    (update.component_id(), payload)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An `AppDataUpdate` of payload `n` from the member at `leaf`, under
+    /// reference `reference`.
+    fn app_data_update(reference: u32, leaf: u32, n: u32) -> (ProposalRef, Sender, Proposal) {
+        (
+            ProposalRef::from_slice(&reference.to_be_bytes()),
+            Sender::Member(LeafNodeIndex::new(leaf)),
+            Proposal::AppDataUpdate(Box::new(AppDataUpdateProposal::update(
+                0xC100,
+                n.to_be_bytes().to_vec(),
+            ))),
+        )
+    }
+
+    fn parts((reference, sender, proposal): &(ProposalRef, Sender, Proposal)) -> ProposalParts<'_> {
+        (reference, sender, proposal)
+    }
+
+    /// Finding the pending proposals a rejected commit carries compares about
+    /// one pair of keys per proposal, not every pending proposal with every
+    /// committed one: with 10,000 of each that took about 10^8 comparisons
+    /// inside the writer. The count is of key comparisons, so a lookup that
+    /// scans its keys fails here too. Finding a carried proposal takes at
+    /// least one, so a lookup that skips the counted keys fails as well.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn carried_proposals_take_linear_comparisons() {
+        const N: u32 = 10_000;
+        let pending: Vec<_> = (0..N).map(|n| app_data_update(n, n % 4, n)).collect();
+        // The second half by reference, the first quarter inline with a new
+        // reference, and the second quarter's content from another member.
+        let committed: Vec<_> = (N / 2..N)
+            .map(|n| app_data_update(n, n % 4, n))
+            .chain((0..N / 4).map(|n| app_data_update(N + n, n % 4, n)))
+            .chain((N / 4..N / 2).map(|n| app_data_update(N + n, n % 4 + 1, n)))
+            .collect();
+
+        PROPOSAL_COMPARISONS.with(|count| count.set(0));
+        let carried =
+            carried_app_data_proposals(pending.iter().map(parts), committed.iter().map(parts));
+        let comparisons = PROPOSAL_COMPARISONS.with(std::cell::Cell::get);
+
+        let expected: Vec<_> = pending
+            .iter()
+            .filter(|(reference, _, _)| {
+                let n = u32::from_be_bytes(reference.as_slice().try_into().unwrap());
+                !(N / 4..N / 2).contains(&n)
+            })
+            .map(|(reference, _, _)| reference)
+            .collect();
+        assert_eq!(carried, expected);
+        assert!(
+            comparisons >= carried.len() && comparisons <= pending.len() + committed.len(),
+            "{comparisons} comparisons"
+        );
+    }
+
+    /// The references of the `pending` proposals that `committed` carries.
+    fn carried(
+        pending: &[(ProposalRef, Sender, Proposal)],
+        committed: &[(ProposalRef, Sender, Proposal)],
+    ) -> Vec<ProposalRef> {
+        carried_app_data_proposals(pending.iter().map(parts), committed.iter().map(parts))
+            .into_iter()
+            .cloned()
+            .collect()
+    }
+
+    /// A committed proposal carries a pending one it does not reference
+    /// only with the same sender, component and operation: the same Update
+    /// payload, or a Remove. The proposals of a sender that is not a member
+    /// are compared the same way.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn carried_proposals_match_sender_component_and_operation() {
+        use openmls::prelude::SenderExtensionIndex;
+
+        let proposal = |reference: u32, sender: Sender, update: AppDataUpdateProposal| {
+            (
+                ProposalRef::from_slice(&reference.to_be_bytes()),
+                sender,
+                Proposal::AppDataUpdate(Box::new(update)),
+            )
+        };
+        let member = Sender::Member(LeafNodeIndex::new(0));
+        let update = |component: u16, payload: &[u8]| {
+            AppDataUpdateProposal::update(component, payload.to_vec())
+        };
+        let pending = [
+            proposal(1, member.clone(), update(0xC100, &[1])),
+            proposal(2, member.clone(), update(0xC101, &[2])),
+            proposal(3, member.clone(), update(0xC100, &[])),
+        ];
+        // The first pending proposal's payload on another component, and a
+        // Remove of the first and third pending proposals' component.
+        let mut committed = vec![
+            proposal(10, member.clone(), update(0xC101, &[1])),
+            proposal(11, member.clone(), AppDataUpdateProposal::remove(0xC100)),
+        ];
+        let none = carried(&pending, &committed);
+        assert!(none.is_empty(), "{none:?}");
+        committed.push(proposal(12, member, update(0xC100, &[1])));
+        assert_eq!(carried(&pending, &committed), [pending[0].0.clone()]);
+
+        let external = |index: u32| Sender::External(SenderExtensionIndex::new(index));
+        let pending = [
+            proposal(4, external(0), update(0xC100, &[1])),
+            proposal(5, external(1), update(0xC100, &[1])),
+        ];
+        let committed = [proposal(13, external(0), update(0xC100, &[1]))];
+        assert_eq!(carried(&pending, &committed), [pending[0].0.clone()]);
     }
 }

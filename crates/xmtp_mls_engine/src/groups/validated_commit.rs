@@ -23,7 +23,12 @@ use xmtp_db::{DbQuery, StorageError};
 use xmtp_id::associations::AssociationState;
 use xmtp_id::{InboxId, associations::MemberIdentifier};
 use xmtp_mls_group_state::{
-    app_data::component_source::{ComponentSourceError, read_from_app_data_dict},
+    app_data::{
+        component_id::ComponentId,
+        component_source::{
+            ComponentSourceError, read_from_app_data_dict, read_post_commit_component_bytes,
+        },
+    },
     group_metadata::{DmMembers, GroupMetadata, GroupMetadataError},
     group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError},
     libxmtp_version::{InvalidVersionFormat, LibXMTPVersion},
@@ -266,31 +271,30 @@ impl ValidatedCommit {
             leaf_owners(openmls_group.members()).map_err(CommitValidationError::installed_state)?;
         let current_group_members = leaf_owners.keys().cloned().collect();
 
-        // Reuse the committed registry for all component checks. Apply pending
-        // floor updates to this view, then check their policy before pausing.
+        // Reuse the committed registry for all component checks.
         let registry = super::app_data::load_component_registry(openmls_group)
             .map_err(CommitValidationError::installed_state)?;
-        let min_version_bytes =
-                xmtp_mls_group_state::app_data::component_source::read_post_commit_component_bytes(
-                    xmtp_mls_group_state::app_data::component_id::ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION,
-                    openmls_group,
-                    staged_commit,
-                    &registry,
-                )
-                .map_err(xmtp_mls_group_state::group_mutable_metadata::GroupMutableMetadataError::from)?;
-        let minimum_supported_protocol_version = match min_version_bytes {
-                Some(bytes) => Some(std::str::from_utf8(&bytes).map(str::to_owned).map_err(|e| {
-                    CommitValidationError::Rule(CommitRuleError::GroupMutableMetadata(
-                        GroupMutableMetadataError::MalformedComponent {
-                            component_id: Some(
-                                xmtp_mls_group_state::app_data::component_id::ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION,
-                            ),
-                            reason: format!("invalid utf-8: {e}"),
-                        },
-                    ))
-                })?),
-                None => None,
-            };
+        // The floor the commit's validated proposals leave, not the staged
+        // dictionary's (see `read_post_commit_component_bytes`). It pauses
+        // only after its policy check below.
+        let minimum_supported_protocol_version = read_post_commit_component_bytes(
+            ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION,
+            openmls_group,
+            staged_commit,
+            &registry,
+        )
+        .map_err(GroupMutableMetadataError::from)?
+        .map(|bytes| {
+            std::str::from_utf8(&bytes).map(str::to_owned).map_err(|e| {
+                CommitValidationError::Rule(CommitRuleError::GroupMutableMetadata(
+                    GroupMutableMetadataError::MalformedComponent {
+                        component_id: Some(ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION),
+                        reason: format!("invalid utf-8: {e}"),
+                    },
+                ))
+            })
+        })
+        .transpose()?;
         // Get the committer who created the commit and all unique proposers.
         // The committer may differ from the proposers (e.g., when one member commits
         // proposals created by other members).
@@ -307,7 +311,8 @@ impl ValidatedCommit {
         // iterates both) never flow through `validate_proposal()` —
         // that path only handles standalone proposal-by-reference
         // messages — so this is where their permission check lives.
-        validate_app_data_update_proposals_in_commit(
+        // The states the proposals leave, for every post-commit read below.
+        let post_states = validate_app_data_update_proposals_in_commit(
             staged_commit,
             openmls_group,
             &immutable_metadata,
@@ -511,8 +516,7 @@ impl ValidatedCommit {
         // Component policies have already checked each authenticated proposer.
         // Build the change summary after authorization, so legacy actor-based
         // checks do not reject a valid proposal committed by another member.
-        let post_metadata =
-            read_post_commit_mutable_metadata(openmls_group, staged_commit, &registry)?;
+        let post_metadata = read_post_commit_mutable_metadata(openmls_group, &post_states)?;
         let metadata_changes =
             metadata_changes_between(&immutable_metadata, &mutable_metadata, &post_metadata);
         let mut proposed_component_ids: Vec<u16> = staged_commit
@@ -523,25 +527,19 @@ impl ValidatedCommit {
         proposed_component_ids.dedup();
         let mut metadata_component_ids = Vec::new();
         for raw_id in proposed_component_ids {
-            let id = xmtp_mls_group_state::app_data::component_id::ComponentId::from(raw_id);
+            let id = ComponentId::from(raw_id);
             let before = read_from_app_data_dict(id, openmls_group);
-            // The post-commit value is wiped on drop: it can be the
-            // commit-log signer's private key.
-            let after =
-                xmtp_mls_group_state::app_data::component_source::read_post_commit_component_bytes(
-                    id,
-                    openmls_group,
-                    staged_commit,
-                    &registry,
-                )
-                .map_err(GroupMutableMetadataError::from)?;
-            if before != after.as_deref().map(Vec::as_slice) {
+            // Validation applied every proposal, so each proposed component
+            // has a state.
+            let after = post_states
+                .get(&id)
+                .map_or(before, |state| state.as_deref().map(Vec::as_slice));
+            if before != after {
                 metadata_component_ids.push(raw_id);
             }
         }
-        let permissions_changed = metadata_component_ids.contains(
-            &xmtp_mls_group_state::app_data::component_id::ComponentId::COMPONENT_REGISTRY.as_u16(),
-        );
+        let permissions_changed =
+            metadata_component_ids.contains(&ComponentId::COMPONENT_REGISTRY.as_u16());
         Ok(Self {
             actor,
             proposers,
@@ -747,9 +745,7 @@ pub fn validate_proposal(
         }
         Proposal::AppDataUpdate(app_data) => {
             use super::app_data::load_component_registry;
-            use xmtp_mls_group_state::app_data::{
-                component_id::ComponentId, validation::ActorAuthority,
-            };
+            use xmtp_mls_group_state::app_data::validation::ActorAuthority;
 
             let registry = load_component_registry(openmls_group)?;
 

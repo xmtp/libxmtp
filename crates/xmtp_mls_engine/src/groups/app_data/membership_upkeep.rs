@@ -27,6 +27,7 @@ use xmtp_mls_group_state::{
         component_registry::ComponentRegistry,
         component_source::{component_type, read_from_app_data_dict},
         creation::catalogue_registry_entries,
+        validation::ComponentWriteValidator,
     },
     inbox_id::InboxId,
 };
@@ -35,8 +36,7 @@ use xmtp_mls_tls_collections::{
     tls_set::{TlsSet, TlsSetDelta},
 };
 use xmtp_mls_validation::commit::{
-    AppDataPostStates, AppDataUpdateInCommit, extract_commit_participant, read_committed_metadata,
-    validate_app_data_update_sequence,
+    AppDataUpdateInCommit, extract_commit_participant, read_committed_metadata,
 };
 use xmtp_proto::{types::ConversationType, xmtp::mls::message_contents::ComponentType};
 
@@ -59,20 +59,25 @@ pub(crate) fn membership_upkeep(
     let (immutable, mutable) = read_committed_metadata(group)?;
     let committer =
         extract_commit_participant(&group.own_leaf_index(), group, &immutable, &mutable)?;
-    let mut batch = AppDataBatch::pending(group)?;
+    let mut batch = AppDataBatch::pending(group, &registry)?;
 
     let committed_members = inbox_keys(read_from_app_data_dict(
         ComponentId::GROUP_MEMBERSHIP,
         group,
     ));
-    let members = inbox_keys(batch.state(ComponentId::GROUP_MEMBERSHIP));
+    let members = inbox_keys(
+        batch
+            .state(ComponentId::GROUP_MEMBERSHIP)?
+            .as_deref()
+            .map(Vec::as_slice),
+    );
     let removed: Vec<InboxId> = committed_members.difference(&members).copied().collect();
     let members: HashSet<InboxId> = members.into_iter().collect();
 
     let mut candidates = Vec::new();
     if let Some(pending) = batch
-        .state(ComponentId::COMPONENT_REGISTRY)
-        .and_then(|bytes| ComponentRegistry::from_bytes(bytes).ok())
+        .state(ComponentId::COMPONENT_REGISTRY)?
+        .and_then(|bytes| ComponentRegistry::from_bytes(&bytes).ok())
     {
         let missing = unregistered(
             catalogue,
@@ -93,7 +98,7 @@ pub(crate) fn membership_upkeep(
         // registry, so a map delete for a type changed in this commit would be
         // applied as a scalar replacement.
         for (id, metadata) in registry.iter().flatten() {
-            let Some(snapshot) = batch.state(id) else {
+            let Some(snapshot) = batch.state(id)? else {
                 continue;
             };
             let payload = match component_type(id)
@@ -102,7 +107,7 @@ pub(crate) fn membership_upkeep(
                 Some(ComponentType::TlsMapInboxIdBytes | ComponentType::TlsMapInboxIdString)
                     if id != ComponentId::GROUP_MEMBERSHIP =>
                 {
-                    let Ok(map) = TlsMap::<InboxId, VLBytes>::tls_deserialize_exact(snapshot)
+                    let Ok(map) = TlsMap::<InboxId, VLBytes>::tls_deserialize_exact(&snapshot)
                     else {
                         continue;
                     };
@@ -115,7 +120,7 @@ pub(crate) fn membership_upkeep(
                     (!delta.mutations.is_empty()).then(|| delta.tls_serialize_detached())
                 }
                 _ if id == ComponentId::ADMIN_LIST => {
-                    let Ok(set) = TlsSet::<InboxId>::tls_deserialize_exact(snapshot) else {
+                    let Ok(set) = TlsSet::<InboxId>::tls_deserialize_exact(&snapshot) else {
                         continue;
                     };
                     let delta = removed
@@ -132,6 +137,8 @@ pub(crate) fn membership_upkeep(
         }
     }
 
+    let max = super::sender_dictionary_max(limits);
+    let mut validator = ComponentWriteValidator::new(&registry);
     let mut proposals = Vec::new();
     for (id, payload) in candidates {
         let proposal = AppDataUpdateProposal::update(id.as_u16(), payload);
@@ -141,20 +148,22 @@ pub(crate) fn membership_upkeep(
             actor: (&committer).into(),
             proposer_inbox_id: &committer.inbox_id,
         };
-        match validate_app_data_update_sequence(
-            [update],
-            |id| batch.state(id),
-            &registry,
-            immutable.dm_members.as_ref(),
-            Some(&members),
-        )
-        .and_then(|post| batch.fits(&post, super::sender_dictionary_max(limits)))
+        let checkpoint = batch.checkpoint();
+        match batch
+            .validate(
+                &mut validator,
+                update,
+                immutable.dm_members.as_ref(),
+                Some(&members),
+            )
+            .and_then(|()| batch.fits(max))
         {
-            Ok(_) => {
-                batch.apply(id.as_u16(), proposal.operation())?;
+            Ok(()) => {
+                batch.release(checkpoint);
                 proposals.push(Proposal::AppDataUpdate(Box::new(proposal)));
             }
             Err(error) => {
+                batch.rollback(checkpoint);
                 tracing::info!(%id, %error, "commit omits unauthorized upkeep")
             }
         }
@@ -163,11 +172,8 @@ pub(crate) fn membership_upkeep(
     // An intent's own proposals are pending too, so check the whole commit.
     // Other proposals and the upkeep above already keep to this bound, so
     // only an own update that grows the dictionary past it fails here.
-    batch.fits(
-        &AppDataPostStates::new(),
-        super::sender_dictionary_max(limits),
-    )?;
-    Ok((proposals, batch.updates()))
+    batch.fits(max)?;
+    Ok((proposals, batch.updates()?))
 }
 
 /// An insert for each catalogue entry eligible for `conversation_type`

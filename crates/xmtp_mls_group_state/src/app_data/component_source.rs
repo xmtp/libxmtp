@@ -1,4 +1,5 @@
-//! Single source-of-truth for the per-`ComponentId` read/encode/apply logic.
+//! Single source-of-truth for the per-`ComponentId` read/encode logic and
+//! the byte-level apply.
 //!
 //! Centralizes everything the rest of the MLS pipeline needs to know about
 //! a well-known `ComponentId`: its logical [`ComponentType`], where its
@@ -8,6 +9,17 @@
 //! The helpers are `pub` so `xmtp_mls` can call them. They read and write
 //! raw component bytes; `xmtp_mls` owns the intent and commit paths that
 //! decide when a write is allowed.
+//!
+//! ## Two apply paths
+//!
+//! [`apply_app_data_update_payload`] decodes, applies, and re-encodes the
+//! whole component for each update. The
+//! [`WorkingSet`](super::working_set::WorkingSet) applies the same updates
+//! to components it decodes once per commit, and applies a collection by
+//! its [`ComponentType`] rather than through its `Component` impl. Members
+//! must reach one verdict on every input, so a change to how a component
+//! applies changes both paths. The differential test in
+//! `working_set/tests/differential.rs` compares them.
 //!
 //! ## Field bounds
 //!
@@ -43,6 +55,8 @@ use crate::{
         components::type_dispatch::{apply_update_payload_for_type, expand_to_changes_for_type},
         registry_table::lookup_component,
         typed::ComponentTypedError,
+        validation::ComponentWriteValidator,
+        working_set::WorkingSet,
     },
     group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError, MetadataField},
     inbox_id::{InboxId, InboxIdError},
@@ -64,7 +78,11 @@ use xmtp_proto::xmtp::mls::message_contents::ComponentType;
 mod bounds;
 mod metadata_reads;
 
-use bounds::{check_field_bounds, check_update_payload_bounds, is_field_bounded, resolved_type};
+pub(crate) use bounds::{
+    check_field_bounds, check_payload_element_bound, has_payload_bound, is_field_bounded,
+    registered_type, registry_type_tag,
+};
+use bounds::{check_update_payload_bounds, resolved_type};
 #[cfg(test)]
 use metadata_reads::encode_inbox_id_set;
 pub use metadata_reads::{
@@ -326,73 +344,40 @@ pub fn read_component_bytes(
     Ok(read_from_app_data_dict_from_extensions(id, extensions))
 }
 
-/// Compute the post-commit value of a single component
-/// by overlaying the staged commit's `AppDataUpdate` proposals on top of
-/// the pre-commit dict. Last-write-wins matches the lazy-batching apply
-/// order in `xmtp_mls`'s `accumulate_app_data_updates`: every `Update(payload)`
-/// is decoded against the running value (so collection deltas compose),
-/// and `Remove` collapses to `None`.
+/// The value component `id` holds after `staged_commit`'s `AppDataUpdate`
+/// proposals, as commit validation judges them: each `Update` in
+/// `staged_commit.app_data_update_proposals()` applied in order to the
+/// pre-commit dictionary of `mls_group`, a `Remove` leaving `None`.
 ///
-/// Returns `Ok(None)` when the component is absent both before and after
-/// the commit, or when it was explicitly removed. Returns `Err` only when
-/// an `Update` payload fails to decode against the running value — the
-/// same condition `validate_app_data_update_proposals_in_commit` would
-/// also reject upstream, so callers can treat decode failure here as
-/// "validator will surface the real error" and short-circuit.
+/// Those proposals are OpenMLS's proposal queue, which keeps the first of
+/// proposals with the same reference. The staged commit's own dictionary is
+/// built from the commit's proposal list, which can repeat a proposal, so it
+/// can differ from what validation judged. Post-commit checks read this
+/// value instead, as release clients do, so members reach the same verdict.
 ///
-/// Used by the commit validator to evaluate per-component invariants
-/// (notably `MIN_SUPPORTED_PROTOCOL_VERSION`) that need the post-commit
-/// view from the AppData dictionary.
+/// One [`WorkingSet`] holds the component, so the work is linear in the
+/// proposals' bytes. Returns `Err` when an `Update` does not apply, with the
+/// error [`apply_app_data_update_payload`] gives.
 ///
-/// The value is `Zeroizing`: it can be the commit-log signer's private key.
-///
-/// # Registry semantics
-///
-/// `registry` is the **pre-commit** `COMPONENT_REGISTRY` (i.e. the state
-/// of the dictionary entry before the staged commit applies). Callers
-/// should load it once via `xmtp_mls`'s `load_component_registry` on the
-/// live `mls_group` and reuse it across all validator helpers — same
-/// registry feeds `validate_app_data_update_proposals_in_commit`
-/// and any other per-component checks.
-///
-/// **Implication for commits that modify `COMPONENT_REGISTRY` in the
-/// same commit as a write to a newly-registered component**: such a
-/// write fails with `UnknownComponent` here because the new entry is
-/// not yet visible in the pre-commit registry. This matches what the
-/// receiver-side validator
-/// (`validate_app_data_update_proposals_in_commit`) enforces
-/// today and is the documented convention across the commit
-/// path: registry mutations and writes that depend on those mutations
-/// MUST land in separate commits.
-///
+/// `registry` is the pre-commit `COMPONENT_REGISTRY`, which every
+/// component check of the commit shares. The value can be the commit-log
+/// signer's private key, so it is `Zeroizing`.
 pub fn read_post_commit_component_bytes(
     id: ComponentId,
     mls_group: &OpenMlsGroup,
     staged_commit: &StagedCommit,
     registry: &ComponentRegistry,
 ) -> Result<Option<Zeroizing<Vec<u8>>>, ComponentSourceError> {
-    let openmls_id: openmls::component::ComponentId = id.as_u16();
-
-    // Each proposal's payload is borrowed only while it is applied, so no
-    // payload is copied. Every replaced value is wiped on drop.
-    let mut current =
-        read_from_app_data_dict(id, mls_group).map(|bytes| Zeroizing::new(bytes.to_vec()));
+    let mut set = WorkingSet::new(std::borrow::Cow::Borrowed(registry), |component| {
+        read_from_app_data_dict(component, mls_group)
+    });
     for queued in staged_commit.app_data_update_proposals() {
         let proposal = queued.app_data_update_proposal();
-        if proposal.component_id() != openmls_id {
-            continue;
+        if proposal.component_id() == id.as_u16() {
+            set.apply(id, proposal.operation())?;
         }
-        current = match proposal.operation() {
-            AppDataUpdateOperation::Update(payload) => Some(apply_app_data_update_payload(
-                id,
-                payload.as_slice(),
-                current.as_deref().map(Vec::as_slice),
-                registry,
-            )?),
-            AppDataUpdateOperation::Remove => None,
-        };
     }
-    Ok(current)
+    set.encode(id)
 }
 
 /// Look up the component's bytes in the OpenMLS AppData dictionary.
@@ -463,6 +448,22 @@ pub fn expand_app_data_update_to_changes(
     old_value: Option<&[u8]>,
     registry: &ComponentRegistry,
 ) -> Result<Zeroizing<Vec<ExpandedComponentChange>>, ComponentSourceError> {
+    expand_app_data_update_to_changes_with_validator(
+        component_id,
+        operation,
+        old_value,
+        &mut ComponentWriteValidator::new(registry),
+    )
+}
+
+/// [`expand_app_data_update_to_changes`], resolving an unknown component's
+/// type from the registry entry that `validator` decodes once.
+pub fn expand_app_data_update_to_changes_with_validator(
+    component_id: ComponentId,
+    operation: &AppDataUpdateOperation,
+    old_value: Option<&[u8]>,
+    validator: &mut ComponentWriteValidator<'_>,
+) -> Result<Zeroizing<Vec<ExpandedComponentChange>>, ComponentSourceError> {
     if let Some(component) = lookup_component(component_id) {
         return component
             .expand_to_changes(operation, old_value)
@@ -475,7 +476,7 @@ pub fn expand_app_data_update_to_changes(
     // `TlsMap` deltas — surfaces a proper per-element change list to the
     // validator. Old and new clients converge on the same dict state for
     // the same wire bytes.
-    let ty = resolved_type(component_id, registry)?;
+    let ty = resolved_type(component_id, validator)?;
     let changes = Zeroizing::new(expand_to_changes_for_type(
         component_id,
         ty,
@@ -491,7 +492,10 @@ pub fn expand_app_data_update_to_changes(
 /// Reject a `GROUP_ROOT_KEY` value that is not 32 bytes, the length the
 /// well-known component table gives the group root.
 // implements: META-010
-fn check_group_root_length(id: ComponentId, value: &[u8]) -> Result<(), ComponentSourceError> {
+pub(crate) fn check_group_root_length(
+    id: ComponentId,
+    value: &[u8],
+) -> Result<(), ComponentSourceError> {
     if id == ComponentId::GROUP_ROOT_KEY && value.len() != GROUP_ROOT_BYTES {
         return Err(ComponentSourceError::MalformedComponentValue {
             component_id: id,
@@ -528,7 +532,23 @@ pub fn apply_app_data_update_payload(
     old_value: Option<&[u8]>,
     registry: &ComponentRegistry,
 ) -> Result<Zeroizing<Vec<u8>>, ComponentSourceError> {
-    check_update_payload_bounds(id, payload, registry)?;
+    apply_app_data_update_payload_with_validator(
+        id,
+        payload,
+        old_value,
+        &mut ComponentWriteValidator::new(registry),
+    )
+}
+
+/// [`apply_app_data_update_payload`], resolving the component's type from
+/// the registry entry that `validator` decodes once.
+pub fn apply_app_data_update_payload_with_validator(
+    id: ComponentId,
+    payload: &[u8],
+    old_value: Option<&[u8]>,
+    validator: &mut ComponentWriteValidator<'_>,
+) -> Result<Zeroizing<Vec<u8>>, ComponentSourceError> {
+    check_update_payload_bounds(id, payload, validator)?;
     // Immutability gate. Reject only on overwrite — a fresh insert
     // (no prior value) is the bootstrap commit's first write of an
     // immutable seed and must succeed for honest receivers to reach
@@ -544,11 +564,11 @@ pub fn apply_app_data_update_payload(
     let new_value = Zeroizing::new(match lookup_component(id) {
         Some(component) => component.apply_update_payload(payload, old_value)?,
         None => {
-            apply_update_payload_for_type(id, resolved_type(id, registry)?, payload, old_value)?
+            apply_update_payload_for_type(id, resolved_type(id, validator)?, payload, old_value)?
         }
     });
     if is_field_bounded(id) {
-        check_field_bounds(id, resolved_type(id, registry)?, &new_value)?;
+        check_field_bounds(id, resolved_type(id, validator)?, &new_value)?;
     }
     check_group_root_length(id, &new_value)?;
     Ok(new_value)

@@ -267,7 +267,20 @@ impl Component for SuperAdminListComponent {
                 .is_empty(),
             None => true,
         };
-        if post_is_empty {
+        Self::check_not_emptied(false, post_is_empty)
+    }
+}
+
+impl SuperAdminListComponent {
+    /// The list's invariant from whether it was empty before a change and
+    /// is empty after it: a non-empty list cannot become empty.
+    /// [`Component::validate_invariant`] decodes both values to apply it; a
+    /// caller that holds the list decoded applies it directly.
+    pub fn check_not_emptied(
+        was_empty: bool,
+        is_empty: bool,
+    ) -> Result<(), ComponentInvariantError> {
+        if !was_empty && is_empty {
             return Err(ComponentInvariantError::Violation {
                 component_id: Self::ID,
                 reason: "a non-empty super-admin list cannot transition to empty".into(),

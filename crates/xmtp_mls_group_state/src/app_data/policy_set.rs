@@ -16,7 +16,7 @@
 
 use openmls::{extensions::Extensions, group::GroupContext};
 use xmtp_proto::xmtp::mls::message_contents::{
-    MembershipPolicy, MetadataPolicy, PermissionsUpdatePolicy, PolicySet,
+    ComponentMetadata, MembershipPolicy, MetadataPolicy, PermissionsUpdatePolicy, PolicySet,
     membership_policy::{self, BasePolicy as MembershipBasePolicy, Kind as MembershipPolicyKind},
     metadata_policy::{self, Kind as MetadataPolicyKind, MetadataBasePolicy},
     permissions_update_policy::{Kind as PermissionsPolicyKind, PermissionsBasePolicy},
@@ -107,31 +107,55 @@ fn registry_policy(
     id: ComponentId,
     op: ComponentOp,
 ) -> Result<MetadataPolicy, PolicyProjectionError> {
-    let permissions = registry
-        .get(&id)?
-        .and_then(|metadata| metadata.permissions)
+    entry_policy(registry.get(&id)?.as_ref(), id, op)
+}
+
+/// The `op` policy of `metadata`, the registry entry of `id`.
+fn entry_policy(
+    metadata: Option<&ComponentMetadata>,
+    id: ComponentId,
+    op: ComponentOp,
+) -> Result<MetadataPolicy, PolicyProjectionError> {
+    let permissions = metadata
+        .and_then(|metadata| metadata.permissions.as_ref())
         .ok_or(ComponentRegistryError::MissingPermissions(id))?;
     let policy = match op {
-        ComponentOp::Insert => permissions.insert_policy,
-        ComponentOp::Update => permissions.update_policy,
-        ComponentOp::Delete => permissions.delete_policy,
+        ComponentOp::Insert => &permissions.insert_policy,
+        ComponentOp::Update => &permissions.update_policy,
+        ComponentOp::Delete => &permissions.delete_policy,
     };
-    Ok(policy.ok_or(ComponentRegistryError::MissingPolicyField(id, op))?)
+    Ok(policy
+        .clone()
+        .ok_or(ComponentRegistryError::MissingPolicyField(id, op))?)
 }
 
 /// Require the action entries and validate each complete action policy tree.
 /// Use this on Welcome admission and on the final registry of a commit.
-// implements: PERM-017
 pub fn validate_registry_action_policies(
     registry: &ComponentRegistry,
 ) -> Result<(), PolicyProjectionError> {
+    validate_action_entries(
+        registry.get(&ComponentId::GROUP_MEMBERSHIP)?.as_ref(),
+        registry.get(&ComponentId::ADMIN_LIST)?.as_ref(),
+    )
+}
+
+/// [`validate_registry_action_policies`] given the registry's two action
+/// entries, `GROUP_MEMBERSHIP` and `ADMIN_LIST`, as
+/// [`ComponentRegistry::get`] returns them. A caller that holds the registry
+/// in decoded form reads these two entries instead of building a registry.
+// implements: PERM-017
+pub fn validate_action_entries(
+    membership: Option<&ComponentMetadata>,
+    admins: Option<&ComponentMetadata>,
+) -> Result<(), PolicyProjectionError> {
     for op in [ComponentOp::Insert, ComponentOp::Delete] {
-        metadata_policy_to_membership_policy(&registry_policy(
-            registry,
+        metadata_policy_to_membership_policy(&entry_policy(
+            membership,
             ComponentId::GROUP_MEMBERSHIP,
             op,
         )?)?;
-        metadata_policy_to_admin_policy(&registry_policy(registry, ComponentId::ADMIN_LIST, op)?)?;
+        metadata_policy_to_admin_policy(&entry_policy(admins, ComponentId::ADMIN_LIST, op)?)?;
     }
     Ok(())
 }

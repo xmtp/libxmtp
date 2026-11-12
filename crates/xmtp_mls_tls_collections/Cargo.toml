@@ -10,6 +10,10 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Counts snapshot decodes for other crates' cost tests.
+test-utils = []
+
 [dependencies]
 thiserror.workspace = true
 tls_codec.workspace = true

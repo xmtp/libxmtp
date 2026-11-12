@@ -13,7 +13,7 @@ use super::component_id::ComponentId;
 /// Each variant maps to one of the policy fields in
 /// [`ComponentPermissions`](xmtp_proto::xmtp::mls::message_contents::ComponentPermissions):
 /// `Insert` → `insert_policy`, `Update` → `update_policy`, `Delete` → `delete_policy`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ComponentOp {
     /// Creating a new value (component does not yet exist).
     Insert,
@@ -324,16 +324,17 @@ impl ComponentRegistry {
     /// Decode and fully validate a stored entry, returning its metadata iff
     /// the entry is recognized. This is the one place that decides
     /// visibility: [`get`](Self::get), [`iter`](Self::iter),
-    /// [`contains`](Self::contains), [`len`](Self::len), and
-    /// [`unrecognized_ids`](Self::unrecognized_ids) are all defined in terms
-    /// of whether this returns `Ok`.
+    /// [`contains`](Self::contains), [`len`](Self::len),
+    /// [`unrecognized_ids`](Self::unrecognized_ids), and
+    /// `WorkingSet::registry_entry` are all defined in terms of whether this
+    /// returns `Ok`.
     ///
     /// Rejects ids outside the component space, reserved ids, hardcoded ids
     /// (their permissions are enforced in code), values that don't decode as
     /// `ComponentMetadata`, and metadata that is structurally incomplete or
     /// violates a constrained component's policy allowlist.
     // implements: META-014
-    fn decode_recognized(
+    pub(crate) fn decode_recognized(
         id: ComponentId,
         raw: &[u8],
     ) -> Result<ComponentMetadata, ComponentRegistryError> {
@@ -346,6 +347,8 @@ impl ComponentRegistry {
         if id.is_hardcoded() {
             return Err(ComponentRegistryError::HardcodedComponent(id));
         }
+        #[cfg(any(test, feature = "test-utils"))]
+        super::validation::record_work(|work| work.registry_decodes += 1);
         let meta = ComponentMetadata::decode(raw).map_err(|source| {
             ComponentRegistryError::DecodeError {
                 component_id: id,
