@@ -812,10 +812,12 @@ async fn test_staging_batch_decodes_once() -> Result<(), Box<dyn std::error::Err
 }
 
 /// A commit builder keeps each pending proposal that receivers accept after
-/// the ones kept before it. A proposal that fails at its third mutation of
-/// five, and one that applies but grows the dictionary past the builder's
-/// bound, leave no trace: the proposals after them that need them undone
-/// are kept, and the kept proposals leave the map they leave alone.
+/// the ones kept before it, and the ones it refuses leave no trace. A
+/// proposal that fails at its third mutation of five changes nothing, as no
+/// failed update does. A proposal that applies but grows the dictionary past
+/// the builder's bound is rolled back by the builder, entries and running
+/// total both: the later insert of the key it wrote is kept, and the bound
+/// still has room for it. The kept proposals leave the map they leave alone.
 // verifies: GMOD-047, META-078
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_keep_rolls_back_failed_proposal() -> Result<(), Box<dyn std::error::Error>> {
@@ -839,7 +841,8 @@ async fn test_keep_rolls_back_failed_proposal() -> Result<(), Box<dyn std::error
     bo_group.sync().await?;
     let deltas = [
         insert("k1", b"v".to_vec()),
-        // Fails at its third mutation: `missing` is absent.
+        // Fails at its third mutation: `missing` is absent. The failed
+        // update undoes its first two inserts itself.
         insert("a", b"v".to_vec())
             .insert(bytes("b"), bytes("v"))
             .update(bytes("missing"), bytes("v"))
@@ -847,9 +850,11 @@ async fn test_keep_rolls_back_failed_proposal() -> Result<(), Box<dyn std::error
             .insert(bytes("d"), bytes("v")),
         // Applies only if the failed proposal's inserts were undone.
         insert("a", b"v".to_vec()),
-        // Applies, but grows the dictionary past the bound below.
+        // Applies, but grows the dictionary past the bound below. Only the
+        // builder's rollback undoes it.
         insert("big", vec![b'x'; 8_000]),
-        // Applies only if the oversized insert was undone.
+        // Applies only if the oversized insert was undone, and fits only if
+        // the running total was restored too.
         insert("big", b"v".to_vec()),
     ];
     let operations = deltas.map(map_update);
@@ -888,10 +893,12 @@ async fn test_keep_rolls_back_failed_proposal() -> Result<(), Box<dyn std::error
 }
 
 /// A member floods an application map in one commit: a delta of 4,096
-/// descending inserts and the ascending deletes of the same keys
-/// (Octane 807b5312), then 999 inline one-mutation Updates. Another member
-/// processes the commit with a few snapshot decodes, not several per
-/// proposal, applies it, and goes on to read the group's next message.
+/// descending inserts and the ascending deletes of the same keys, the shape
+/// of Octane 807b5312 far below its scale, then 999 inline one-mutation
+/// Updates. Another member processes the commit with a few snapshot
+/// decodes, not several per proposal, applies it, and goes on to read the
+/// group's next message. This bounds decodes per commit, not the cost of one
+/// delta at the finding's scale.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_mutation_flood_commit_is_processed_once() -> Result<(), Box<dyn std::error::Error>> {
     use xmtp_mls_group_state::app_data::working_set::counters::snapshot_decodes;
