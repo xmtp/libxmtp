@@ -21,7 +21,7 @@ use openmls::{
 use prost::Message;
 use serde::Serialize;
 use thiserror::Error;
-use tls_codec::{Deserialize as _, Serialize as _, VLBytes};
+use tls_codec::{Deserialize as _, VLBytes};
 use xmtp_common::RetryableError;
 use xmtp_cryptography::secret::Zeroizing;
 use xmtp_mls_group_state::{
@@ -1670,13 +1670,8 @@ pub fn validate_registry_in(set: &mut WorkingSet<'_>) -> Result<(), CommitRuleEr
     }
     // A registry a proposal wrote decodes, and every component id encodes.
     let mut entry = |id: ComponentId| {
-        let key = id
-            .tls_serialize_detached()
-            .map_err(|_| CommitRuleError::InsufficientPermissions)?;
-        let raw = set
-            .get(registry, &key)
-            .map_err(|_| CommitRuleError::InsufficientPermissions)?;
-        Ok::<_, CommitRuleError>(raw.and_then(|raw| ComponentRegistry::recognized_entry(id, raw)))
+        set.registry_entry(id)
+            .map_err(|_| CommitRuleError::InsufficientPermissions)
     };
     let membership = entry(ComponentId::GROUP_MEMBERSHIP)?;
     let admins = entry(ComponentId::ADMIN_LIST)?;

@@ -144,13 +144,7 @@ impl ComponentRegistry {
         Ok(self
             .inner
             .get(id)
-            .and_then(|raw| Self::recognized_entry(*id, raw.as_slice())))
-    }
-
-    /// The metadata [`get`](Self::get) returns for an entry of `id` that
-    /// holds `raw`: `None` when the entry is not recognized.
-    pub fn recognized_entry(id: ComponentId, raw: &[u8]) -> Option<ComponentMetadata> {
-        Self::decode_recognized(id, raw).ok()
+            .and_then(|raw| Self::decode_recognized(*id, raw.as_slice()).ok()))
     }
 
     /// Register or update a component's metadata.
