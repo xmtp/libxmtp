@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet, hash_map::Entry};
+use std::mem::MaybeUninit;
 
 use tls_codec::Deserialize;
+use xmtp_cryptography::secret::Zeroize;
 use xmtp_proto::xmtp::mls::message_contents::MetadataPolicy as MetadataPolicyProto;
 use xmtp_proto::xmtp::mls::message_contents::metadata_policy::{
     Kind as MetadataPolicyKind, MetadataBasePolicy,
@@ -120,7 +122,7 @@ pub fn validate_component_write(
 pub struct ComponentWriteValidator<'r> {
     registry: &'r ComponentRegistry,
     /// Each component's recognized registry entry; `None` when absent.
-    entries: HashMap<ComponentId, Option<ComponentMetadata>>,
+    entries: HashMap<ComponentId, CachedEntry>,
     /// The verdict of each component's policy for an operation and subject.
     verdicts: HashMap<(ComponentId, ComponentOp, PolicySubject), PolicyOutcome>,
 }
@@ -258,15 +260,45 @@ impl<'r> ComponentWriteValidator<'r> {
 /// The recognized registry entry of `id`, decoded from `registry` into
 /// `entries` on first use.
 fn cached_entry<'e>(
-    entries: &'e mut HashMap<ComponentId, Option<ComponentMetadata>>,
+    entries: &'e mut HashMap<ComponentId, CachedEntry>,
     registry: &ComponentRegistry,
     id: ComponentId,
 ) -> Result<Option<&'e ComponentMetadata>, ComponentRegistryError> {
     let entry = match entries.entry(id) {
         Entry::Occupied(entry) => entry.into_mut(),
-        Entry::Vacant(entry) => entry.insert(registry.get(&id)?),
+        Entry::Vacant(entry) => entry.insert(CachedEntry::new(registry.get(&id)?)),
     };
-    Ok(entry.as_ref())
+    Ok(entry.get())
+}
+
+/// A decoded registry entry on the heap, wiped when dropped.
+///
+/// A decoded `ComponentMetadata` has unwritten bytes: the tail of each
+/// `None` field and of each short `oneof` variant. Moving it from the stack
+/// to the heap copies the dead stack bytes under those tails, which can hold
+/// a secret such as the commit-log signer, into the heap block. Dropping the
+/// entry zeroes every byte of it before its block is freed. It is boxed so a
+/// map that grows moves only the pointer and frees no copy of the entry.
+struct CachedEntry(Box<MaybeUninit<Option<ComponentMetadata>>>);
+
+impl CachedEntry {
+    fn new(entry: Option<ComponentMetadata>) -> Self {
+        Self(Box::new(MaybeUninit::new(entry)))
+    }
+
+    fn get(&self) -> Option<&ComponentMetadata> {
+        // SAFETY: `new` initializes the value, and only `drop` drops it.
+        unsafe { self.0.assume_init_ref() }.as_ref()
+    }
+}
+
+impl Drop for CachedEntry {
+    fn drop(&mut self) {
+        // SAFETY: `new` initialized the value, and nothing reads it after
+        // this drop.
+        unsafe { self.0.assume_init_drop() };
+        self.0.zeroize();
+    }
 }
 
 /// A DM participant may insert, update, or delete a registry
