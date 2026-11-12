@@ -781,7 +781,8 @@ mod tests {
     /// one pair of keys per proposal, not every pending proposal with every
     /// committed one: with 10,000 of each that took about 10^8 comparisons
     /// inside the writer. The count is of key comparisons, so a lookup that
-    /// scans its keys fails here too.
+    /// scans its keys fails here too. Finding a carried proposal takes at
+    /// least one, so a lookup that skips the counted keys fails as well.
     #[xmtp_common::test(unwrap_try = true)]
     fn carried_proposals_take_linear_comparisons() {
         const N: u32 = 10_000;
@@ -809,8 +810,63 @@ mod tests {
             .collect();
         assert_eq!(carried, expected);
         assert!(
-            comparisons <= pending.len() + committed.len(),
+            comparisons >= carried.len() && comparisons <= pending.len() + committed.len(),
             "{comparisons} comparisons"
         );
+    }
+
+    /// The references of the `pending` proposals that `committed` carries.
+    fn carried(
+        pending: &[(ProposalRef, Sender, Proposal)],
+        committed: &[(ProposalRef, Sender, Proposal)],
+    ) -> Vec<ProposalRef> {
+        carried_app_data_proposals(pending.iter().map(parts), committed.iter().map(parts))
+            .into_iter()
+            .cloned()
+            .collect()
+    }
+
+    /// A committed proposal carries a pending one it does not reference
+    /// only with the same sender, component and operation: the same Update
+    /// payload, or a Remove. The proposals of a sender that is not a member
+    /// are compared the same way.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn carried_proposals_match_sender_component_and_operation() {
+        use openmls::prelude::SenderExtensionIndex;
+
+        let proposal = |reference: u32, sender: Sender, update: AppDataUpdateProposal| {
+            (
+                ProposalRef::from_slice(&reference.to_be_bytes()),
+                sender,
+                Proposal::AppDataUpdate(Box::new(update)),
+            )
+        };
+        let member = Sender::Member(LeafNodeIndex::new(0));
+        let update = |component: u16, payload: &[u8]| {
+            AppDataUpdateProposal::update(component, payload.to_vec())
+        };
+        let pending = [
+            proposal(1, member.clone(), update(0xC100, &[1])),
+            proposal(2, member.clone(), update(0xC101, &[2])),
+            proposal(3, member.clone(), update(0xC100, &[])),
+        ];
+        // The first pending proposal's payload on another component, and a
+        // Remove of the first and third pending proposals' component.
+        let mut committed = vec![
+            proposal(10, member.clone(), update(0xC101, &[1])),
+            proposal(11, member.clone(), AppDataUpdateProposal::remove(0xC100)),
+        ];
+        let none = carried(&pending, &committed);
+        assert!(none.is_empty(), "{none:?}");
+        committed.push(proposal(12, member, update(0xC100, &[1])));
+        assert_eq!(carried(&pending, &committed), [pending[0].0.clone()]);
+
+        let external = |index: u32| Sender::External(SenderExtensionIndex::new(index));
+        let pending = [
+            proposal(4, external(0), update(0xC100, &[1])),
+            proposal(5, external(1), update(0xC100, &[1])),
+        ];
+        let committed = [proposal(13, external(0), update(0xC100, &[1]))];
+        assert_eq!(carried(&pending, &committed), [pending[0].0.clone()]);
     }
 }
