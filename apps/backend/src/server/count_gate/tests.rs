@@ -459,13 +459,173 @@ async fn encoded_request_is_passed_untouched() {
     assert_eq!((newest.counts[0].limit)(&swapped), 9);
 }
 
-/// Repeated request fields the gate does not count, by route and field path.
-const UNCOUNTED: &[(&str, &[u32])] = &[
-    // SubscribeRequest.update, Update.adds and Update.removes: each frame is
-    // counted after decode, and the update bucket limits how often.
-    ("/xmtp.backend.v1.SubscriptionService/Subscribe", &[1, 2]),
-    ("/xmtp.backend.v1.SubscriptionService/Subscribe", &[1, 3]),
-];
+const SUBSCRIBE: &str = "/xmtp.backend.v1.SubscriptionService/Subscribe";
+
+/// A prefixed `SubscribeRequest` carrying one `Update`.
+fn update(id: u64, adds: usize, removes: usize) -> Vec<u8> {
+    let topic = api::Topic { topic: vec![1; 33] };
+    let update = api::subscribe_request::Update {
+        id,
+        adds: vec![
+            api::TopicQuery {
+                topic: Some(topic.clone()),
+                cursor: None,
+            };
+            adds
+        ],
+        removes: vec![topic; removes],
+    };
+    prefixed(
+        &api::SubscribeRequest {
+            request: Some(api::subscribe_request::Request::Update(update)),
+        }
+        .encode_to_vec(),
+    )
+}
+
+/// The handler of a stream route starts while the body is open and empty.
+/// It then gets each message once the message is complete, and the
+/// rejection in place of the first message over a count. A prefix tonic
+/// refuses is forwarded alone, and a body that ends inside a message ends
+/// as it did.
+#[xmtp_common::test(unwrap_try = true)]
+async fn stream_messages_are_counted_as_they_complete() {
+    const MAX: usize = 200;
+    let limits = LimitsConfig {
+        max_update_adds: 2,
+        max_update_removes: 3,
+        max_request_bytes: MAX,
+        ..LimitsConfig::default()
+    };
+    let (handled, mut bodies) = futures::channel::mpsc::unbounded();
+    let gate = CountGateLayer {
+        limits: Arc::new(limits),
+    }
+    .layer(service_fn(move |request: Request<Body>| {
+        let handled = handled.clone();
+        async move {
+            handled.unbounded_send(request.into_body()).unwrap();
+            Ok::<_, Infallible>(Response::new(Body::empty()))
+        }
+    }));
+    // Message 2 holds the removes limit, not the adds limit. Message 3 has
+    // one add more than the limit.
+    let (m1, m2, m3) = (update(1, 2, 0), update(2, 0, 3), update(3, 3, 0));
+    assert!(m3.len() <= MAX);
+    let m2_and_m3 = [&m2[..], &m3[..]].concat();
+    let one_remove_over = update(1, 0, 4);
+    let rejected = || Seen::Error(tonic::Code::InvalidArgument, UPDATE_COUNT.into());
+    let head = || Seen::Data(Bytes::copy_from_slice(&m1[..9]));
+    let mut cases = vec![
+        // Message 1 spans two frames. The frame that ends message 2 carries
+        // message 3.
+        (
+            vec![data(&m1[..9]), data(&m1[9..]), data(&m2_and_m3)],
+            true,
+            vec![
+                Seen::Data(m1.clone().into()),
+                Seen::Data(m2.clone().into()),
+                rejected(),
+            ],
+        ),
+        (vec![data(&one_remove_over)], true, vec![rejected()]),
+        // Prefixes split across frames are joined before they are read.
+        (
+            vec![
+                data(&m1[..2]),
+                data(&[]),
+                data(&m1[2..]),
+                data(&m3[..3]),
+                data(&m3[3..]),
+            ],
+            true,
+            vec![Seen::Data(m1.clone().into()), rejected()],
+        ),
+        // The body ends inside a message, with trailers, or with an error.
+        (vec![data(&m1[..9])], false, vec![head()]),
+        (
+            vec![data(&m1[..9]), Ok(Frame::trailers(trailers()))],
+            false,
+            vec![head(), Seen::Trailers(trailers())],
+        ),
+        (
+            vec![data(&m1[..9]), Err(Status::data_loss("reset"))],
+            false,
+            vec![head(), Seen::Error(tonic::Code::DataLoss, "reset".into())],
+        ),
+        // A zero-length message is complete at its prefix.
+        (
+            vec![data(&[&[0; PREFIX_BYTES][..], &m1[..]].concat())],
+            false,
+            vec![
+                Seen::Data(Bytes::from_static(&[0; PREFIX_BYTES])),
+                Seen::Data(m1.clone().into()),
+            ],
+        ),
+    ];
+    // A prefix tonic refuses is forwarded alone and the body ends, though
+    // more bytes follow it and the sender stays open.
+    let over = ((MAX + 1) as u32).to_be_bytes();
+    for prefix in [
+        [1, 0, 0, 0, 2],
+        [2, 0, 0, 0, 2],
+        [0, over[0], over[1], over[2], over[3]],
+    ] {
+        cases.push((
+            vec![
+                data(&prefix[..2]),
+                data(&[&prefix[2..], &[7; 9][..]].concat()),
+            ],
+            true,
+            vec![Seen::Data(Bytes::copy_from_slice(&prefix))],
+        ));
+    }
+    for (frames, open, expected) in cases {
+        let (sender, input) = futures::channel::mpsc::unbounded();
+        let request = Request::post(SUBSCRIBE).body(Body::new(StreamBody::new(input)))?;
+        timeout(Duration::from_secs(5), gate.clone().oneshot(request)).await??;
+        let body = bodies.next().await?;
+        for frame in frames {
+            sender.unbounded_send(frame)?;
+        }
+        if !open {
+            drop(sender);
+        }
+        // An open sender ends the body only through the gate.
+        assert_eq!(
+            timeout(Duration::from_secs(5), drain(body)).await?,
+            expected
+        );
+    }
+}
+
+/// Tonic keeps reading a body after it refuses a prefix, so the body must
+/// end there, or tonic decodes the uncounted message that follows.
+#[xmtp_common::test(unwrap_try = true)]
+async fn tonic_decodes_nothing_after_a_refused_prefix() {
+    let limits = Arc::new(LimitsConfig {
+        max_update_adds: 2,
+        ..LimitsConfig::default()
+    });
+    let route = ROUTES.iter().find(|route| route.path == SUBSCRIBE)?;
+    // A flag byte that tonic refuses, then a message over the adds limit.
+    let frame = [&[1][..], &update(1, 3, 0)[..]].concat();
+    let counted = Counted::new(route, limits, body(vec![data(&frame)], true));
+    let mut streaming = tonic::codec::Streaming::<api::SubscribeRequest>::new_request(
+        tonic_prost::ProstDecoder::<api::SubscribeRequest>::new(
+            tonic::codec::BufferSettings::default(),
+        ),
+        counted,
+        None,
+        Some(1 << 20),
+    );
+    let refused = timeout(Duration::from_secs(5), streaming.message()).await?;
+    assert_eq!(refused.unwrap_err().code(), tonic::Code::Internal);
+    // Tonic took only the flag byte, so it now meets the end of the body
+    // inside a prefix.
+    let next = timeout(Duration::from_secs(5), streaming.message()).await?;
+    assert!(!matches!(next, Ok(Some(_))), "{next:?}");
+}
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn every_repeated_request_field_has_a_bound() {
@@ -511,6 +671,9 @@ async fn every_repeated_request_field_has_a_bound() {
             .flat_map(|service| service.method.iter().map(move |method| (service, method)))
     }) {
         let rpc = format!("/xmtp.backend.v1.{}/{}", service.name(), method.name());
+        for route in ROUTES.iter().filter(|route| route.path == rpc) {
+            assert_eq!(route.stream, method.client_streaming(), "{rpc}");
+        }
         let mut found = Vec::new();
         repeated(&messages, method.input_type(), &mut Vec::new(), &mut found);
         for path in found {
@@ -519,7 +682,7 @@ async fn every_repeated_request_field_has_a_bound() {
                 .filter(|route| route.path == rpc)
                 .flat_map(|route| route.counts)
                 .any(|count| covers(count, &path));
-            if !counted && !UNCOUNTED.contains(&(rpc.as_str(), path.as_slice())) {
+            if !counted {
                 uncounted.push(format!("{rpc} {path:?}"));
             }
         }

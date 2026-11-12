@@ -128,6 +128,7 @@ async fn over_limit_prefix_keeps_the_transport_status() {
     for path in [
         PUBLISH,
         "/xmtp.backend.v1.NotificationService/UpdateSubscriptions",
+        "/xmtp.backend.v1.SubscriptionService/Subscribe",
     ] {
         let error = raw_unary(&server, path, &[], over_limit.clone(), false).await?;
         assert_eq!(error.code(), Code::OutOfRange, "{path}: {error:?}");

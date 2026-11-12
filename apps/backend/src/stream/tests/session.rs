@@ -4,7 +4,7 @@ use crate::api::{
 use crate::test_support as support;
 use support::{
     TestServer,
-    native::{Native, envelope, terminal},
+    native::{Native, envelope, framed, raw_unary, terminal},
 };
 use tonic::Code;
 
@@ -651,6 +651,80 @@ async fn ping_and_update_use_independent_buckets() {
         1.0,
     )
     .await?;
+    server.stop().await?;
+}
+
+/// An `Update` with one add more than the limit fails the stream before it
+/// is decoded. A truncated add follows, so a frame that reached the decoder
+/// would fail with `INTERNAL` instead.
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: API-306
+async fn update_count_is_rejected_before_decode() {
+    let server = TestServer::new(|config| config.limits.max_update_adds = 4).await?;
+    let mut update = vec![0x08, 0x01]; // id 1
+    update.extend([0x12, 0x00].repeat(5)); // five empty adds
+    update.extend([0x12, 0x05]); // an add whose bytes never come
+    let mut request = vec![0x0a, update.len() as u8];
+    request.extend(update);
+    // The request body stays open, so only the backend can end the call.
+    let error = raw_unary(
+        &server,
+        "/xmtp.backend.v1.SubscriptionService/Subscribe",
+        &[],
+        framed(&request),
+        false,
+    )
+    .await?;
+    assert_eq!(error.code(), Code::InvalidArgument, "{error:?}");
+    assert_eq!(error.message(), "invalid update id or item count");
+    server.stop().await?;
+}
+
+/// An `Update` over a count fails with `INVALID_ARGUMENT` even when the
+/// update bucket is empty, and is recorded as an invalid update.
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: API-306
+async fn update_count_wins_over_an_empty_bucket() {
+    let Some(metrics) = support::metrics::isolated(
+        "stream::tests::session::update_count_wins_over_an_empty_bucket",
+    ) else {
+        return;
+    };
+    let server = TestServer::new(|config| {
+        config.limits.max_update_adds = 4;
+        config.limits.max_update_burst = 1;
+        config.limits.max_update_frames_per_second = 1;
+    })
+    .await?;
+    let mut stream = Native::open(&server).await?;
+    stream.update(1, vec![], vec![]).await?;
+    assert!(matches!(stream.next().await?, Frame::Applied(_)));
+    stream
+        .update(2, vec![api::TopicQuery::default(); 5], vec![])
+        .await?;
+    let error = terminal(&mut stream.output).await?.unwrap();
+    assert_eq!(error.code(), Code::InvalidArgument, "{error:?}");
+    drop(stream);
+    xmtp_common::wait_for_eq(
+        || async {
+            support::metrics::value(
+                &metrics,
+                "xmtp_stream_ended_total",
+                &[("reason", "invalid")],
+            )
+        },
+        1.0,
+    )
+    .await?;
+    let value = |name, label| support::metrics::value(&metrics, name, &[label]);
+    assert_eq!(
+        value("xmtp_stream_updates_total", ("outcome", "invalid")),
+        1.0
+    );
+    assert_eq!(
+        value("xmtp_stream_frames_received_total", ("frame", "update")),
+        2.0
+    );
     server.stop().await?;
 }
 
