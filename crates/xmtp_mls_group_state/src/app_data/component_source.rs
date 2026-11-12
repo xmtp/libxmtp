@@ -1,4 +1,5 @@
-//! Single source-of-truth for the per-`ComponentId` read/encode/apply logic.
+//! Single source-of-truth for the per-`ComponentId` read/encode logic and
+//! the byte-level apply.
 //!
 //! Centralizes everything the rest of the MLS pipeline needs to know about
 //! a well-known `ComponentId`: its logical [`ComponentType`], where its
@@ -8,6 +9,17 @@
 //! The helpers are `pub` so `xmtp_mls` can call them. They read and write
 //! raw component bytes; `xmtp_mls` owns the intent and commit paths that
 //! decide when a write is allowed.
+//!
+//! ## Two apply paths
+//!
+//! [`apply_app_data_update_payload`] decodes, applies, and re-encodes the
+//! whole component for each update. The
+//! [`WorkingSet`](super::working_set::WorkingSet) applies the same updates
+//! to components it decodes once per commit, and applies a collection by
+//! its [`ComponentType`] rather than through its `Component` impl. Members
+//! must reach one verdict on every input, so a change to how a component
+//! applies changes both paths. The differential test in
+//! `working_set/tests/differential.rs` compares them.
 //!
 //! ## Field bounds
 //!
@@ -65,7 +77,11 @@ use xmtp_proto::xmtp::mls::message_contents::ComponentType;
 mod bounds;
 mod metadata_reads;
 
-use bounds::{check_field_bounds, check_update_payload_bounds, is_field_bounded, resolved_type};
+pub(crate) use bounds::{
+    check_field_bounds, check_payload_element_bound, has_payload_bound, is_field_bounded,
+    registered_type, registry_type_tag,
+};
+use bounds::{check_update_payload_bounds, resolved_type};
 #[cfg(test)]
 use metadata_reads::encode_inbox_id_set;
 pub use metadata_reads::{
@@ -508,7 +524,10 @@ pub fn expand_app_data_update_to_changes_with_validator(
 /// Reject a `GROUP_ROOT_KEY` value that is not 32 bytes, the length the
 /// well-known component table gives the group root.
 // implements: META-010
-fn check_group_root_length(id: ComponentId, value: &[u8]) -> Result<(), ComponentSourceError> {
+pub(crate) fn check_group_root_length(
+    id: ComponentId,
+    value: &[u8],
+) -> Result<(), ComponentSourceError> {
     if id == ComponentId::GROUP_ROOT_KEY && value.len() != GROUP_ROOT_BYTES {
         return Err(ComponentSourceError::MalformedComponentValue {
             component_id: id,

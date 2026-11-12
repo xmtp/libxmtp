@@ -1,12 +1,12 @@
-//! Heap-canary proofs that parsing group metadata and the AppData helpers
-//! wipe every copy of the commit-log signer they make, and that deriving,
-//! sealing, opening, and signing with group keys wipe every copy of the group
-//! root and its derived keys. Native only: it installs the heap-canary global
-//! allocator. No backend needed.
+//! Heap-canary proofs that parsing group metadata, the AppData helpers and
+//! the working set wipe every copy of the commit-log signer and the group
+//! root they make, and that deriving, sealing, opening, and signing with
+//! group keys wipe every copy of the group root and its derived keys. Native
+//! only: it installs the heap-canary global allocator. No backend needed.
 // The heap-canary harness is Unix-only (`libc::memmem`).
 #![cfg(unix)]
 
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 
 use openmls::{
     extensions::{AppDataDictionary, AppDataDictionaryExtension, Extension, Extensions},
@@ -29,6 +29,7 @@ use xmtp_mls_group_state::{
         components::metadata_attributes::CommitLogSignerComponent,
         creation::encode_metadata_attribute_value,
         typed::Component,
+        working_set::WorkingSet,
     },
     group_mutable_metadata::{
         GroupMutableMetadata, MetadataField, merge_components_into_mutable_metadata,
@@ -155,6 +156,73 @@ fn app_data_helpers_wipe_the_commit_log_signer() {
         hits,
         [0, 0],
         "freed heap blocks held the old or the new commit-log signer"
+    );
+}
+
+/// A group root of the length the `GROUP_ROOT_KEY` component holds.
+const GROUP_ROOT: [u8; 32] = [
+    0x91, 0x3e, 0xd7, 0x08, 0x6c, 0xa5, 0x1f, 0xb4, 0x27, 0xe9, 0x50, 0x8d, 0x33, 0xca, 0x76, 0x02,
+    0xbd, 0x48, 0xf1, 0x6e, 0x95, 0x2a, 0xc7, 0x10, 0x5f, 0xe4, 0x83, 0x39, 0xa0, 0x1c, 0x6b, 0xd2,
+];
+
+/// A working set that rotates the signer and writes a group root, under
+/// checkpoints it rolls back and releases, frees no unwiped copy of the old
+/// or the new signer or of the root: not when it rejects a 31-byte root,
+/// undoes a removal, hands out its states, or is dropped with its changes.
+/// The inputs are built before arming and dropped after disarming.
+#[xmtp_common::test(unwrap_try = true)]
+fn working_set_wipes_the_signer_and_the_root() {
+    let extensions = app_data_extensions();
+    let rotation = NEXT_SIGNER.to_vec();
+    let root = GROUP_ROOT.to_vec();
+    let short_root = GROUP_ROOT[..31].to_vec();
+    let registry = ComponentRegistry::new();
+    let signer = ComponentId::COMMIT_LOG_SIGNER;
+    let root_id = ComponentId::GROUP_ROOT_KEY;
+    let canaries = [
+        Canary::new(&SIGNER),
+        Canary::new(&NEXT_SIGNER),
+        Canary::new(&GROUP_ROOT[..31]),
+    ];
+
+    let ((), hits) = scan(&canaries, || {
+        let base = |id| read_component_bytes(id, &extensions).unwrap();
+        let mut set = WorkingSet::new(Cow::Borrowed(&registry), base);
+        let checkpoint = set.checkpoint();
+        set.update(signer, &rotation).unwrap();
+        assert!(set.encode(signer).unwrap().unwrap().as_slice() == NEXT_SIGNER);
+        set.rollback(checkpoint);
+        assert!(set.encode(signer).unwrap().unwrap().as_slice() == SIGNER);
+
+        let checkpoint = set.checkpoint();
+        set.update(signer, &rotation).unwrap();
+        set.update(root_id, &root).unwrap();
+        set.release(checkpoint);
+        let checkpoint = set.checkpoint();
+        set.remove(signer);
+        set.remove(root_id);
+        set.rollback(checkpoint);
+        let checkpoint = set.checkpoint();
+        set.update(signer, &rotation).unwrap();
+        set.update(signer, &rotation).unwrap();
+        set.rollback(checkpoint);
+        let states = set.into_states().unwrap();
+        assert!(states[&signer].as_deref().map(Vec::as_slice) == Some(&NEXT_SIGNER[..]));
+        assert!(states[&root_id].as_deref().map(Vec::as_slice) == Some(&GROUP_ROOT[..]));
+        drop(states);
+
+        let mut dropped = WorkingSet::new(Cow::Borrowed(&registry), base);
+        assert!(dropped.update(root_id, &short_root).is_err());
+        dropped.update(root_id, &root).unwrap();
+        dropped.update(signer, &rotation).unwrap();
+        drop(dropped);
+    });
+    drop((extensions, rotation, root, short_root, canaries));
+
+    assert_eq!(
+        hits,
+        [0, 0, 0],
+        "freed heap blocks held the old or the new signer or the group root"
     );
 }
 
