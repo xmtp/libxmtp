@@ -669,7 +669,8 @@ fn proposal_parts(queued: &QueuedProposal) -> ProposalParts<'_> {
 
 #[cfg(test)]
 thread_local! {
-    /// Proposals compared while finding the pending ones a commit carries.
+    /// Proposal keys compared while finding the pending proposals a commit
+    /// carries.
     static PROPOSAL_COMPARISONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
@@ -678,26 +679,47 @@ fn count_proposal_comparison() {
     PROPOSAL_COMPARISONS.with(|count| count.set(count.get() + 1));
 }
 
+/// What finds a pending proposal among a commit's proposals: its reference,
+/// or its member sender and content. Tests count each equality check of two
+/// keys, the work a lookup does whatever holds the keys.
+#[derive(Hash)]
+enum CarriedKey<'a> {
+    Reference(&'a ProposalRef),
+    Content(LeafNodeIndex, (u16, Option<&'a [u8]>)),
+}
+
+impl PartialEq for CarriedKey<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        count_proposal_comparison();
+        match (self, other) {
+            (Self::Reference(a), Self::Reference(b)) => a == b,
+            (Self::Content(a, x), Self::Content(b, y)) => a == b && x == y,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for CarriedKey<'_> {}
+
 /// The references of the `pending` `AppDataUpdate` proposals that a commit's
 /// proposals, `committed`, carry. A commit can carry a stored proposal
 /// inline, so one with the same authenticated sender and content counts as
-/// well as one with the same reference. Each proposal is compared once.
+/// well as one with the same reference. Each pending proposal is looked up,
+/// not compared with every committed one.
 fn carried_app_data_proposals<'p, 'c>(
     pending: impl IntoIterator<Item = ProposalParts<'p>>,
     committed: impl IntoIterator<Item = ProposalParts<'c>>,
 ) -> Vec<&'p ProposalRef> {
-    let mut references = HashSet::new();
-    let mut from_members = HashSet::new();
+    let mut carried = HashSet::new();
     // Other senders' proposals keep the pairwise comparison. A member stores
     // no proposal from a non-member, so no pending proposal scans them.
     let mut from_others = Vec::new();
     for (reference, sender, proposal) in committed {
-        count_proposal_comparison();
-        references.insert(reference);
+        carried.insert(CarriedKey::Reference(reference));
         if let Proposal::AppDataUpdate(update) = proposal {
             match sender {
                 Sender::Member(leaf) => {
-                    from_members.insert((*leaf, app_data_content(update)));
+                    carried.insert(CarriedKey::Content(*leaf, app_data_content(update)));
                 }
                 sender => from_others.push((sender, &**update)),
             }
@@ -709,11 +731,10 @@ fn carried_app_data_proposals<'p, 'c>(
             let Proposal::AppDataUpdate(update) = proposal else {
                 return false;
             };
-            count_proposal_comparison();
-            references.contains(reference)
+            carried.contains(&CarriedKey::Reference(reference))
                 || match sender {
                     Sender::Member(leaf) => {
-                        from_members.contains(&(*leaf, app_data_content(update)))
+                        carried.contains(&CarriedKey::Content(*leaf, app_data_content(update)))
                     }
                     sender => from_others.iter().any(|(other, content)| {
                         count_proposal_comparison();
@@ -756,9 +777,11 @@ mod tests {
         (reference, sender, proposal)
     }
 
-    /// Finding the pending proposals a rejected commit carries compares each
-    /// proposal once, not every pending proposal with every committed one:
-    /// with 10,000 of each that took about 10^8 comparisons inside the writer.
+    /// Finding the pending proposals a rejected commit carries compares about
+    /// one pair of keys per proposal, not every pending proposal with every
+    /// committed one: with 10,000 of each that took about 10^8 comparisons
+    /// inside the writer. The count is of key comparisons, so a lookup that
+    /// scans its keys fails here too.
     #[xmtp_common::test(unwrap_try = true)]
     fn carried_proposals_take_linear_comparisons() {
         const N: u32 = 10_000;
