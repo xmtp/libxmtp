@@ -36,6 +36,11 @@
 //!   Never forward `realloc` to `System.realloc`: the old block would be freed
 //!   without a scan.
 //! - Stack and register copies are invisible to a heap scan.
+//! - A scan does not wipe the stack it starts with. Building a canary, like
+//!   earlier work in production, leaves the secret in dead stack. Code under
+//!   test that moves a value with an unwritten tail to the heap, such as a
+//!   short variant of a large enum, copies that dead stack into a block, and
+//!   the scan counts the copy. Fix such a hit in the code under test.
 //! - Unix only: the scanner needs `libc::memmem`.
 //! - One scan at a time per process. A scan that starts while another is
 //!   armed panics at once instead of waiting: an armed async scan may itself be

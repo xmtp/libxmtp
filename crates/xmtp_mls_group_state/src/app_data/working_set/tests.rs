@@ -462,3 +462,134 @@ fn resolve_hash_of_an_unknown_component_fails_as_the_expansion_does() {
         "{read:?}"
     );
 }
+
+/// A collection that a read decoded, or that a rolled-back proposal wrote,
+/// still has its committed bytes, as one never read does. A removed one has
+/// none, whether or not a read decoded it since. Only a kept write makes
+/// them unreadable without an encode.
+#[xmtp_common::test(unwrap_try = true)]
+fn bytes_of_a_read_collection_are_the_committed_bytes() {
+    let super_admins = ComponentId::SUPER_ADMIN_LIST;
+    let alix = InboxId::from_bytes([1; 32]);
+    let committed = TlsSet::from_keys([alix]).tls_serialize_detached()?;
+    let registry = ComponentRegistry::new();
+    let mut set = WorkingSet::new(Cow::Borrowed(&registry), |id| {
+        (id == super_admins).then_some(committed.as_slice())
+    });
+
+    assert_eq!(set.bytes(super_admins)?, Some(committed.as_slice()));
+    assert_eq!(set.is_empty(super_admins)?, Some(false));
+    assert_eq!(set.bytes(super_admins)?, Some(committed.as_slice()));
+    let insert = TlsSetDelta::new()
+        .insert(InboxId::from_bytes([2; 32]))
+        .tls_serialize_detached()?;
+    let checkpoint = set.checkpoint();
+    set.update(super_admins, &insert)?;
+    set.rollback(checkpoint);
+    assert_eq!(set.bytes(super_admins)?, Some(committed.as_slice()));
+    set.remove(super_admins);
+    assert_eq!(set.is_empty(super_admins)?, None);
+    assert_eq!(set.bytes(super_admins)?, None);
+    // A read decodes the removed collection as an absent one.
+    assert_eq!(
+        set.get(super_admins, &alix.tls_serialize_detached()?)?,
+        None
+    );
+    assert_eq!(set.bytes(super_admins)?, None);
+    set.update(super_admins, &insert)?;
+    assert!(matches!(
+        set.bytes(super_admins),
+        Err(ComponentSourceError::MismatchedMutation(id)) if id == super_admins
+    ));
+}
+
+/// Checkpoints nest, as a commit builder's checkpoint around each proposal
+/// wraps the one its receive check takes: releasing the inner checkpoint
+/// keeps its changes inside the outer one, and rolling back the outer one
+/// undoes them all, collection entries and scalars alike.
+#[xmtp_common::test(unwrap_try = true)]
+fn nested_checkpoints_roll_back_together() {
+    let admins = ComponentId::ADMIN_LIST;
+    let signer = ComponentId::COMMIT_LOG_SIGNER;
+    let (alix, bo, caro) = (
+        InboxId::from_bytes([1; 32]),
+        InboxId::from_bytes([2; 32]),
+        InboxId::from_bytes([3; 32]),
+    );
+    let committed = TlsSet::from_keys([alix]).tls_serialize_detached()?;
+    let committed_signer = [7; 32];
+    let registry = ComponentRegistry::new();
+    let mut set = WorkingSet::new(Cow::Borrowed(&registry), |id| {
+        if id == admins {
+            Some(committed.as_slice())
+        } else {
+            (id == signer).then_some(&committed_signer[..])
+        }
+    });
+    let delta = |delta: TlsSetDelta<InboxId>| delta.tls_serialize_detached();
+
+    let outer = set.checkpoint();
+    set.update(admins, &delta(TlsSetDelta::new().insert(bo))?)?;
+    let inner = set.checkpoint();
+    set.update(admins, &delta(TlsSetDelta::new().remove(alix))?)?;
+    set.update(signer, &[9; 32])?;
+    set.update(admins, &delta(TlsSetDelta::new().insert(caro))?)?;
+    set.release(inner);
+    assert_eq!(set.get(admins, &alix.tls_serialize_detached()?)?, None);
+    set.rollback(outer);
+
+    for (inbox, value) in [(alix, Some(&[][..])), (bo, None), (caro, None)] {
+        assert_eq!(set.get(admins, &inbox.tls_serialize_detached()?)?, value);
+    }
+    assert_eq!(set.bytes(admins)?, Some(committed.as_slice()));
+    assert_eq!(set.bytes(signer)?, Some(&committed_signer[..]));
+    assert_eq!(set.touched().count(), 0);
+}
+
+/// Each record and undo step a working set moves to the heap is a few words
+/// long. Moving an enum copies its largest variant's size, so a short
+/// variant of a large enum carries the unwritten stack bytes under its tail,
+/// which can hold a key, into a block that is later freed unwiped. An
+/// absent inline `Option` of a large type, such as a decoded collection's
+/// hash index, does the same, so a collection holds it boxed.
+#[xmtp_common::test(unwrap_try = true)]
+fn heap_records_have_no_long_unwritten_tail() {
+    use std::mem::size_of;
+
+    use super::{
+        Change, Mutation, Tracked, Undo,
+        tracked_map::{Replaced, TrackedMap},
+    };
+
+    let word = size_of::<usize>();
+    let hash = size_of::<TlsKeyHash>();
+    assert!(
+        size_of::<Tracked<'_>>() <= 4 * word,
+        "{}",
+        size_of::<Tracked<'_>>()
+    );
+    assert!(
+        size_of::<Undo<'_>>() <= 2 * word,
+        "{}",
+        size_of::<Undo<'_>>()
+    );
+    assert!(size_of::<Change>() <= 6 * word, "{}", size_of::<Change>());
+    assert!(
+        size_of::<Mutation>() <= hash + 2 * word,
+        "{}",
+        size_of::<Mutation>()
+    );
+    // A replaced entry holds one hash, written whether or not it is known.
+    assert!(
+        size_of::<(ComponentId, Replaced)>() <= hash + 8 * word,
+        "{}",
+        size_of::<(ComponentId, Replaced)>()
+    );
+    // The hash index takes one word. Held inline, an absent `HashMap` would
+    // leave five words unwritten.
+    assert!(
+        size_of::<TrackedMap<'_>>() <= 20 * word,
+        "{}",
+        size_of::<TrackedMap<'_>>()
+    );
+}

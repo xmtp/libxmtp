@@ -72,7 +72,7 @@ use crate::app_data::{
 ///   - `apply_app_data_update_payload`
 ///   - `WorkingSet::update`
 ///   - `expand_app_data_update_to_changes`
-///   - `validate_one_app_data_update_with_validator`
+///   - `validate_update_in`
 ///
 /// That path looks the unknown id up in the on-dict
 /// [`ComponentRegistry`](crate::app_data::component_registry::ComponentRegistry),

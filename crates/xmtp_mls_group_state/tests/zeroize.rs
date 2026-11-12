@@ -54,6 +54,28 @@ const NEXT_SIGNER: [u8; 32] = [
     0xa8, 0x14, 0x7e, 0xc3, 0x39, 0xf6, 0x52, 0x8b, 0x0e, 0xd1, 0x67, 0x2a, 0x94, 0x4f, 0xbc, 0x13,
 ];
 
+/// A key that earlier work on the thread left on the stack.
+const EARLIER_KEY: [u8; 32] = [
+    0x2e, 0x9b, 0x46, 0xd1, 0x0c, 0x75, 0xe8, 0x33, 0xaf, 0x5a, 0x17, 0xc2, 0x8d, 0x60, 0xfb, 0x24,
+    0x91, 0x4c, 0xe7, 0x3a, 0xd5, 0x08, 0x6f, 0xb3, 0x1e, 0xc9, 0x52, 0x87, 0x3d, 0xa6, 0x0b, 0xf8,
+];
+
+/// Bytes of stack below the caller that [`leave_in_dead_stack`] fills: more
+/// than the frames of a scan and the code it runs take.
+const DEAD_STACK: usize = 256 * 1024;
+
+/// Fill the stack below the caller with copies of `secret`, the first one
+/// `phase` bytes in, as earlier work on the thread, such as signing, can
+/// leave a key there.
+#[inline(never)]
+fn leave_in_dead_stack(secret: &[u8; 32], phase: usize) {
+    let mut stack = [0u8; DEAD_STACK];
+    for chunk in stack[phase..].chunks_exact_mut(secret.len()) {
+        chunk.copy_from_slice(secret);
+    }
+    std::hint::black_box(&mut stack);
+}
+
 /// Legacy mutable-metadata extension bytes that hold `SIGNER` as hex.
 fn legacy_metadata_bytes() -> Vec<u8> {
     let attributes = HashMap::from([
@@ -401,4 +423,99 @@ fn signing_a_group_message_wipes_every_group_key() {
     drop((keys, message, canaries, secrets));
 
     assert_eq!(hits, [0; 5], "freed heap blocks held the root or a key");
+}
+
+/// What one run of [`working_set_copies_no_dead_stack`] does.
+#[derive(Clone, Copy, Debug)]
+enum WorkingSetRun {
+    /// Insert into a collection decoded from its committed bytes.
+    Decoded,
+    /// Insert into an absent collection.
+    Created,
+    /// Change a decoded collection, roll it back, and change it again.
+    RolledBack,
+    /// Write, replace and roll back a scalar, and remove a component.
+    Scalar,
+}
+
+/// A working set copies no dead stack to the heap. A value moved to the
+/// heap with an unwritten part, such as a short variant of a large enum or
+/// an absent inline `Option`, copies the stack bytes under it into a block
+/// that is later freed unwiped. `EARLIER_KEY` is the key earlier work left
+/// on the stack: the writes below never handle it. Each run is repeated
+/// with the key at each of its 32 byte phases on the stack, so an unwritten
+/// part of 32 bytes or more holds a whole copy of it in one of them,
+/// wherever the part starts. The runs cover each kind of record and undo
+/// step: a collection decoded or created, changed and rolled back, a scalar
+/// written, replaced and rolled back, and a removal.
+#[xmtp_common::test(unwrap_try = true)]
+fn working_set_copies_no_dead_stack() {
+    use std::borrow::Cow;
+    use tls_codec::Serialize as _;
+    use xmtp_mls_group_state::{app_data::working_set::WorkingSet, inbox_id::InboxId};
+    use xmtp_mls_tls_collections::tls_set::{TlsSet, TlsSetDelta};
+
+    let registry = ComponentRegistry::new();
+    let signer = ComponentId::COMMIT_LOG_SIGNER;
+    let admins = ComponentId::ADMIN_LIST;
+    let (alix, bo) = (InboxId::from_bytes([1; 32]), InboxId::from_bytes([2; 32]));
+    let committed = TlsSet::from_keys([alix]).tls_serialize_detached()?;
+    let add_bo = TlsSetDelta::new().insert(bo).tls_serialize_detached()?;
+    let drop_alix = TlsSetDelta::new().remove(alix).tls_serialize_detached()?;
+    let canaries = [SIGNER, NEXT_SIGNER, EARLIER_KEY].map(|key| Canary::new(&key));
+
+    let mut found = Vec::new();
+    for run in [
+        WorkingSetRun::Decoded,
+        WorkingSetRun::Created,
+        WorkingSetRun::RolledBack,
+        WorkingSetRun::Scalar,
+    ] {
+        for phase in 0..EARLIER_KEY.len() {
+            leave_in_dead_stack(&EARLIER_KEY, phase);
+            let ((), hits) = scan(&canaries, || {
+                let committed = &committed;
+                let decoded = !matches!(run, WorkingSetRun::Created);
+                let mut set = WorkingSet::new(Cow::Borrowed(&registry), move |id| {
+                    if id == signer {
+                        Some(&SIGNER[..])
+                    } else {
+                        (decoded && id == admins).then_some(committed.as_slice())
+                    }
+                });
+                match run {
+                    WorkingSetRun::Decoded | WorkingSetRun::Created => {
+                        set.update(admins, &add_bo).unwrap();
+                    }
+                    WorkingSetRun::RolledBack => {
+                        let checkpoint = set.checkpoint();
+                        set.update(admins, &add_bo).unwrap();
+                        set.update(admins, &drop_alix).unwrap();
+                        set.rollback(checkpoint);
+                        set.update(admins, &add_bo).unwrap();
+                    }
+                    WorkingSetRun::Scalar => {
+                        let checkpoint = set.checkpoint();
+                        set.update(signer, &NEXT_SIGNER).unwrap();
+                        set.rollback(checkpoint);
+                        set.update(signer, &NEXT_SIGNER).unwrap();
+                        let checkpoint = set.checkpoint();
+                        set.update(signer, &NEXT_SIGNER).unwrap();
+                        set.remove(ComponentId::GROUP_DESCRIPTION);
+                        set.rollback(checkpoint);
+                        set.remove(ComponentId::GROUP_DESCRIPTION);
+                    }
+                }
+                drop(set.into_states().unwrap());
+            });
+            if hits.iter().any(|&hit| hit > 0) {
+                found.push((run, phase, hits));
+            }
+        }
+    }
+    drop((registry, committed));
+
+    // Each entry: the run, the key's phase, and the hits of the signer, the
+    // next signer and the earlier key.
+    assert!(found.is_empty(), "freed heap blocks held a key: {found:?}");
 }

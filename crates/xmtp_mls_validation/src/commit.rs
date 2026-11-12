@@ -5,7 +5,10 @@
 //! identities. `xmtp_mls` runs them inside `ValidatedCommit` and adds the
 //! identity and installation checks that need stored state.
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet, hash_map::Entry},
+};
 
 use openmls::{
     credentials::{BasicCredential, Credential as OpenMlsCredential, errors::BasicCredentialError},
@@ -18,18 +21,31 @@ use openmls::{
 use prost::Message;
 use serde::Serialize;
 use thiserror::Error;
+use tls_codec::{Deserialize as _, VLBytes};
 use xmtp_common::RetryableError;
 use xmtp_cryptography::secret::Zeroizing;
 use xmtp_mls_group_state::{
     app_data::{
-        component_id::ComponentId, component_source::ComponentSourceError,
-        validation::ComponentWriteValidator,
+        component_id::ComponentId,
+        component_registry::{ComponentOp, ComponentRegistry},
+        component_source::{
+            ComponentSourceError, expand_app_data_update_to_changes_with_validator,
+        },
+        components::inbox_id_set::SuperAdminListComponent,
+        policy_set::{validate_action_entries, validate_registry_action_policies},
+        registry_table::lookup_component,
+        typed::{ComponentInvariantError, ErasedComponent, ExpandedComponentChange},
+        validation::{ActorAuthority, ComponentChange, ComponentWriteValidator},
+        working_set::WorkingSet,
     },
     group_metadata::{DmMembers, GroupMetadata, GroupMetadataError},
     group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError, MetadataField},
+    inbox_id::InboxId,
     libxmtp_version::{InvalidVersionFormat, LibXMTPVersion},
 };
+use xmtp_mls_tls_collections::tls_set::{TlsKeyHash, TlsSetDelta, TlsSetMutation};
 use xmtp_proto::types::ConversationType;
+use xmtp_proto::xmtp::mls::message_contents::ComponentType;
 use xmtp_proto::xmtp::{
     identity::MlsCredential,
     mls::message_contents::group_updated::{
@@ -446,16 +462,22 @@ pub fn get_proposal_changes(
     let mut removed_inbox_proposers: HashMap<String, CommitParticipant> = HashMap::new();
 
     let mut membership_deletes = Vec::new();
+    // A commit can carry many proposals from one member, so each proposer's
+    // leaf is resolved once.
+    let mut proposers: HashMap<LeafNodeIndex, CommitParticipant> = HashMap::new();
 
     for proposal in staged_commit.queued_proposals() {
         // Extract the proposer for this proposal
         let proposer = match proposal.sender() {
-            Sender::Member(leaf_index) => extract_commit_participant(
-                leaf_index,
-                openmls_group,
-                immutable_metadata,
-                mutable_metadata,
-            )?,
+            Sender::Member(leaf_index) => match proposers.entry(*leaf_index) {
+                Entry::Occupied(entry) => entry.into_mut(),
+                Entry::Vacant(entry) => entry.insert(extract_commit_participant(
+                    leaf_index,
+                    openmls_group,
+                    immutable_metadata,
+                    mutable_metadata,
+                )?),
+            },
             _ => return Err(CommitRuleError::ActorNotMember),
         };
 
@@ -489,7 +511,7 @@ pub fn get_proposal_changes(
                 if proposer.inbox_id == participant.inbox_id {
                     self_added_installations.insert(participant.installation_id.clone());
                 }
-                added_inbox_proposers.insert(participant.inbox_id.clone(), proposer);
+                added_inbox_proposers.insert(participant.inbox_id.clone(), proposer.clone());
                 credentials_to_verify.push(participant);
             }
             // For Remove Proposals, all we need to do is validate that the installation_id is in the expected diff
@@ -500,7 +522,7 @@ pub fn get_proposal_changes(
                 let installation_id = leaf_node.signature_key.to_vec();
                 let inbox_id = inbox_id_from_credential(&leaf_node.credential)?;
                 removed_installations.insert(installation_id);
-                removed_inbox_proposers.insert(inbox_id, proposer);
+                removed_inbox_proposers.insert(inbox_id, proposer.clone());
             }
             Proposal::AppDataUpdate(update)
                 if ComponentId::from(update.component_id()) == ComponentId::GROUP_MEMBERSHIP =>
@@ -551,42 +573,25 @@ pub fn get_latest_group_membership(
     extract_group_membership(staged_commit.group_context().extensions())
 }
 
-/// Read committed metadata once through the active extension representation.
-/// Decode the post-commit metadata for messages, callbacks, and admin side effects.
+/// Decode the post-commit metadata for messages, callbacks, and admin side
+/// effects: each component's state in `post_states`, the states
+/// [`validate_app_data_update_proposals_in_commit`] returns for a commit,
+/// else its committed bytes in `group`.
 ///
-/// The post-commit values stay in `Zeroizing` until they are merged, because
-/// one can be the commit-log signer's private key.
+/// The values are borrowed, not copied: one can be the commit-log signer's
+/// private key.
 pub fn read_post_commit_mutable_metadata(
     group: &OpenMlsGroup,
-    staged_commit: &StagedCommit,
-    registry: &xmtp_mls_group_state::app_data::component_registry::ComponentRegistry,
+    post_states: &AppDataPostStates,
 ) -> Result<GroupMutableMetadata, CommitRuleError> {
     use xmtp_mls_group_state::{
-        app_data::component_id::ComponentId,
-        group_mutable_metadata::{
-            METADATA_FIELD_COMPONENT_MAP, merge_components_into_mutable_metadata,
-        },
+        app_data::component_source::read_from_app_data_dict,
+        group_mutable_metadata::merge_components_into_mutable_metadata,
     };
-    let mut post_commit = HashMap::new();
-    for id in METADATA_FIELD_COMPONENT_MAP
-        .iter()
-        .map(|(_, id)| *id)
-        .chain([ComponentId::ADMIN_LIST, ComponentId::SUPER_ADMIN_LIST])
-    {
-        if let Some(bytes) =
-            xmtp_mls_group_state::app_data::component_source::read_post_commit_component_bytes(
-                id,
-                group,
-                staged_commit,
-                registry,
-            )?
-        {
-            post_commit.insert(id, bytes);
-        }
-    }
     let mut metadata = GroupMutableMetadata::new(HashMap::new(), Vec::new(), Vec::new());
-    merge_components_into_mutable_metadata(&mut metadata, |id| {
-        post_commit.get(&id).map(|bytes| bytes.as_slice())
+    merge_components_into_mutable_metadata(&mut metadata, |id| match post_states.get(&id) {
+        Some(state) => state.as_deref().map(Vec::as_slice),
+        None => read_from_app_data_dict(id, group),
     })?;
     Ok(metadata)
 }
@@ -797,7 +802,8 @@ pub fn validate_one_app_data_update(
 /// Element bounds are judged on the payload alone (see
 /// [`apply_app_data_update_payload`](xmtp_mls_group_state::app_data::component_source::apply_app_data_update_payload));
 /// the snapshot bound on the committed
-/// state. Other apply failures are left to commit validation,
+/// state. Other apply failures of a component with no built-in definition
+/// are left to commit validation,
 /// because a commit may order other proposals ahead of this one and change
 /// the state it applies to. A sender omits from its commits each pending
 /// proposal that the proposals kept before it make invalid, and each
@@ -815,39 +821,44 @@ pub(crate) fn validate_standalone_app_data_update(
     dm_members: Option<&DmMembers<String>>,
     membership: Option<&std::collections::HashSet<xmtp_mls_group_state::inbox_id::InboxId>>,
 ) -> Result<(), CommitRuleError> {
-    use openmls::messages::proposals::AppDataUpdateOperation;
-    use xmtp_mls_group_state::app_data::component_source::{
-        ComponentSourceError, apply_app_data_update_payload_with_validator,
-    };
-
-    // The policy check and the apply share one validator, so the registry
-    // entry is decoded once.
-    let mut validator = ComponentWriteValidator::new(registry);
-    validate_one_app_data_update_with_validator(
+    let update = AppDataUpdateInCommit {
         component_id,
         operation,
         actor,
         proposer_inbox_id,
-        &mut validator,
-        old_value,
-        dm_members,
-        membership,
-    )?;
-    let AppDataUpdateOperation::Update(payload) = operation else {
-        return Ok(());
     };
-    // Only the error matters; the computed state is wiped on drop.
-    match apply_app_data_update_payload_with_validator(
-        component_id,
-        payload.as_slice(),
-        old_value,
-        &mut validator,
-    ) {
+    match validate_alone(update, registry, old_value, dm_members, membership)? {
         Err(ComponentSourceError::FieldBoundExceeded { .. }) => {
+            Err(CommitRuleError::InsufficientPermissions)
+        }
+        Err(_) if has_built_in_definition(component_id) => {
             Err(CommitRuleError::InsufficientPermissions)
         }
         _ => Ok(()),
     }
+}
+
+/// Judge one proposal against `old_value`, its component's only state, with
+/// [`validate_update_in`].
+fn validate_alone(
+    update: AppDataUpdateInCommit<'_>,
+    registry: &xmtp_mls_group_state::app_data::component_registry::ComponentRegistry,
+    old_value: Option<&[u8]>,
+    dm_members: Option<&DmMembers<String>>,
+    membership: Option<&std::collections::HashSet<xmtp_mls_group_state::inbox_id::InboxId>>,
+) -> Result<Result<(), ComponentSourceError>, CommitRuleError> {
+    let id = update.component_id;
+    let mut set = WorkingSet::new(Cow::Borrowed(registry), move |component| {
+        old_value.filter(|_| component == id)
+    });
+    let mut validator = ComponentWriteValidator::new(registry);
+    validate_update_in(&mut set, &mut validator, update, dm_members, membership)
+}
+
+/// Whether component `id` has a built-in definition on this client, as
+/// opposed to one this client knows only by its registry type.
+fn has_built_in_definition(id: ComponentId) -> bool {
+    lookup_component(id).is_some()
 }
 
 /// Whether a `GROUP_MEMBERSHIP` operation drops a member of the committed
@@ -989,9 +1000,20 @@ fn permits_dm_participant_insert(
             || inbox_id == dm.member_two_inbox_id.as_ref())
 }
 
-/// [`validate_one_app_data_update_with_validator`] with a validator of its
-/// own, so unit tests can exercise the expand → per-change policy loop
-/// without a real MLS group.
+/// Pure core of [`validate_one_app_data_update`] with `old_value`
+/// passed explicitly so unit tests can exercise the
+/// expand → per-change policy loop without a real MLS group.
+///
+/// `membership` is the set of inbox ids the self-owned non-member test reads:
+/// the post-commit membership inside a commit, the committed one for a
+/// standalone proposal.
+///
+/// A set or map delta with no mutations is judged as one change of the
+/// whole component with no key: an insert when `old_value` is `None`, an
+/// update otherwise. A proposal that writes `DM_MEMBERS` is always
+/// rejected, because the pair is written only at creation. A component
+/// with a built-in definition is also judged on the value the proposal
+/// leaves, so one that does not apply to `old_value` is rejected.
 #[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn validate_one_app_data_update_with_old_value(
@@ -1004,49 +1026,51 @@ pub(crate) fn validate_one_app_data_update_with_old_value(
     dm_members: Option<&DmMembers<String>>,
     membership: Option<&std::collections::HashSet<xmtp_mls_group_state::inbox_id::InboxId>>,
 ) -> Result<(), CommitRuleError> {
-    validate_one_app_data_update_with_validator(
+    let update = AppDataUpdateInCommit {
         component_id,
         operation,
         actor,
         proposer_inbox_id,
-        &mut ComponentWriteValidator::new(registry),
-        old_value,
-        dm_members,
-        membership,
-    )
+    };
+    match validate_alone(update, registry, old_value, dm_members, membership)? {
+        Err(_) if has_built_in_definition(component_id) => {
+            Err(CommitRuleError::InsufficientPermissions)
+        }
+        _ => Ok(()),
+    }
 }
 
-/// Pure core of [`validate_one_app_data_update`] with `old_value`
-/// passed explicitly. `validator` judges against the committed registry;
-/// a caller that reuses it across proposals decodes each registry entry
-/// once and answers each policy question once.
+/// Judge one `AppDataUpdate` proposal against `set`, the state the
+/// proposals before it leave, and apply it to `set` when its proposer may
+/// make it.
 ///
-/// `membership` is the set of inbox ids the self-owned non-member test reads:
-/// the post-commit membership inside a commit, the committed one for a
-/// standalone proposal.
+/// Returns `Err` when the proposal is refused before it applies: a write of
+/// `DM_MEMBERS`, a lowered protocol floor, a payload that does not expand,
+/// or a change the registry policy denies; or after it applies, when it
+/// breaks an invariant of a component with a built-in definition. Otherwise
+/// returns the result of the apply, which the caller judges: inside a
+/// commit every apply error rejects the proposal, and on receipt of a
+/// standalone proposal only some do (see
+/// [`validate_standalone_app_data_update`]).
 ///
-/// A set or map delta with no mutations is judged as one change of the
-/// whole component with no key: an insert when `old_value` is `None`, an
-/// update otherwise. A proposal that writes `DM_MEMBERS` is always
-/// rejected, because the pair is written only at creation.
+/// `validator` judges against the registry `set` holds, so across a commit
+/// each registry entry is decoded once and each policy question is answered
+/// once. Each component's state is decoded at most once and is never
+/// encoded here. `set` is unchanged when either kind of error is returned.
 // implements: PERM-011, PERM-014, PERM-026, PERM-027, PERM-028, META-004, META-030
-#[allow(clippy::too_many_arguments)]
-fn validate_one_app_data_update_with_validator(
-    component_id: xmtp_mls_group_state::app_data::component_id::ComponentId,
-    operation: &openmls::messages::proposals::AppDataUpdateOperation,
-    actor: xmtp_mls_group_state::app_data::validation::ActorAuthority,
-    proposer_inbox_id: &str,
+pub fn validate_update_in(
+    set: &mut WorkingSet<'_>,
     validator: &mut ComponentWriteValidator<'_>,
-    old_value: Option<&[u8]>,
+    update: AppDataUpdateInCommit<'_>,
     dm_members: Option<&DmMembers<String>>,
-    membership: Option<&std::collections::HashSet<xmtp_mls_group_state::inbox_id::InboxId>>,
-) -> Result<(), CommitRuleError> {
-    use xmtp_mls_group_state::app_data::{
-        component_id::ComponentId, component_registry::ComponentOp,
-        component_source::expand_app_data_update_to_changes_with_validator,
-        registry_table::lookup_component, typed::ExpandedComponentChange,
-        validation::ComponentChange,
-    };
+    membership: Option<&HashSet<InboxId>>,
+) -> Result<Result<(), ComponentSourceError>, CommitRuleError> {
+    let AppDataUpdateInCommit {
+        component_id,
+        operation,
+        actor,
+        proposer_inbox_id,
+    } = update;
 
     // A DM's pair is written in its creation group context, never by a
     // proposal. A pair in any other conversation fails every metadata read.
@@ -1063,18 +1087,19 @@ fn validate_one_app_data_update_with_validator(
     // Runs ahead of the per-element policy loop so a downgrade fails
     // fast with a structured error rather than passing the policy
     // check and silently relaxing the pause gate. See
-    // `enforce_min_version_monotonicity` for the rule shape.
-    if component_id
-        == xmtp_mls_group_state::app_data::component_id::ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION
-    {
-        enforce_min_version_monotonicity(operation, old_value).inspect_err(|err| {
-            tracing::warn!(
-                proposer_inbox_id,
-                component_id = %component_id,
-                error = %err,
-                "AppDataUpdate proposal rejected: min_version monotonicity"
-            );
-        })?;
+    // `enforce_min_version_monotonicity` for the rule shape. A scalar's
+    // bytes are read without a copy.
+    if component_id == ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION {
+        enforce_min_version_monotonicity(operation, set.bytes(component_id)?).inspect_err(
+            |err| {
+                tracing::warn!(
+                    proposer_inbox_id,
+                    component_id = %component_id,
+                    error = %err,
+                    "AppDataUpdate proposal rejected: min_version monotonicity"
+                );
+            },
+        )?;
     }
 
     // Two dispatch shapes:
@@ -1092,51 +1117,28 @@ fn validate_one_app_data_update_with_validator(
     //   trait method to call — but registry-policy enforcement still
     //   gates the write, so deny-by-default applies.
     let component = lookup_component(component_id);
+    let present = set.present(component_id);
     // The expanded values can hold the commit-log signer's private key.
-    let mut changes = if let Some(component) = component {
-        component
-            .expand_to_changes(operation, old_value)
-            .map(Zeroizing::new)
-            .map_err(|e| {
-                let wrapped =
-                    xmtp_mls_group_state::app_data::component_source::ComponentSourceError::from(e);
-                tracing::warn!(
-                    proposer_inbox_id,
-                    component_id = %component_id,
-                    error = %wrapped,
-                    "AppDataUpdate proposal rejected: failed to expand payload"
-                );
-                CommitRuleError::InsufficientPermissions
-            })?
-    } else {
-        match expand_app_data_update_to_changes_with_validator(
-            component_id,
-            operation,
-            old_value,
-            validator,
-        ) {
-            Ok(changes) => changes,
-            Err(err) => {
-                tracing::warn!(
-                    proposer_inbox_id,
-                    component_id = %component_id,
-                    error = %err,
-                    "AppDataUpdate proposal rejected"
-                );
-                return Err(CommitRuleError::InsufficientPermissions);
-            }
-        }
-    };
+    let mut changes =
+        expand_in(set, validator, component_id, operation, component).map_err(|err| {
+            tracing::warn!(
+                proposer_inbox_id,
+                component_id = %component_id,
+                error = %err,
+                "AppDataUpdate proposal rejected: failed to expand payload"
+            );
+            CommitRuleError::InsufficientPermissions
+        })?;
     // Only a set or map delta with no mutations expands to nothing. It still
     // writes the component, creating it when absent, so judge it as one
     // change of the whole component.
     // implements: PERM-011, META-004
     if changes.is_empty() {
         changes.push(ExpandedComponentChange {
-            op: if old_value.is_none() {
-                ComponentOp::Insert
-            } else {
+            op: if present {
                 ComponentOp::Update
+            } else {
+                ComponentOp::Insert
             },
             key: None,
             value: None,
@@ -1145,19 +1147,19 @@ fn validate_one_app_data_update_with_validator(
 
     // A DM may add its other participant even though its add-member policy
     // denies general additions. Use the same exception as MLS Add validation.
-    let dm_participant_insert = component_id
-        == xmtp_mls_group_state::app_data::component_id::ComponentId::GROUP_MEMBERSHIP
+    let dm_participant_insert = component_id == ComponentId::GROUP_MEMBERSHIP
         && permits_dm_participant_insert(operation, proposer_inbox_id, dm_members);
-    let proposer = xmtp_mls_group_state::inbox_id::InboxId::from_hex(proposer_inbox_id).ok();
+    let proposer = InboxId::from_hex(proposer_inbox_id).ok();
     let is_dm_participant = dm_members.is_some_and(|dm| {
         [&dm.member_one_inbox_id, &dm.member_two_inbox_id]
             .iter()
             .any(|member| member.as_str() == proposer_inbox_id)
     });
+    // The policy reads only whether the component has a value before this
+    // proposal, so a collection is not encoded for it.
+    let old_value: Option<&[u8]> = present.then_some(&[]);
     for change in changes.iter() {
-        if dm_participant_insert
-            && change.op == xmtp_mls_group_state::app_data::component_registry::ComponentOp::Insert
-        {
+        if dm_participant_insert && change.op == ComponentOp::Insert {
             continue;
         }
         let cc = ComponentChange::builder()
@@ -1196,53 +1198,190 @@ fn validate_one_app_data_update_with_validator(
     // Only known components have this hook. Unknown ids use the
     // type-aware compatibility path and therefore cannot add invariants
     // beyond their registry policy.
-    if let Some(component) = component {
-        // The post-state can be the commit-log signer's private key.
-        let post_value = Zeroizing::new(match operation {
-            openmls::messages::proposals::AppDataUpdateOperation::Update(payload) => component
-                .apply_update_payload(payload.as_slice(), old_value)
-                .map_err(|e| {
-                    tracing::warn!(
-                        proposer_inbox_id,
-                        component_id = %component_id,
-                        error = %e,
-                        "AppDataUpdate proposal rejected: failed to compute post-state"
-                    );
-                    CommitRuleError::InsufficientPermissions
-                })?,
-            openmls::messages::proposals::AppDataUpdateOperation::Remove => Vec::new(),
-        });
-        let invariant_change = ComponentChange::builder()
-            .component_id(component_id)
-            .op(match operation {
-                openmls::messages::proposals::AppDataUpdateOperation::Update(_) => {
-                    xmtp_mls_group_state::app_data::component_registry::ComponentOp::Update
-                }
-                openmls::messages::proposals::AppDataUpdateOperation::Remove => {
-                    xmtp_mls_group_state::app_data::component_registry::ComponentOp::Delete
-                }
-            })
-            .actor(actor)
-            .maybe_old_value(old_value)
-            .maybe_new_value(match operation {
-                openmls::messages::proposals::AppDataUpdateOperation::Update(_) => {
-                    Some(post_value.as_slice())
-                }
-                openmls::messages::proposals::AppDataUpdateOperation::Remove => None,
-            })
-            .build();
-        if let Err(e) = component.validate_invariant(&invariant_change, validator.registry()) {
+    let Some(component) = component else {
+        return Ok(set.apply(component_id, operation));
+    };
+    let Some(before) = Invariant::before(set, component_id, component).map_err(|error| {
+        tracing::warn!(
+            proposer_inbox_id,
+            component_id = %component_id,
+            %error,
+            "AppDataUpdate proposal rejected: component invariant violated"
+        );
+        CommitRuleError::InsufficientPermissions
+    })?
+    else {
+        return Ok(set.apply(component_id, operation));
+    };
+    let checkpoint = set.checkpoint();
+    if let Err(error) = set.apply(component_id, operation) {
+        set.release(checkpoint);
+        return Ok(Err(error));
+    }
+    match before.check(set, component, operation, actor, validator.registry()) {
+        Ok(()) => {
+            set.release(checkpoint);
+            Ok(Ok(()))
+        }
+        Err(error) => {
+            set.rollback(checkpoint);
             tracing::warn!(
                 proposer_inbox_id,
                 component_id = %component_id,
-                error = %e,
+                %error,
                 "AppDataUpdate proposal rejected: component invariant violated"
             );
-            return Err(CommitRuleError::InsufficientPermissions);
+            Err(CommitRuleError::InsufficientPermissions)
         }
     }
+}
 
-    Ok(())
+/// Expand `operation` on component `id` into the per-element changes its
+/// policy judges, as the expansion over the component's state before this
+/// proposal gives them.
+///
+/// The expansion reads that state only to resolve a set's `RemoveByHash`
+/// to its element, so it runs without the state, and `set` resolves each
+/// hash against the state before this proposal, building its index once per
+/// commit. Resolution fails where the expansion fails: when that state does
+/// not decode or two of its keys share a hash.
+fn expand_in(
+    set: &mut WorkingSet<'_>,
+    validator: &mut ComponentWriteValidator<'_>,
+    id: ComponentId,
+    operation: &AppDataUpdateOperation,
+    component: Option<&'static dyn ErasedComponent>,
+) -> Result<Zeroizing<Vec<ExpandedComponentChange>>, ComponentSourceError> {
+    let (mut changes, ty) = match component {
+        Some(component) => (
+            Zeroizing::new(component.expand_to_changes(operation, None)?),
+            component.component_type(),
+        ),
+        None => {
+            let changes =
+                expand_app_data_update_to_changes_with_validator(id, operation, None, validator)?;
+            // The expansion resolved the type through `validator`; the set
+            // keeps it for this component's applies.
+            (changes, set.component_type_with(id, validator)?)
+        }
+    };
+    // A set's `RemoveByHash` is the only change that expands with no
+    // element when the state before the proposal is not given.
+    let unresolved = |change: &ExpandedComponentChange| {
+        change.op == ComponentOp::Delete && change.value.is_none()
+    };
+    let AppDataUpdateOperation::Update(payload) = operation else {
+        return Ok(changes);
+    };
+    if !changes.iter().any(unresolved) {
+        return Ok(changes);
+    }
+    let hashes = match ty {
+        ComponentType::TlsSetInboxId => removed_hashes(
+            TlsSetDelta::<InboxId>::tls_deserialize_exact(payload.as_slice())?,
+        ),
+        ComponentType::TlsSetBytes => removed_hashes(
+            TlsSetDelta::<VLBytes>::tls_deserialize_exact(payload.as_slice())?,
+        ),
+        _ => return Ok(changes),
+    };
+    for (change, hash) in changes
+        .iter_mut()
+        .filter(|change| unresolved(change))
+        .zip(hashes)
+    {
+        change.value = set.resolve_hash(id, &hash)?;
+    }
+    Ok(changes)
+}
+
+/// The hashes of a set delta's `RemoveByHash` mutations, in order.
+fn removed_hashes<K>(delta: TlsSetDelta<K>) -> Vec<TlsKeyHash> {
+    delta
+        .mutations
+        .into_iter()
+        .filter_map(|mutation| match mutation {
+            TlsSetMutation::RemoveByHash(hash) => Some(hash),
+            _ => None,
+        })
+        .collect()
+}
+
+/// What a built-in component's invariant reads from its state before a
+/// proposal, taken from a working set without encoding a collection.
+enum Invariant {
+    /// A scalar's bytes before the proposal. They can be the commit-log
+    /// signer's private key.
+    Scalar(Option<Zeroizing<Vec<u8>>>),
+    /// Whether the super-admin list was empty before the proposal.
+    SuperAdmins { was_empty: bool },
+}
+
+impl Invariant {
+    /// The input of component `id`'s invariant before the proposal, or
+    /// `None` when it has none to check: its collection invariant holds
+    /// whatever the states, or its state is absent, which every collection
+    /// invariant accepts. Fails when the state does not decode, which the
+    /// invariant also rejects.
+    fn before(
+        set: &mut WorkingSet<'_>,
+        id: ComponentId,
+        component: &dyn ErasedComponent,
+    ) -> Result<Option<Self>, ComponentSourceError> {
+        Ok(match component.component_type() {
+            ComponentType::Bytes | ComponentType::String => Some(Self::Scalar(
+                set.bytes(id)?.map(|bytes| Zeroizing::new(bytes.to_vec())),
+            )),
+            _ if id == ComponentId::SUPER_ADMIN_LIST => set
+                .is_empty(id)?
+                .map(|was_empty| Self::SuperAdmins { was_empty }),
+            // No other built-in collection has an invariant.
+            _ => None,
+        })
+    }
+
+    /// Check the invariant against `set`, which holds the state after
+    /// `operation` applied.
+    fn check(
+        &self,
+        set: &mut WorkingSet<'_>,
+        component: &dyn ErasedComponent,
+        operation: &AppDataUpdateOperation,
+        actor: ActorAuthority,
+        registry: &ComponentRegistry,
+    ) -> Result<(), ComponentInvariantError> {
+        let id = component.id();
+        // A successful apply leaves a readable state.
+        let unreadable = |_| ComponentInvariantError::Violation {
+            component_id: id,
+            reason: "post-state is not readable".into(),
+        };
+        match self {
+            Self::Scalar(old_value) => {
+                let change = ComponentChange::builder()
+                    .component_id(id)
+                    .op(match operation {
+                        AppDataUpdateOperation::Update(_) => ComponentOp::Update,
+                        AppDataUpdateOperation::Remove => ComponentOp::Delete,
+                    })
+                    .actor(actor)
+                    .maybe_old_value(old_value.as_deref().map(Vec::as_slice))
+                    .maybe_new_value(set.bytes(id).map_err(unreadable)?)
+                    .build();
+                component.validate_invariant(&change, registry)
+            }
+            Self::SuperAdmins { was_empty } => {
+                // An absent list after the proposal is empty.
+                let is_empty = match operation {
+                    AppDataUpdateOperation::Update(_) => {
+                        set.is_empty(id).map_err(unreadable)?.unwrap_or(true)
+                    }
+                    AppDataUpdateOperation::Remove => true,
+                };
+                SuperAdminListComponent::check_not_emptied(*was_empty, is_empty)
+            }
+        }
+    }
 }
 
 /// Resolve the proposer leaf index for a proposal sender, rejecting
@@ -1281,10 +1420,11 @@ pub type AppDataPostStates =
 /// Each proposal is judged against its component's state after the
 /// preceding proposals, starting from `committed`, so neither a transition
 /// invariant nor an immutable first write can be split across proposals.
-/// `committed` borrows each component's committed bytes, so the sequence
-/// copies no value it does not compute. One [`ComponentWriteValidator`]
-/// serves the whole sequence, so each registry entry is decoded once and
-/// each policy question is answered once.
+/// `committed` borrows each component's committed bytes. One
+/// [`WorkingSet`] and one [`ComponentWriteValidator`] serve the whole
+/// sequence, so each component is decoded once and encoded once, each
+/// registry entry is decoded once, and each policy question is answered
+/// once.
 pub fn validate_app_data_update_sequence<'a, 'c>(
     updates: impl IntoIterator<Item = AppDataUpdateInCommit<'a>>,
     committed: impl Fn(xmtp_mls_group_state::app_data::component_id::ComponentId) -> Option<&'c [u8]>,
@@ -1292,42 +1432,33 @@ pub fn validate_app_data_update_sequence<'a, 'c>(
     dm_members: Option<&DmMembers<String>>,
     membership: Option<&HashSet<xmtp_mls_group_state::inbox_id::InboxId>>,
 ) -> Result<AppDataPostStates, CommitRuleError> {
-    use openmls::messages::proposals::AppDataUpdateOperation;
-    use xmtp_mls_group_state::app_data::component_source::apply_app_data_update_payload_with_validator;
-
+    // The closure shortens `'c` to the set's lifetime, which `committed`
+    // itself cannot.
+    #[allow(clippy::redundant_closure)]
+    let mut set = WorkingSet::new(Cow::Borrowed(registry), |id| committed(id));
     let mut validator = ComponentWriteValidator::new(registry);
-    let mut post_states = AppDataPostStates::new();
+    validate_sequence_in(&mut set, &mut validator, updates, dm_members, membership)?;
+    // Encoding cannot fail once every update applied.
+    let states = set
+        .into_states()
+        .map_err(|_| CommitRuleError::InsufficientPermissions)?;
+    Ok(states.into_iter().collect())
+}
+
+/// Validate and apply `updates` in order with [`validate_update_in`],
+/// rejecting the first that is refused or does not apply.
+fn validate_sequence_in<'a>(
+    set: &mut WorkingSet<'_>,
+    validator: &mut ComponentWriteValidator<'_>,
+    updates: impl IntoIterator<Item = AppDataUpdateInCommit<'a>>,
+    dm_members: Option<&DmMembers<String>>,
+    membership: Option<&HashSet<xmtp_mls_group_state::inbox_id::InboxId>>,
+) -> Result<(), CommitRuleError> {
     for update in updates {
-        let old_value = match post_states.get(&update.component_id) {
-            Some(state) => state.as_deref().map(Vec::as_slice),
-            None => committed(update.component_id),
-        };
-        validate_one_app_data_update_with_validator(
-            update.component_id,
-            update.operation,
-            update.actor,
-            update.proposer_inbox_id,
-            &mut validator,
-            old_value,
-            dm_members,
-            membership,
-        )?;
-        let post_value = match update.operation {
-            AppDataUpdateOperation::Update(payload) => Some(
-                apply_app_data_update_payload_with_validator(
-                    update.component_id,
-                    payload.as_slice(),
-                    old_value,
-                    &mut validator,
-                )
-                .map_err(|_| CommitRuleError::InsufficientPermissions)?,
-            ),
-            AppDataUpdateOperation::Remove => None,
-        };
-        // The replaced state is wiped on drop.
-        post_states.insert(update.component_id, post_value);
+        validate_update_in(set, validator, update, dm_members, membership)?
+            .map_err(|_| CommitRuleError::InsufficientPermissions)?;
     }
-    Ok(post_states)
+    Ok(())
 }
 
 /// Validate every `AppDataUpdate` proposal carried by `staged_commit`
@@ -1348,6 +1479,11 @@ pub fn validate_app_data_update_sequence<'a, 'c>(
 /// [`validate_one_app_data_update`] so the core logic stays shared with
 /// the standalone-proposal path in `validate_proposal`.
 ///
+/// Returns the state each touched component holds after the proposals,
+/// which every post-commit read of the commit uses. They come from the
+/// proposals validated here, not from the staged commit's dictionary: see
+/// [`read_post_commit_component_bytes`](xmtp_mls_group_state::app_data::component_source::read_post_commit_component_bytes).
+///
 /// # Registry semantics
 ///
 /// `registry` is the committed registry shared with the other component checks.
@@ -1358,7 +1494,7 @@ pub fn validate_app_data_update_proposals_in_commit(
     immutable_metadata: &GroupMetadata,
     mutable_metadata: &GroupMutableMetadata,
     registry: &xmtp_mls_group_state::app_data::component_registry::ComponentRegistry,
-) -> Result<(), CommitRuleError> {
+) -> Result<AppDataPostStates, CommitRuleError> {
     use xmtp_mls_group_state::app_data::{
         component_id::ComponentId,
         component_source::{read_from_app_data_dict, read_post_commit_component_bytes},
@@ -1379,7 +1515,7 @@ pub fn validate_app_data_update_proposals_in_commit(
     // bypass the loop.
     let mut proposals = staged_commit.app_data_update_proposals().peekable();
     if proposals.peek().is_none() {
-        return Ok(());
+        return Ok(AppDataPostStates::new());
     }
 
     // A single commit's bootstrap can carry multiple AppDataUpdate proposals
@@ -1411,7 +1547,7 @@ pub fn validate_app_data_update_proposals_in_commit(
         registry,
     )
     .map_err(|_| CommitRuleError::InsufficientPermissions)?;
-    let component_post_states = validate_app_data_update_sequence(
+    validate_app_data_commit(
         proposals.iter().map(|(queued, leaf)| {
             let proposal = queued.app_data_update_proposal();
             let proposer = &participants[leaf];
@@ -1423,22 +1559,70 @@ pub fn validate_app_data_update_proposals_in_commit(
             }
         }),
         |component_id| read_from_app_data_dict(component_id, openmls_group),
+        openmls_group
+            .extensions()
+            .app_data_dictionary()
+            .map(|extension| extension.dictionary()),
         registry,
         immutable_metadata.dm_members.as_ref(),
         membership_inbox_ids(membership.as_deref().map(Vec::as_slice)).as_ref(),
-    )?;
-
-    validate_post_registry(&component_post_states)?;
-    let committed = openmls_group.extensions().app_data_dictionary();
-    validate_post_dictionary_size(
-        committed.map(|e| e.dictionary()),
-        &component_post_states,
-        MAX_DICTIONARY_BYTES,
     )
+}
+
+/// Validate a commit's `AppDataUpdate` proposals in order with
+/// [`validate_app_data_update_sequence`], then the registry and the
+/// dictionary total the states it returns leave, and return those states.
+/// `committed` and `committed_dictionary` read the dictionary before the
+/// commit.
+fn validate_app_data_commit<'a, 'c>(
+    updates: impl IntoIterator<Item = AppDataUpdateInCommit<'a>>,
+    committed: impl Fn(ComponentId) -> Option<&'c [u8]>,
+    committed_dictionary: Option<&AppDataDictionary>,
+    registry: &ComponentRegistry,
+    dm_members: Option<&DmMembers<String>>,
+    membership: Option<&HashSet<InboxId>>,
+) -> Result<AppDataPostStates, CommitRuleError> {
+    let post_states =
+        validate_app_data_update_sequence(updates, committed, registry, dm_members, membership)?;
+    if let Some(post_registry) = post_states.get(&ComponentId::COMPONENT_REGISTRY) {
+        validate_registry_after_commit(post_registry.as_deref().map(Vec::as_slice))?;
+    }
+    validate_post_dictionary_size(committed_dictionary, &post_states, MAX_DICTIONARY_BYTES)?;
+    Ok(post_states)
 }
 
 /// Most bytes all components other than `GROUP_MEMBERSHIP` may hold together.
 pub const MAX_DICTIONARY_BYTES: usize = 4 << 20;
+
+/// Whether component `id` counts toward the dictionary total.
+pub fn counts_toward_total(id: ComponentId) -> bool {
+    id != ComponentId::GROUP_MEMBERSHIP
+}
+
+/// The summed value lengths of every component of `dictionary` other than
+/// `GROUP_MEMBERSHIP`.
+pub fn dictionary_total(dictionary: Option<&AppDataDictionary>) -> usize {
+    dictionary
+        .into_iter()
+        .flat_map(AppDataDictionary::entries)
+        .filter(|component| counts_toward_total(component.id().into()))
+        .map(|component| component.data().len())
+        .sum()
+}
+
+/// Reject a commit that grows the dictionary total from `before` to `after`
+/// past `max`.
+// implements: META-077
+pub fn validate_dictionary_growth(
+    before: usize,
+    after: usize,
+    max: usize,
+) -> Result<(), CommitRuleError> {
+    if after > max && after > before {
+        return Err(CommitRuleError::InsufficientPermissions);
+    }
+    Ok(())
+}
 
 /// Reject a commit that grows the summed value lengths of every component
 /// other than `GROUP_MEMBERSHIP` past `max`, given the dictionary before it
@@ -1450,45 +1634,66 @@ pub fn validate_post_dictionary_size<'a, K: std::borrow::Borrow<ComponentId>>(
     post: impl IntoIterator<Item = (K, &'a Option<Zeroizing<Vec<u8>>>)>,
     max: usize,
 ) -> Result<(), CommitRuleError> {
-    let counted = |id: ComponentId| id != ComponentId::GROUP_MEMBERSHIP;
     let old = |id: ComponentId| Some(committed?.get(&id.as_u16())?.len());
-    let before: usize = committed
-        .into_iter()
-        .flat_map(AppDataDictionary::entries)
-        .filter(|component| counted(component.id().into()))
-        .map(|component| component.data().len())
-        .sum();
+    let before = dictionary_total(committed);
     let after = post
         .into_iter()
         .map(|(id, state)| (*id.borrow(), state))
-        .filter(|(id, _)| counted(*id))
+        .filter(|(id, _)| counts_toward_total(*id))
         .fold(before, |sum, (id, s)| {
             sum - old(id).unwrap_or(0) + s.as_deref().map_or(0, Vec::len)
         });
-    if after > max && after > before {
-        return Err(CommitRuleError::InsufficientPermissions);
-    }
-    Ok(())
+    validate_dictionary_growth(before, after, max)
 }
 
-/// Validate the registry `post_states` leave, if they change it: required
-/// action entries must remain present, and every child in each action tree
-/// must be valid.
-pub fn validate_post_registry(post_states: &AppDataPostStates) -> Result<(), CommitRuleError> {
-    let Some(post_registry) = post_states.get(&ComponentId::COMPONENT_REGISTRY) else {
-        return Ok(());
+/// Validate `post_registry`, the registry a commit that writes it leaves
+/// (`None` once removed): required action entries must remain present, and
+/// every child in each action tree must be valid.
+fn validate_registry_after_commit(post_registry: Option<&[u8]>) -> Result<(), CommitRuleError> {
+    let bytes = post_registry.ok_or(CommitRuleError::InsufficientPermissions)?;
+    let registry = ComponentRegistry::from_bytes(bytes)
+        .map_err(|_| CommitRuleError::InsufficientPermissions)?;
+    validate_registry_action_policies(&registry).map_err(|error| {
+        tracing::warn!(%error, "invalid registry action policy in commit");
+        CommitRuleError::InsufficientPermissions
+    })
+}
+
+/// Validate the registry `set` holds after the proposals applied so far, as
+/// [`validate_registry_after_commit`] validates the registry a commit
+/// leaves. It reads the two action entries from the decoded registry
+/// instead of encoding and decoding the whole registry.
+pub fn validate_registry_in(set: &mut WorkingSet<'_>) -> Result<(), CommitRuleError> {
+    let registry = ComponentId::COMPONENT_REGISTRY;
+    if !set.present(registry) {
+        return Err(CommitRuleError::InsufficientPermissions);
+    }
+    // A registry a proposal wrote decodes, and every component id encodes.
+    let mut entry = |id: ComponentId| {
+        set.registry_entry(id)
+            .map_err(|_| CommitRuleError::InsufficientPermissions)
     };
-    let bytes = post_registry
-        .as_deref()
-        .ok_or(CommitRuleError::InsufficientPermissions)?;
-    let registry =
-        xmtp_mls_group_state::app_data::component_registry::ComponentRegistry::from_bytes(bytes)
-            .map_err(|_| CommitRuleError::InsufficientPermissions)?;
-    xmtp_mls_group_state::app_data::policy_set::validate_registry_action_policies(&registry)
-        .map_err(|error| {
-            tracing::warn!(%error, "invalid registry action policy in commit");
-            CommitRuleError::InsufficientPermissions
-        })
+    let membership = entry(ComponentId::GROUP_MEMBERSHIP)?;
+    let admins = entry(ComponentId::ADMIN_LIST)?;
+    validate_action_entries(membership.as_ref(), admins.as_ref()).map_err(|error| {
+        tracing::warn!(%error, "invalid registry action policy in commit");
+        CommitRuleError::InsufficientPermissions
+    })
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+thread_local! {
+    /// Leaves this thread resolved to a [`CommitParticipant`].
+    static PARTICIPANT_LOOKUPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Run `f` and count the leaves it resolves to a [`CommitParticipant`].
+#[cfg(any(test, feature = "test-utils"))]
+pub fn count_participant_lookups<R>(f: impl FnOnce() -> R) -> (R, usize) {
+    let before = PARTICIPANT_LOOKUPS.with(std::cell::Cell::get);
+    let result = f();
+    let lookups = PARTICIPANT_LOOKUPS.with(std::cell::Cell::get) - before;
+    (result, lookups)
 }
 
 /// Extracts the [`CommitParticipant`] from the [`LeafNodeIndex`]
@@ -1498,6 +1703,8 @@ pub fn extract_commit_participant(
     immutable_metadata: &GroupMetadata,
     mutable_metadata: &GroupMutableMetadata,
 ) -> Result<CommitParticipant, CommitRuleError> {
+    #[cfg(any(test, feature = "test-utils"))]
+    PARTICIPANT_LOOKUPS.with(|lookups| lookups.set(lookups.get() + 1));
     if let Some(leaf_node) = group.member_at(*leaf_index) {
         let installation_id = leaf_node.signature_key.to_vec();
         let inbox_id = inbox_id_from_credential(&leaf_node.credential)?;
@@ -1761,13 +1968,14 @@ pub fn extract_committer_and_proposers(
     immutable_metadata: &GroupMetadata,
     mutable_metadata: &GroupMutableMetadata,
 ) -> Result<(CommitParticipant, Vec<CommitParticipant>), CommitRuleError> {
-    // Collect all unique proposers from the proposals
+    // Collect all unique proposers from the proposals, in commit order
+    let mut seen = HashSet::new();
     let mut proposer_leaf_indices: Vec<&LeafNodeIndex> = Vec::new();
     for proposal in staged_commit.queued_proposals() {
         match proposal.sender() {
             Sender::Member(member_leaf_node_index) => {
                 // Only add if not already in the list
-                if !proposer_leaf_indices.contains(&member_leaf_node_index) {
+                if seen.insert(member_leaf_node_index) {
                     proposer_leaf_indices.push(member_leaf_node_index);
                 }
             }

@@ -91,7 +91,7 @@ The well-known component table gives ids, type tags, snapshot encodings, and byt
 
 Well-known user-scoped fields use the `USER_` name prefix. Operator documentation recommends the same prefix for application field names, without making it a configuration validation rule. `GROUP_IMAGE` bytes are opaque to the client and can carry a remote attachment descriptor; the client never fetches or parses the remote object, so a failed download does not change group state. `GROUP_IMAGE_URL` and `APP_DATA` are unchanged.
 
-Collection snapshots contain sorted, unique keys (META-012). Collection Updates carry ordered mutation sequences (META-013). Scalars carry the replacement value directly.
+Collection snapshots contain sorted, unique keys (META-012). Collection Updates carry ordered mutation sequences (META-013). Applying a delta of m mutations to a component of n keys costs about (n + m) log(n + m), each policy is evaluated at most once per operation and subject class in a commit's validation, and processing a commit decodes and encodes each component it touches a constant number of times, however its changes are split across proposals. Scalars carry the replacement value directly.
 
 | Id | Name | `component_type` suffix | Snapshot encoding |
 | --- | --- | --- | --- |

@@ -28,6 +28,7 @@ use xmtp_mls_group_state::app_data::components::metadata_attributes::{
 use xmtp_mls_group_state::app_data::validation::{
     ActorAuthority, ValidationWork, count_validation_work,
 };
+use xmtp_mls_group_state::app_data::working_set::counters::count_snapshot_decodes;
 use xmtp_mls_group_state::group_metadata::DmMembers;
 use xmtp_mls_group_state::inbox_id::InboxId;
 use xmtp_mls_tls_collections::tls_map::{TlsMap, TlsMapDelta, TlsMapMutation};
@@ -39,7 +40,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 
 use super::{
     AppDataUpdateInCommit, CommitRuleError, MAX_DICTIONARY_BYTES, app_data_update_proposer_leaf,
-    removes_super_admin, validate_app_data_update_sequence,
+    removes_super_admin, validate_app_data_commit, validate_app_data_update_sequence,
     validate_one_app_data_update_with_old_value, validate_post_dictionary_size,
     validate_standalone_app_data_update,
 };
@@ -2043,6 +2044,312 @@ fn reused_verdicts_keep_components_apart() {
     commit([open, open])?;
     assert!(matches!(
         commit([open, closed]),
+        Err(CommitRuleError::InsufficientPermissions)
+    ));
+}
+
+/// The inbox id of member `n`.
+fn nth_inbox(n: usize) -> InboxId {
+    let mut bytes = [0; 32];
+    bytes[..8].copy_from_slice(&(n as u64).to_be_bytes());
+    InboxId::from_bytes(bytes)
+}
+
+/// A commit of 5,000 one-mutation Updates to a 2,000-entry application map
+/// decodes the map once, not once per proposal, and leaves the map that
+/// applying the Updates in order gives.
+#[xmtp_common::test(unwrap_try = true)]
+fn sequence_decodes_each_component_once() {
+    const ENTRIES: u16 = 2_000;
+    const UPDATES: u16 = 5_000;
+    let registry = registry_with(
+        PROFILE,
+        allow(),
+        allow(),
+        allow(),
+        ComponentType::TlsMapBytesBytes,
+    );
+    let key = |n: u16| VLBytes::new((n % ENTRIES).to_be_bytes().to_vec());
+    let mut expected = TlsMap::from_pairs((0..ENTRIES).map(|n| (key(n), VLBytes::new(vec![]))));
+    let committed = expected.tls_serialize_detached()?;
+    let operations: Vec<_> = (0..UPDATES)
+        .map(|n| {
+            let value = VLBytes::new(n.to_be_bytes().to_vec());
+            expected.set(key(n), value.clone());
+            let delta = TlsMapDelta::new().update(key(n), value);
+            AppDataUpdateOperation::Update(delta.tls_serialize_detached().unwrap().into())
+        })
+        .collect();
+
+    let (post, decodes) = count_snapshot_decodes(|| {
+        validate_app_data_update_sequence(
+            operations.iter().map(|operation| AppDataUpdateInCommit {
+                component_id: PROFILE,
+                operation,
+                actor: member(),
+                proposer_inbox_id: "inbox_alice",
+            }),
+            |id| (id == PROFILE).then_some(committed.as_slice()),
+            &registry,
+            None,
+            None,
+        )
+    });
+    assert!(decodes <= 1, "{decodes} snapshot decodes");
+    let post = post?.remove(&PROFILE).flatten();
+    assert_eq!(
+        post.as_deref().map(Vec::as_slice),
+        Some(expected.tls_serialize_detached()?.as_slice())
+    );
+}
+
+/// Each of 5,000 members updates its own membership entry in one commit.
+/// The 5,000-entry membership is decoded once, not once per proposal, and
+/// ends as applying the Updates in order leaves it.
+// verifies: PERM-027
+#[xmtp_common::test(unwrap_try = true)]
+fn membership_updates_decode_once() {
+    const MEMBERS: usize = 5_000;
+    let membership = ComponentId::GROUP_MEMBERSHIP;
+    let registry = registry_with(
+        membership,
+        deny(),
+        self_owned(),
+        deny(),
+        ComponentType::TlsMapInboxIdBytes,
+    );
+    let entry = |sequence: u8| VLBytes::new(vec![sequence; 8]);
+    let mut expected = TlsMap::from_pairs((0..MEMBERS).map(|n| (nth_inbox(n), entry(1))));
+    let committed = expected.tls_serialize_detached()?;
+    let proposers: Vec<_> = (0..MEMBERS).map(|n| nth_inbox(n).to_hex()).collect();
+    let operations: Vec<_> = (0..MEMBERS)
+        .map(|n| {
+            expected.set(nth_inbox(n), entry(2));
+            profile_delta(TlsMapMutation::Update {
+                key: nth_inbox(n),
+                value: entry(2),
+            })
+        })
+        .collect();
+
+    let (post, decodes) = count_snapshot_decodes(|| {
+        validate_app_data_update_sequence(
+            operations
+                .iter()
+                .zip(&proposers)
+                .map(|(operation, proposer)| AppDataUpdateInCommit {
+                    component_id: membership,
+                    operation,
+                    actor: member(),
+                    proposer_inbox_id: proposer,
+                }),
+            |id| (id == membership).then_some(committed.as_slice()),
+            &registry,
+            None,
+            None,
+        )
+    });
+    assert!(decodes <= 1, "{decodes} snapshot decodes");
+    let post = post?.remove(&membership).flatten();
+    assert_eq!(
+        post.as_deref().map(Vec::as_slice),
+        Some(expected.tls_serialize_detached()?.as_slice())
+    );
+}
+
+/// Validation reads a built-in collection's invariant from the decoded
+/// state only for `SUPER_ADMIN_LIST`, as
+/// `SuperAdminListComponent::check_not_emptied` on whether the list was and
+/// is empty. Every other built-in collection must accept any pair of
+/// values, and the super-admin list's invariant must give the verdict that
+/// check gives for every state validation can reach: an absent list is not
+/// judged, a list that does not decode is rejected, and an applied update
+/// leaves a list that decodes. A new collection in `WELL_KNOWN` with an
+/// invariant, or a new condition in the super-admin one, fails here until
+/// validation judges it too.
+#[xmtp_common::test(unwrap_try = true)]
+fn only_the_super_admin_list_has_a_collection_invariant() {
+    use tls_codec::Deserialize as _;
+    use xmtp_mls_group_state::app_data::{
+        component_registry::ComponentOp, components::inbox_id_set::SuperAdminListComponent,
+        registry_table::WELL_KNOWN, validation::ComponentChange,
+    };
+
+    let malformed = [0xFF; 3];
+    let empty = TlsSet::<InboxId>::new().tls_serialize_detached()?;
+    let listed = TlsSet::from_keys([fake_inbox(1)]).tls_serialize_detached()?;
+    let values: [Option<&[u8]>; 4] = [None, Some(&malformed), Some(&empty), Some(&listed)];
+    let collections = WELL_KNOWN.iter().filter(|(_, component)| {
+        !matches!(
+            component.component_type(),
+            ComponentType::Bytes | ComponentType::String | ComponentType::Unspecified
+        )
+    });
+    for (id, component) in collections {
+        for (op, old_value, new_value) in [ComponentOp::Update, ComponentOp::Delete]
+            .into_iter()
+            .flat_map(|op| values.map(|old| (op, old)))
+            .flat_map(|(op, old)| values.map(|new| (op, old, new)))
+        {
+            let change = ComponentChange::builder()
+                .component_id(*id)
+                .op(op)
+                .actor(member())
+                .maybe_old_value(old_value)
+                .maybe_new_value(new_value)
+                .build();
+            let verdict = component.validate_invariant(&change, &ComponentRegistry::new());
+            if *id != ComponentId::SUPER_ADMIN_LIST {
+                verdict?;
+                continue;
+            }
+            // An applied update leaves a list that decodes.
+            if new_value == Some(&malformed[..]) {
+                continue;
+            }
+            let is_empty = |value: Option<&[u8]>| match value {
+                None => Some(true),
+                Some(bytes) => TlsSet::<InboxId>::tls_deserialize_exact(bytes)
+                    .ok()
+                    .map(|set| set.is_empty()),
+            };
+            let expected = match (old_value, is_empty(old_value), is_empty(new_value)) {
+                (None, ..) => true,
+                (Some(_), Some(was_empty), Some(is_empty)) => {
+                    SuperAdminListComponent::check_not_emptied(was_empty, is_empty).is_ok()
+                }
+                _ => false,
+            };
+            assert_eq!(
+                verdict.is_ok(),
+                expected,
+                "{op:?} from {old_value:?} to {new_value:?}"
+            );
+        }
+    }
+}
+
+/// A commit's whole-component `Remove` of a non-empty `SUPER_ADMIN_LIST`
+/// would leave the group with no super admin, so it is rejected. A
+/// committed list that does not decode is never judged emptied or not, so a
+/// `Remove` and an `Update` of it are rejected too.
+// verifies: PERM-004
+#[xmtp_common::test(unwrap_try = true)]
+fn removing_the_super_admin_list_or_writing_a_malformed_one_is_rejected() {
+    let registry = ComponentRegistry::new();
+    let listed = TlsSet::from_keys([fake_inbox(0x41)]).tls_serialize_detached()?;
+    let malformed = [0xFF; 3];
+    let insert = AppDataUpdateOperation::Update(
+        TlsSetDelta::new()
+            .insert(fake_inbox(0x42))
+            .tls_serialize_detached()?
+            .into(),
+    );
+    let remove = AppDataUpdateOperation::Remove;
+    for (committed, operation) in [
+        (&listed[..], &remove),
+        (&malformed[..], &remove),
+        (&malformed[..], &insert),
+    ] {
+        let result = validate_app_data_update_sequence(
+            [AppDataUpdateInCommit {
+                component_id: ComponentId::SUPER_ADMIN_LIST,
+                operation,
+                actor: super_admin(),
+                proposer_inbox_id: "inbox_super",
+            }],
+            |_| Some(committed),
+            &registry,
+            None,
+            None,
+        );
+        assert!(
+            matches!(result, Err(CommitRuleError::InsufficientPermissions)),
+            "{operation:?} of {committed:?}: {result:?}"
+        );
+    }
+}
+
+/// A standalone proposal for a component with a built-in definition is
+/// refused when it does not apply to the committed state, as release
+/// clients refuse it: here an `ADMIN_LIST` Remove of an inbox the list does
+/// not hold. Stored by one member and refused by another, it would resolve
+/// on one side only when a later commit references it.
+// verifies: GMOD-019
+#[xmtp_common::test(unwrap_try = true)]
+fn standalone_built_in_proposal_that_does_not_apply_is_refused() {
+    let registry = registry_with(
+        ComponentId::ADMIN_LIST,
+        admin_only(),
+        admin_only(),
+        admin_only(),
+        ComponentType::TlsSetInboxId,
+    );
+    let remove = AppDataUpdateOperation::Update(
+        TlsSetDelta::new()
+            .remove(fake_inbox(9))
+            .tls_serialize_detached()?
+            .into(),
+    );
+    let propose = |committed: &[InboxId]| {
+        let committed = TlsSet::from_keys(committed.iter().copied()).tls_serialize_detached()?;
+        validate_standalone_app_data_update(
+            ComponentId::ADMIN_LIST,
+            &remove,
+            super_admin(),
+            "inbox_super",
+            &registry,
+            Some(&committed),
+            None,
+            None,
+        )
+        .map_err(Box::<dyn std::error::Error>::from)
+    };
+    propose(&[fake_inbox(1), fake_inbox(9)])?;
+    let refused = propose(&[fake_inbox(1)]).unwrap_err();
+    assert!(
+        matches!(
+            refused.downcast_ref::<CommitRuleError>(),
+            Some(CommitRuleError::InsufficientPermissions)
+        ),
+        "{refused:?}"
+    );
+}
+
+/// The receive path rejects a commit whose proposals grow the summed values
+/// of the dictionary past 4 MiB, judged on the states its validated
+/// proposals leave: the same write that reaches the limit is accepted.
+// verifies: META-077
+#[xmtp_common::test(unwrap_try = true)]
+fn commit_growing_the_dictionary_past_the_limit_is_rejected() {
+    use openmls::extensions::AppDataDictionary;
+
+    const FILLED: ComponentId = ComponentId::new(0xC0F7);
+    const APP: ComponentId = ComponentId::new(0xC0F8);
+    const WRITE: usize = 16;
+    let registry = registry_with(APP, allow(), allow(), allow(), ComponentType::Bytes);
+    let mut committed = AppDataDictionary::new();
+    committed.insert(FILLED.as_u16(), vec![0; MAX_DICTIONARY_BYTES - WRITE]);
+    let commit = |len: usize| {
+        let operation = AppDataUpdateOperation::Update(vec![7; len].into());
+        validate_app_data_commit(
+            [AppDataUpdateInCommit {
+                component_id: APP,
+                operation: &operation,
+                actor: member(),
+                proposer_inbox_id: "inbox_alice",
+            }],
+            |id| committed.get(&id.as_u16()),
+            Some(&committed),
+            &registry,
+            None,
+            None,
+        )
+        .map(|_| ())
+    };
+    commit(WRITE)?;
+    assert!(matches!(
+        commit(WRITE + 1),
         Err(CommitRuleError::InsufficientPermissions)
     ));
 }

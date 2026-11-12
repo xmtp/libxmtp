@@ -100,7 +100,11 @@ struct Facts {
 pub(super) struct Replaced {
     key: Box<[u8]>,
     slot: Option<Option<Span>>,
-    hash: Option<TlsKeyHash>,
+    /// The key's hash when `hashed`, else zero. An absent `Option` would
+    /// leave 32 bytes unwritten, and moving a `Replaced` to the heap would
+    /// fill them with dead stack bytes, which can hold a secret.
+    hash: TlsKeyHash,
+    hashed: bool,
 }
 
 /// A collection component decoded for one commit.
@@ -129,8 +133,11 @@ pub(super) struct TrackedMap<'a> {
     /// The values that are not UTF-8, in a map whose values must be.
     non_utf8: usize,
     /// The present keys by the hash a `RemoveByHash` names: built on the
-    /// first one, then kept current.
-    hashes: Option<HashMap<TlsKeyHash, KeyRef>>,
+    /// first one, then kept current. Boxed: an absent inline map would
+    /// leave 40 bytes unwritten, and moving a decoded map to the heap would
+    /// fill them with dead stack bytes, which can hold a secret.
+    #[allow(clippy::box_collection)]
+    hashes: Option<Box<HashMap<TlsKeyHash, KeyRef>>>,
 }
 
 impl<'a> TrackedMap<'a> {
@@ -155,7 +162,7 @@ impl<'a> TrackedMap<'a> {
     /// and value types: the length and element codecs are tls_codec's own.
     // implements: META-012
     pub(super) fn decode(shape: MapShape, bytes: &'a [u8]) -> Result<Self, tls_codec::Error> {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-utils"))]
         super::counters::count_decode();
         let mut rest = bytes;
         let (body_len, _) = tls_codec::vlen::read_length(&mut rest)?;
@@ -272,12 +279,23 @@ impl<'a> TrackedMap<'a> {
         self.account(&key, old, false);
         self.account(&key, new, true);
         let slot = self.changes.insert(key.clone(), value);
-        Replaced { key, slot, hash }
+        Replaced {
+            key,
+            slot,
+            hash: hash.unwrap_or(TlsKeyHash::from_bytes([0; 32])),
+            hashed: hash.is_some(),
+        }
     }
 
     /// Undo a [`Self::write`]. Writes are undone in reverse order.
     pub(super) fn restore(&mut self, replaced: Replaced) {
-        let Replaced { key, slot, hash } = replaced;
+        let Replaced {
+            key,
+            slot,
+            hash,
+            hashed,
+        } = replaced;
+        let hash = hashed.then_some(hash);
         let current = self.get(&key).map(|bytes| self.facts(bytes));
         let restored = match slot {
             Some(value) => value.map(|span| self.facts(self.arena_bytes(span))),
@@ -319,7 +337,7 @@ impl<'a> TrackedMap<'a> {
                 return Err(TlsSetError::DuplicateHash);
             }
         }
-        self.hashes = Some(index);
+        self.hashes = Some(Box::new(index));
         Ok(())
     }
 
@@ -334,6 +352,8 @@ impl<'a> TrackedMap<'a> {
     /// The snapshot, encoded as `TlsMap::tls_serialize` encodes it.
     // implements: META-012
     pub(super) fn encode(&self) -> Result<Vec<u8>, tls_codec::Error> {
+        #[cfg(any(test, feature = "test-utils"))]
+        super::counters::count_encode();
         let mut out = Vec::with_capacity(self.snapshot_len());
         tls_codec::vlen::write_length(&mut out, self.body_len)?;
         for (_, key, value) in self.iter() {
@@ -567,7 +587,7 @@ fn read_bytes(bytes: &[u8], pos: &mut usize) -> Result<(usize, usize), tls_codec
 
 /// The hash a `RemoveByHash` names `key` with: SHA-256 of its TLS encoding.
 fn hash_key(kind: KeyKind, key: &[u8]) -> Result<TlsKeyHash, tls_codec::Error> {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     super::counters::count_hash();
     let hash = match kind {
         KeyKind::InboxId => TlsKeyHash::of(&inbox_id(key)?),

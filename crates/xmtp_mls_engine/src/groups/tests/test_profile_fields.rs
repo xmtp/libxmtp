@@ -160,8 +160,8 @@ fn stage_unchecked<P: OpenMlsProvider>(
             .map_err(GroupAppDataError::Propose)?;
         proposals.push(proposal);
     }
-    let dictionary = AppDataBatch::pending(group)
-        .map(AppDataBatch::updates)
+    let dictionary = load_component_registry(group)
+        .and_then(|registry| AppDataBatch::pending(group, &registry)?.updates())
         .unwrap_or_else(|_| {
             let mut updater = group.app_data_dictionary_updater();
             for (id, payload) in updates {

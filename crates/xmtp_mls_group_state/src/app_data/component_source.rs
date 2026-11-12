@@ -56,6 +56,7 @@ use crate::{
         registry_table::lookup_component,
         typed::ComponentTypedError,
         validation::ComponentWriteValidator,
+        working_set::WorkingSet,
     },
     group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError, MetadataField},
     inbox_id::{InboxId, InboxIdError},
@@ -343,73 +344,40 @@ pub fn read_component_bytes(
     Ok(read_from_app_data_dict_from_extensions(id, extensions))
 }
 
-/// Compute the post-commit value of a single component
-/// by overlaying the staged commit's `AppDataUpdate` proposals on top of
-/// the pre-commit dict. Last-write-wins matches the lazy-batching apply
-/// order in `xmtp_mls`'s `accumulate_app_data_updates`: every `Update(payload)`
-/// is decoded against the running value (so collection deltas compose),
-/// and `Remove` collapses to `None`.
+/// The value component `id` holds after `staged_commit`'s `AppDataUpdate`
+/// proposals, as commit validation judges them: each `Update` in
+/// `staged_commit.app_data_update_proposals()` applied in order to the
+/// pre-commit dictionary of `mls_group`, a `Remove` leaving `None`.
 ///
-/// Returns `Ok(None)` when the component is absent both before and after
-/// the commit, or when it was explicitly removed. Returns `Err` only when
-/// an `Update` payload fails to decode against the running value — the
-/// same condition `validate_app_data_update_proposals_in_commit` would
-/// also reject upstream, so callers can treat decode failure here as
-/// "validator will surface the real error" and short-circuit.
+/// Those proposals are OpenMLS's proposal queue, which keeps the first of
+/// proposals with the same reference. The staged commit's own dictionary is
+/// built from the commit's proposal list, which can repeat a proposal, so it
+/// can differ from what validation judged. Post-commit checks read this
+/// value instead, as release clients do, so members reach the same verdict.
 ///
-/// Used by the commit validator to evaluate per-component invariants
-/// (notably `MIN_SUPPORTED_PROTOCOL_VERSION`) that need the post-commit
-/// view from the AppData dictionary.
+/// One [`WorkingSet`] holds the component, so the work is linear in the
+/// proposals' bytes. Returns `Err` when an `Update` does not apply, with the
+/// error [`apply_app_data_update_payload`] gives.
 ///
-/// The value is `Zeroizing`: it can be the commit-log signer's private key.
-///
-/// # Registry semantics
-///
-/// `registry` is the **pre-commit** `COMPONENT_REGISTRY` (i.e. the state
-/// of the dictionary entry before the staged commit applies). Callers
-/// should load it once via `xmtp_mls`'s `load_component_registry` on the
-/// live `mls_group` and reuse it across all validator helpers — same
-/// registry feeds `validate_app_data_update_proposals_in_commit`
-/// and any other per-component checks.
-///
-/// **Implication for commits that modify `COMPONENT_REGISTRY` in the
-/// same commit as a write to a newly-registered component**: such a
-/// write fails with `UnknownComponent` here because the new entry is
-/// not yet visible in the pre-commit registry. This matches what the
-/// receiver-side validator
-/// (`validate_app_data_update_proposals_in_commit`) enforces
-/// today and is the documented convention across the commit
-/// path: registry mutations and writes that depend on those mutations
-/// MUST land in separate commits.
-///
+/// `registry` is the pre-commit `COMPONENT_REGISTRY`, which every
+/// component check of the commit shares. The value can be the commit-log
+/// signer's private key, so it is `Zeroizing`.
 pub fn read_post_commit_component_bytes(
     id: ComponentId,
     mls_group: &OpenMlsGroup,
     staged_commit: &StagedCommit,
     registry: &ComponentRegistry,
 ) -> Result<Option<Zeroizing<Vec<u8>>>, ComponentSourceError> {
-    let openmls_id: openmls::component::ComponentId = id.as_u16();
-
-    // Each proposal's payload is borrowed only while it is applied, so no
-    // payload is copied. Every replaced value is wiped on drop.
-    let mut current =
-        read_from_app_data_dict(id, mls_group).map(|bytes| Zeroizing::new(bytes.to_vec()));
+    let mut set = WorkingSet::new(std::borrow::Cow::Borrowed(registry), |component| {
+        read_from_app_data_dict(component, mls_group)
+    });
     for queued in staged_commit.app_data_update_proposals() {
         let proposal = queued.app_data_update_proposal();
-        if proposal.component_id() != openmls_id {
-            continue;
+        if proposal.component_id() == id.as_u16() {
+            set.apply(id, proposal.operation())?;
         }
-        current = match proposal.operation() {
-            AppDataUpdateOperation::Update(payload) => Some(apply_app_data_update_payload(
-                id,
-                payload.as_slice(),
-                current.as_deref().map(Vec::as_slice),
-                registry,
-            )?),
-            AppDataUpdateOperation::Remove => None,
-        };
     }
-    Ok(current)
+    set.encode(id)
 }
 
 /// Look up the component's bytes in the OpenMLS AppData dictionary.

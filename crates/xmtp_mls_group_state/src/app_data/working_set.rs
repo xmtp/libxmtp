@@ -149,6 +149,9 @@ pub struct WorkingSet<'a> {
     tags: BTreeMap<ComponentId, Option<i32>>,
     components: BTreeMap<ComponentId, Tracked<'a>>,
     undo: Vec<Undo<'a>>,
+    /// The collection entries that the [`Undo::Entry`] steps of `undo`
+    /// restore, in the same order.
+    entries: Vec<(ComponentId, Replaced)>,
     /// Live checkpoints. With none, a successful update keeps no undo entries.
     checkpoints: usize,
 }
@@ -181,6 +184,11 @@ struct Tracked<'a> {
     touched: bool,
 }
 
+/// A component's state. Moving an enum copies its largest variant's size,
+/// and a smaller variant leaves the rest unwritten, so a move from the stack
+/// to the heap copies dead stack bytes, which can hold a secret, into a
+/// block that is later freed unwiped. Each variant is small for that
+/// reason: a collection is boxed.
 enum State<'a> {
     /// Removed by a proposal. A `Remove` resolves no type, so its shape is
     /// unknown until the next update.
@@ -188,10 +196,11 @@ enum State<'a> {
     /// A scalar, written by a proposal. It can be the commit-log signer's
     /// private key.
     Scalar(Zeroizing<Vec<u8>>),
-    Collection(TrackedMap<'a>),
+    Collection(Box<TrackedMap<'a>>),
 }
 
-/// How to undo one change to the working set.
+/// How to undo one change to the working set. Each variant is small, as
+/// for [`State`]: a replaced entry is kept in [`WorkingSet::entries`].
 enum Undo<'a> {
     /// The component had no record.
     Created(ComponentId),
@@ -203,8 +212,9 @@ enum Undo<'a> {
         touched: bool,
         present: bool,
     },
-    /// A collection entry before a write.
-    Entry(ComponentId, Replaced),
+    /// A collection entry before a write: the last of
+    /// [`WorkingSet::entries`].
+    Entry,
     /// A collection's arena length before an update.
     Arena(ComponentId, usize),
 }
@@ -226,11 +236,12 @@ enum Mutation {
     DeleteByHash(TlsKeyHash),
 }
 
-/// A mutation with its hash resolved: the hash a deletion was named by.
+/// A mutation with its hash resolved: the hash a deletion was named by,
+/// boxed so a deletion by key leaves no unwritten hash (see [`State`]).
 enum Change {
     Insert(Box<[u8]>, VLBytes),
     Update(Box<[u8]>, VLBytes),
-    Delete(Box<[u8]>, Option<TlsKeyHash>),
+    Delete(Box<[u8]>, Option<Box<TlsKeyHash>>),
 }
 
 impl<'a> WorkingSet<'a> {
@@ -247,6 +258,7 @@ impl<'a> WorkingSet<'a> {
             tags: BTreeMap::new(),
             components: BTreeMap::new(),
             undo: Vec::new(),
+            entries: Vec::new(),
             checkpoints: 0,
         }
     }
@@ -271,6 +283,28 @@ impl<'a> WorkingSet<'a> {
             Some(tag) => *tag,
             None => {
                 let tag = registry_type_tag(id, &mut ComponentWriteValidator::new(&self.registry))?;
+                self.tags.insert(id, tag);
+                tag
+            }
+        };
+        registered_type(id, tag)
+    }
+
+    /// [`Self::component_type`], resolved through `validator`, which judges
+    /// against this set's registry. A commit's checks and applies then
+    /// decode each registry entry once between them.
+    pub fn component_type_with(
+        &mut self,
+        id: ComponentId,
+        validator: &mut ComponentWriteValidator<'_>,
+    ) -> Result<ComponentType, ComponentSourceError> {
+        if let Some(ty) = well_known_type(id) {
+            return Ok(ty);
+        }
+        let tag = match self.tags.get(&id) {
+            Some(tag) => *tag,
+            None => {
+                let tag = registry_type_tag(id, validator)?;
                 self.tags.insert(id, tag);
                 tag
             }
@@ -304,7 +338,7 @@ impl<'a> WorkingSet<'a> {
             self.undo_to(mark);
         }
         if self.checkpoints == 0 {
-            self.undo.clear();
+            self.clear_undo();
         }
         result
     }
@@ -365,6 +399,41 @@ impl<'a> WorkingSet<'a> {
                 State::Collection(_) => None,
             },
         })
+    }
+
+    /// The bytes of component `id` after the proposals applied so far,
+    /// without a copy: its committed bytes until a proposal writes it, then
+    /// the scalar a proposal wrote. `None` when it is absent. Fails with
+    /// `MismatchedMutation` once a proposal changed it as a collection,
+    /// whose bytes only [`Self::encode`] builds.
+    pub fn bytes(&self, id: ComponentId) -> Result<Option<&[u8]>, ComponentSourceError> {
+        let Some(record) = self.components.get(&id) else {
+            return Ok((self.base)(id));
+        };
+        match &record.state {
+            State::Removed => Ok(None),
+            State::Scalar(value) => Ok(Some(value.as_slice())),
+            // Decoded by a read, or written and rolled back: unchanged.
+            State::Collection(_) if !record.touched => Ok((self.base)(id)),
+            // Removed, then decoded by a read.
+            State::Collection(map) if !map.present => Ok(None),
+            State::Collection(_) => Err(ComponentSourceError::MismatchedMutation(id)),
+        }
+    }
+
+    /// Whether collection `id` holds no entries after the proposals applied
+    /// so far; `None` when it is absent. Decodes the committed bytes on
+    /// first use, and fails as an update does when they do not decode.
+    pub fn is_empty(&mut self, id: ComponentId) -> Result<Option<bool>, ComponentSourceError> {
+        if !self.present(id) {
+            return Ok(None);
+        }
+        let codec = self.codec(id)?;
+        let shape = codec
+            .shape(id)
+            .ok_or(ComponentSourceError::MismatchedMutation(id))?;
+        self.load(id, shape, codec)?;
+        Ok(self.collection(id).map(|map| map.body_len() == 0))
     }
 
     /// The value of the entry with the TLS-encoded `key` in collection
@@ -471,7 +540,7 @@ impl<'a> WorkingSet<'a> {
         if self.end(&checkpoint) {
             self.undo_to(checkpoint.mark);
             if self.checkpoints == 0 {
-                self.undo.clear();
+                self.clear_undo();
             }
         }
     }
@@ -479,7 +548,7 @@ impl<'a> WorkingSet<'a> {
     /// Keep every change since `checkpoint`.
     pub fn release(&mut self, checkpoint: Checkpoint) {
         if self.end(&checkpoint) && self.checkpoints == 0 {
-            self.undo.clear();
+            self.clear_undo();
         }
     }
 
@@ -494,6 +563,12 @@ impl<'a> WorkingSet<'a> {
             self.checkpoints -= 1;
         }
         innermost
+    }
+
+    /// Drop every undo step.
+    fn clear_undo(&mut self) {
+        self.undo.clear();
+        self.entries.clear();
     }
 
     // implements: META-010, META-068
@@ -556,7 +631,10 @@ impl<'a> WorkingSet<'a> {
         let mutations = decode_delta(id, shape, codec, payload)?;
         self.load(id, shape, codec)?;
         let Self {
-            components, undo, ..
+            components,
+            undo,
+            entries,
+            ..
         } = self;
         let Some(Tracked {
             state: State::Collection(map),
@@ -599,7 +677,7 @@ impl<'a> WorkingSet<'a> {
                         let key = map
                             .indexed(&hash)
                             .ok_or_else(|| apply_error(TlsMapError::KeyNotFound))?;
-                        Change::Delete(key, Some(hash))
+                        Change::Delete(key, Some(Box::new(hash)))
                     }
                 })
             })
@@ -610,7 +688,9 @@ impl<'a> WorkingSet<'a> {
                 Change::Insert(key, value) if map.get(&key).is_none() => (key, Some(value), None),
                 Change::Insert(..) => return Err(apply_error(TlsMapError::KeyExists)),
                 Change::Update(key, value) if map.get(&key).is_some() => (key, Some(value), None),
-                Change::Delete(key, hash) if map.get(&key).is_some() => (key, None, hash),
+                Change::Delete(key, hash) if map.get(&key).is_some() => {
+                    (key, None, hash.map(|hash| *hash))
+                }
                 Change::Update(..) | Change::Delete(..) => {
                     return Err(apply_error(TlsMapError::KeyNotFound));
                 }
@@ -622,7 +702,8 @@ impl<'a> WorkingSet<'a> {
                     map.push(value.as_slice())
                 }
             });
-            undo.push(Undo::Entry(id, map.write(key, value, hash)));
+            entries.push((id, map.write(key, value, hash)));
+            undo.push(Undo::Entry);
         }
         *touched = true;
         map.present = true;
@@ -676,7 +757,7 @@ impl<'a> WorkingSet<'a> {
         match self.components.get_mut(&id) {
             Some(record) => {
                 if matches!(record.state, State::Removed) {
-                    record.state = State::Collection(TrackedMap::absent(shape));
+                    record.state = State::Collection(Box::new(TrackedMap::absent(shape)));
                 }
             }
             None => {
@@ -687,7 +768,7 @@ impl<'a> WorkingSet<'a> {
                     None => TrackedMap::absent(shape),
                 };
                 let record = Tracked {
-                    state: State::Collection(map),
+                    state: State::Collection(Box::new(map)),
                     touched: false,
                 };
                 self.components.insert(id, record);
@@ -698,14 +779,14 @@ impl<'a> WorkingSet<'a> {
 
     fn collection(&self, id: ComponentId) -> Option<&TrackedMap<'a>> {
         match &self.components.get(&id)?.state {
-            State::Collection(map) => Some(map),
+            State::Collection(map) => Some(&**map),
             _ => None,
         }
     }
 
     fn collection_mut(&mut self, id: ComponentId) -> Option<&mut TrackedMap<'a>> {
         match &mut self.components.get_mut(&id)?.state {
-            State::Collection(map) => Some(map),
+            State::Collection(map) => Some(&mut **map),
             _ => None,
         }
     }
@@ -734,8 +815,10 @@ impl<'a> WorkingSet<'a> {
                         }
                     }
                 }
-                Undo::Entry(id, replaced) => {
-                    if let Some(map) = self.collection_mut(id) {
+                Undo::Entry => {
+                    if let Some((id, replaced)) = self.entries.pop()
+                        && let Some(map) = self.collection_mut(id)
+                    {
                         map.restore(replaced);
                     }
                 }
@@ -901,20 +984,27 @@ fn key_bytes(kind: KeyKind, key: &[u8]) -> Result<Box<[u8]>, tls_codec::Error> {
 }
 
 /// Test-only operation counters and a hash clash, per thread.
-#[cfg(test)]
-mod counters {
+#[cfg(any(test, feature = "test-utils"))]
+pub mod counters {
     use std::cell::Cell;
 
+    #[cfg(test)]
     use xmtp_mls_tls_collections::tls_set::TlsKeyHash;
 
     thread_local! {
         static HASHES: Cell<usize> = const { Cell::new(0) };
         static DECODES: Cell<usize> = const { Cell::new(0) };
+        static ENCODES: Cell<usize> = const { Cell::new(0) };
+    }
+
+    #[cfg(test)]
+    thread_local! {
         static CLASH: Cell<bool> = const { Cell::new(false) };
     }
 
     /// Run `f` with every key hash that [`key_hash`] passes replaced by one
     /// value, so any two keys share a hash.
+    #[cfg(test)]
     pub(super) fn with_hash_clash<R>(f: impl FnOnce() -> R) -> R {
         struct Reset;
         impl Drop for Reset {
@@ -928,6 +1018,7 @@ mod counters {
     }
 
     /// `hash`, or inside [`with_hash_clash`] the one hash every key has.
+    #[cfg(test)]
     pub(super) fn key_hash(hash: TlsKeyHash) -> TlsKeyHash {
         if CLASH.get() {
             TlsKeyHash::from_bytes([0; 32])
@@ -944,14 +1035,37 @@ mod counters {
         DECODES.with(|count| count.set(count.get() + 1));
     }
 
+    pub(super) fn count_encode() {
+        ENCODES.with(|count| count.set(count.get() + 1));
+    }
+
     /// SHA-256 key hashes so far on this thread.
-    pub(super) fn hashes() -> usize {
+    pub fn hashes() -> usize {
         HASHES.with(Cell::get)
     }
 
     /// Committed collection decodes so far on this thread.
-    pub(super) fn decodes() -> usize {
+    pub fn decodes() -> usize {
         DECODES.with(Cell::get)
+    }
+
+    /// Changed collections a working set encoded so far on this thread.
+    pub fn encodes() -> usize {
+        ENCODES.with(Cell::get)
+    }
+
+    /// Collection snapshots decoded so far on this thread: by a working set,
+    /// or by `TlsMap` and `TlsSet` as the byte-level apply does.
+    pub fn snapshot_decodes() -> usize {
+        decodes() + xmtp_mls_tls_collections::tls_map::snapshot_decodes()
+    }
+
+    /// Run `f` and return how many collection snapshots it decoded on this
+    /// thread ([`snapshot_decodes`]).
+    pub fn count_snapshot_decodes<R>(f: impl FnOnce() -> R) -> (R, usize) {
+        let before = snapshot_decodes();
+        let result = f();
+        (result, snapshot_decodes() - before)
     }
 }
 

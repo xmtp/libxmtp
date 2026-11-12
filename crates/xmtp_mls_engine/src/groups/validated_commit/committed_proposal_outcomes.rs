@@ -254,3 +254,553 @@ async fn validate_proposal_rejects_every_unsupported_type() {
         assert!(error.is_safe_rejection(), "{kind:?}");
     }
 }
+
+/// A commit can carry thousands of proposals from one member. The proposal
+/// changes resolve that member's leaf, credential and roles once, not once
+/// per proposal.
+#[xmtp_common::test(unwrap_try = true)]
+async fn proposal_changes_resolve_each_proposer_once() {
+    use xmtp_mls_validation::commit::count_participant_lookups;
+    const PROPOSALS: usize = 2_000;
+    let alix = EngineTestPeer::new().await;
+    let conversation = alix.create_group(None, None)?;
+    let provider = alix.context.mls_provider();
+    let signer = &alix.context.identity().installation_keys;
+    let mut group = OpenMlsGroup::load(
+        alix.context.mls_storage(),
+        &conversation.group_id.to_openmls(),
+    )??;
+    let name = ComponentId::GROUP_NAME.as_u16();
+    let updates: Vec<_> = (0..PROPOSALS)
+        .map(|n| AppDataUpdateProposal::update(name, format!("name {n}").into_bytes()))
+        .collect();
+    let dictionary = accumulate_app_data_updates(
+        &group,
+        updates
+            .iter()
+            .map(|update| (update.component_id(), update.operation())),
+    )?;
+    let proposals = updates
+        .into_iter()
+        .map(|update| Proposal::AppDataUpdate(Box::new(update)));
+    let mut stage = crate::groups::mls_ext::commit_without_group_info(
+        &mut group,
+        provider.storage(),
+        |builder| builder.add_proposals(proposals),
+    )?;
+    stage.with_app_data_dictionary_updates(dictionary);
+    stage
+        .build(provider.rand(), provider.crypto(), signer, |_| true)?
+        .stage_commit(&provider)?;
+    let staged = group.pending_commit()?;
+    assert_eq!(staged.queued_proposals().count(), PROPOSALS);
+
+    let (immutable, mutable) = read_committed_metadata(&group)?;
+    let (changes, lookups) =
+        count_participant_lookups(|| get_proposal_changes(staged, &group, &immutable, &mutable));
+    changes?;
+    assert_eq!(lookups, 1, "the proposer was resolved once per proposal");
+}
+
+/// Stage, as a receiver does, a commit by `group`'s own member whose
+/// proposal list is exactly `proposals`, repeats included. A commit builder
+/// keeps one of each proposal, as a modified client need not, so the commit
+/// is framed by hand. The group's public view stages it: it checks the
+/// signature, but not the confirmation tag, which only a key schedule over
+/// such a list could compute. Its dictionary applies the whole list in
+/// order, as receive staging does.
+fn stage_listed_commit(
+    group: &OpenMlsGroup,
+    provider: &impl OpenMlsProvider,
+    signer: &impl openmls_traits::signatures::Signer,
+    proposals: &[AppDataUpdateProposal],
+) -> StagedCommit {
+    use openmls::{
+        framing::{MlsMessageIn, ProcessedMessageContent},
+        test_utils::frankenstein::{
+            FrankenCommit, FrankenFramedContent, FrankenFramedContentAuthData,
+            FrankenFramedContentBody, FrankenMlsMessage, FrankenMlsMessageBody, FrankenProposal,
+            FrankenProposalOrRef, FrankenPublicMessage, FrankenSender, sign_with_label,
+        },
+    };
+    use tls_codec::{Deserialize as _, Serialize as _};
+
+    let proposals = proposals
+        .iter()
+        .map(|proposal| {
+            let proposal = Proposal::AppDataUpdate(Box::new(proposal.clone()));
+            let bytes = proposal.tls_serialize_detached().unwrap();
+            FrankenProposalOrRef::Proposal(FrankenProposal::tls_deserialize_exact(bytes).unwrap())
+        })
+        .collect();
+    let content = FrankenFramedContent {
+        group_id: group.group_id().as_slice().to_vec().into(),
+        epoch: group.epoch().as_u64(),
+        sender: FrankenSender::Member(group.own_leaf_index().u32()),
+        authenticated_data: Vec::new().into(),
+        body: FrankenFramedContentBody::Commit(FrankenCommit {
+            proposals,
+            path: None,
+        }),
+    };
+    // The FramedContentTBS of a member's PublicMessage (wire format 1).
+    let mut tbs = [1u16.to_be_bytes(), 1u16.to_be_bytes()].concat();
+    tbs.extend(content.tls_serialize_detached().unwrap());
+    tbs.extend(
+        group
+            .export_group_context()
+            .tls_serialize_detached()
+            .unwrap(),
+    );
+    let auth = FrankenFramedContentAuthData {
+        signature: sign_with_label(signer, b"FramedContentTBS", &tbs).into(),
+        confirmation_tag: Some(vec![0; 32].into()),
+    };
+    let message = FrankenMlsMessage {
+        version: 1,
+        body: FrankenMlsMessageBody::PublicMessage(FrankenPublicMessage {
+            content,
+            auth,
+            membership_tag: Some(vec![0; 32].into()),
+        }),
+    };
+    let message =
+        MlsMessageIn::tls_deserialize_exact(message.tls_serialize_detached().unwrap()).unwrap();
+    let public = group.public_group();
+    let processed = public
+        .process_message(
+            provider.crypto(),
+            message.try_into_protocol_message().unwrap(),
+        )
+        .unwrap();
+    let ProcessedMessageContent::UnresolvedAppDataCommit(unresolved) = processed.into_content()
+    else {
+        panic!("the commit carries no AppDataUpdate proposal");
+    };
+    let listed: Vec<_> = unresolved
+        .app_data_update_proposals()
+        .map(|proposal| (proposal.component_id(), proposal.operation().clone()))
+        .collect();
+    let updates =
+        accumulate_app_data_updates(group, listed.iter().map(|(id, op)| (*id, op))).unwrap();
+    public
+        .stage_app_data_commit(provider.crypto(), *unresolved, updates)
+        .unwrap()
+}
+
+/// A registry delta of `delta` as an inline proposal.
+fn registry_update(
+    delta: xmtp_mls_tls_collections::tls_map::TlsMapDelta<ComponentId, tls_codec::VLBytes>,
+) -> AppDataUpdateProposal {
+    use tls_codec::Serialize as _;
+    AppDataUpdateProposal::update(
+        ComponentId::COMPONENT_REGISTRY.as_u16(),
+        delta.tls_serialize_detached().unwrap(),
+    )
+}
+
+/// A commit can list one proposal twice. OpenMLS stages its dictionary from
+/// the whole list but queues the proposal once, and validation judges the
+/// queue. Release clients judge the registry the queued proposals leave,
+/// not the staged one, so this client does too: here the queue deletes the
+/// membership's registry entry and inserts it back, which leaves a valid
+/// registry, while the list deletes it again. Members then merge the staged
+/// registry, which validation never judged. This pins today's verdict, a
+/// gap release clients share, which only a receive rule behind a version
+/// floor can close.
+#[xmtp_common::test(unwrap_try = true)]
+async fn repeated_proposal_is_judged_on_the_validated_registry() {
+    use crate::groups::app_data::load_component_registry;
+    use prost::Message as _;
+    use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
+
+    let alix = EngineTestPeer::new().await;
+    let conversation = alix.create_group(None, None)?;
+    let provider = alix.context.mls_provider();
+    let signer = &alix.context.identity().installation_keys;
+    let group = OpenMlsGroup::load(
+        alix.context.mls_storage(),
+        &conversation.group_id.to_openmls(),
+    )??;
+    let registry = load_component_registry(&group)?;
+    let membership = ComponentId::GROUP_MEMBERSHIP;
+    let entry = registry.get(&membership)??;
+    let delete = registry_update(TlsMapDelta::new().delete(membership));
+    let insert =
+        registry_update(TlsMapDelta::new().insert(membership, entry.encode_to_vec().into()));
+
+    let staged = stage_listed_commit(&group, &provider, signer, &[delete.clone(), insert, delete]);
+    assert_eq!(staged.queued_proposals().count(), 2);
+    let staged_registry = xmtp_mls_group_state::app_data::component_registry::ComponentRegistry::from_bytes(
+        xmtp_mls_group_state::app_data::component_source::read_from_app_data_dict_from_extensions(
+            ComponentId::COMPONENT_REGISTRY,
+            staged.group_context().extensions(),
+        )?,
+    )?;
+    assert!(
+        staged_registry.get(&membership)?.is_none(),
+        "the staged registry keeps the entry"
+    );
+
+    let (immutable, mutable) = read_committed_metadata(&group)?;
+    let post_states = validate_app_data_update_proposals_in_commit(
+        &staged, &group, &immutable, &mutable, &registry,
+    )?;
+    let post_registry = post_states[&ComponentId::COMPONENT_REGISTRY].as_deref()?;
+    assert_eq!(
+        Some(post_registry.as_slice()),
+        read_from_app_data_dict(ComponentId::COMPONENT_REGISTRY, &group)
+    );
+}
+
+/// The protocol floor and the metadata changes of a commit that lists one
+/// proposal twice come from the queued proposals, as release clients read
+/// them. Queued, the floor proposals raise the floor above this client's
+/// version, so it pauses, while the list lowers it again. Queued, the name
+/// proposals change the name, while the list sets it back.
+#[xmtp_common::test(unwrap_try = true)]
+async fn repeated_proposal_floor_and_metadata_come_from_the_queue() {
+    use xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION;
+
+    let alix = EngineTestPeer::new().await;
+    let conversation = alix.create_group(None, None)?;
+    conversation.update_group_name("x".to_string()).await?;
+    let provider = alix.context.mls_provider();
+    let signer = &alix.context.identity().installation_keys;
+    let group = OpenMlsGroup::load(
+        alix.context.mls_storage(),
+        &conversation.group_id.to_openmls(),
+    )??;
+    let validate = |staged: &StagedCommit| {
+        ValidatedCommit::from_staged_commit_local(
+            &alix.context,
+            &alix.context.db(),
+            staged,
+            group.own_leaf_index(),
+            &group,
+            u64::MAX,
+        )
+    };
+
+    let floor = ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16();
+    let current =
+        AppDataUpdateProposal::update(floor, PROPOSALS_MIN_PROTOCOL_VERSION.as_bytes().to_vec());
+    let above = AppDataUpdateProposal::update(floor, b"99.0.0".to_vec());
+    let staged = stage_listed_commit(
+        &group,
+        &provider,
+        signer,
+        &[current.clone(), above, current],
+    );
+    let error = validate(&staged).unwrap_err();
+    assert!(
+        matches!(
+            &error,
+            CommitValidationError::Rule(CommitRuleError::ProtocolVersionTooLow(floor))
+                if floor == "99.0.0"
+        ),
+        "{error:?}"
+    );
+
+    let name = ComponentId::GROUP_NAME;
+    let set = |value: &str| AppDataUpdateProposal::update(name.as_u16(), value.as_bytes().to_vec());
+    let staged = stage_listed_commit(&group, &provider, signer, &[set("x"), set("y"), set("x")]);
+    let validated = validate(&staged)?;
+    assert_eq!(validated.metadata_component_ids, [name.as_u16()]);
+    let renamed: Vec<_> = validated
+        .metadata_changes
+        .metadata_field_changes
+        .iter()
+        .map(|change| (change.old_value.as_deref(), change.new_value.as_deref()))
+        .collect();
+    assert_eq!(renamed, [(Some("x"), Some("y"))]);
+}
+
+/// The self-or-non-member policy tests a deleted key against the membership
+/// that the commit's queued proposals leave, as release clients do. Queued,
+/// the membership proposals add an inbox and take it out again, so another
+/// member may delete that inbox's entry of a self-owned map; the list adds
+/// the inbox back. As for the registry above, members merge the staged
+/// membership, and this pins today's verdict.
+#[xmtp_common::test(unwrap_try = true)]
+async fn repeated_proposal_membership_comes_from_the_queue() {
+    use crate::groups::app_data::load_component_registry;
+    use tls_codec::{Serialize as _, VLBytes};
+    use xmtp_configuration::{
+        ApplicationComponentDefinition, ComponentPermissions, MetadataPolicy,
+    };
+    use xmtp_mls_group_state::inbox_id::InboxId;
+    use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
+    use xmtp_proto::xmtp::mls::message_contents::{
+        ComponentType, metadata_policy::MetadataBasePolicy,
+    };
+
+    let map = ComponentId::new(0xC1A5);
+    let policy = |base: MetadataBasePolicy| Some(MetadataPolicy::Base(base as i32));
+    let alix = EngineTestPeer::new_with(|o| {
+        o.configure(|c| {
+            c.application_components = vec![ApplicationComponentDefinition {
+                component_id: map.as_u16(),
+                name: "app.owned".to_string(),
+                component_type: ComponentType::TlsMapInboxIdBytes as i32,
+                permissions: ComponentPermissions {
+                    insert: policy(MetadataBasePolicy::Allow),
+                    update: policy(MetadataBasePolicy::Allow),
+                    delete: policy(MetadataBasePolicy::AllowIfSelfOrNonMember),
+                },
+                in_groups: true,
+                in_dms: false,
+            }]
+        })
+    })
+    .await;
+    let conversation = alix.create_group(None, None)?;
+    let provider = alix.context.mls_provider();
+    let signer = &alix.context.identity().installation_keys;
+    let group = OpenMlsGroup::load(
+        alix.context.mls_storage(),
+        &conversation.group_id.to_openmls(),
+    )??;
+    let other = InboxId::from_bytes([7; 32]);
+    let update = |id: ComponentId, delta: TlsMapDelta<InboxId, VLBytes>| {
+        AppDataUpdateProposal::update(id.as_u16(), delta.tls_serialize_detached().unwrap())
+    };
+    let membership = ComponentId::GROUP_MEMBERSHIP;
+    let join = update(
+        membership,
+        TlsMapDelta::new().insert(other, VLBytes::new(Vec::new())),
+    );
+    let leave = update(membership, TlsMapDelta::new().delete(other));
+    let write = update(
+        map,
+        TlsMapDelta::new()
+            .insert(other, VLBytes::new(b"v".to_vec()))
+            .delete(other),
+    );
+
+    let staged = stage_listed_commit(
+        &group,
+        &provider,
+        signer,
+        &[join.clone(), leave, join, write],
+    );
+    assert_eq!(staged.queued_proposals().count(), 3);
+    let (immutable, mutable) = read_committed_metadata(&group)?;
+    let registry = load_component_registry(&group)?;
+    let result = validate_app_data_update_proposals_in_commit(
+        &staged, &group, &immutable, &mutable, &registry,
+    );
+    assert!(result.is_ok(), "{result:?}");
+}
+
+/// A receiver holds a commit to the dictionary total of the dictionary
+/// before it, not of the one the commit stages: the most admins one commit
+/// can add without growing the total past the limit are accepted, and one
+/// more is rejected.
+// verifies: META-077
+#[xmtp_common::test(unwrap_try = true)]
+async fn commit_past_the_dictionary_total_is_rejected_on_receive() {
+    use crate::groups::app_data::load_component_registry;
+    use tls_codec::Serialize as _;
+    use xmtp_mls_group_state::inbox_id::InboxId;
+    use xmtp_mls_tls_collections::tls_set::TlsSetDelta;
+    use xmtp_mls_validation::commit::{MAX_DICTIONARY_BYTES, dictionary_total};
+
+    /// Bytes an admin takes in the admin list: its version byte and id.
+    const ADMIN_BYTES: usize = 33;
+    /// Bytes of the admin list's length prefix once it holds them.
+    const PREFIX_BYTES: usize = 4;
+
+    let alix = EngineTestPeer::new().await;
+    let conversation = alix.create_group(None, None)?;
+    let provider = alix.context.mls_provider();
+    let signer = &alix.context.identity().installation_keys;
+    let group = OpenMlsGroup::load(
+        alix.context.mls_storage(),
+        &conversation.group_id.to_openmls(),
+    )??;
+    let admins = ComponentId::ADMIN_LIST;
+    // An absent list, or the one-byte empty one.
+    let committed = read_from_app_data_dict(admins, &group).map_or(0, <[u8]>::len);
+    assert!(committed <= 1, "the group already has admins");
+    let total = dictionary_total(
+        group
+            .extensions()
+            .app_data_dictionary()
+            .map(|extension| extension.dictionary()),
+    );
+    let fit = (MAX_DICTIONARY_BYTES - total + committed - PREFIX_BYTES) / ADMIN_BYTES;
+    let add = |count: usize| {
+        let delta = (0..count).fold(TlsSetDelta::new(), |delta, n| {
+            let mut inbox = [0; 32];
+            inbox[..8].copy_from_slice(&(n as u64).to_be_bytes());
+            delta.insert(InboxId::from_bytes(inbox))
+        });
+        AppDataUpdateProposal::update(admins.as_u16(), delta.tls_serialize_detached().unwrap())
+    };
+    let (immutable, mutable) = read_committed_metadata(&group)?;
+    let registry = load_component_registry(&group)?;
+    let validate = |count: usize| {
+        let staged = stage_listed_commit(&group, &provider, signer, &[add(count)]);
+        validate_app_data_update_proposals_in_commit(
+            &staged, &group, &immutable, &mutable, &registry,
+        )
+        .map(|_| ())
+    };
+
+    let accepted = validate(fit);
+    assert!(accepted.is_ok(), "{accepted:?}");
+    let rejected = validate(fit + 1);
+    assert!(
+        matches!(rejected, Err(CommitRuleError::InsufficientPermissions)),
+        "{rejected:?}"
+    );
+}
+
+/// A commit that removes a whole component reports it changed, and the
+/// metadata after the commit reads the component's default, not the value
+/// it removed.
+#[xmtp_common::test(unwrap_try = true)]
+async fn removed_component_is_reported_changed() {
+    use xmtp_mls_group_state::group_mutable_metadata::MetadataField;
+
+    let alix = EngineTestPeer::new().await;
+    let conversation = alix.create_group(None, None)?;
+    conversation
+        .update_group_description("described".to_string())
+        .await?;
+    let provider = alix.context.mls_provider();
+    let signer = &alix.context.identity().installation_keys;
+    let group = OpenMlsGroup::load(
+        alix.context.mls_storage(),
+        &conversation.group_id.to_openmls(),
+    )??;
+    let description = ComponentId::GROUP_DESCRIPTION;
+
+    let remove = AppDataUpdateProposal::remove(description.as_u16());
+    let staged = stage_listed_commit(&group, &provider, signer, &[remove]);
+    let validated = ValidatedCommit::from_staged_commit_local(
+        &alix.context,
+        &alix.context.db(),
+        &staged,
+        group.own_leaf_index(),
+        &group,
+        u64::MAX,
+    )?;
+    assert_eq!(validated.metadata_component_ids, [description.as_u16()]);
+    let changes: Vec<_> = validated
+        .metadata_changes
+        .metadata_field_changes
+        .iter()
+        .map(|change| {
+            (
+                change.field_name.as_str(),
+                change.old_value.as_deref(),
+                change.new_value.as_deref(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        changes,
+        [(
+            MetadataField::Description.as_str(),
+            Some("described"),
+            Some("")
+        )]
+    );
+}
+
+/// Each proposal's changes name its own proposer, though each proposer's
+/// leaf is resolved once. Alix commits Bo's stored membership delete of her
+/// entry with her own inline delete of his: each is named the proposer of
+/// the delete it made, which the remover's permission check reads.
+// verifies: PERM-030
+#[xmtp_common::test(unwrap_try = true)]
+async fn proposal_changes_name_each_proposer() {
+    use crate::groups::test_support::EngineTestPeerOps as _;
+    use openmls::framing::{MlsMessageIn, ProcessedMessageContent};
+    use tls_codec::{Serialize as _, VLBytes};
+    use xmtp_mls_group_state::inbox_id::InboxId;
+    use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
+
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let conversation = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_conversation = bo.wait_for_welcomes().await?.remove(0);
+    let membership = ComponentId::GROUP_MEMBERSHIP.as_u16();
+    let (alix_inbox, bo_inbox) = (
+        InboxId::from_hex(alix.inbox_id())?,
+        InboxId::from_hex(bo.inbox_id())?,
+    );
+    let delete = |inbox: InboxId| {
+        TlsMapDelta::<InboxId, VLBytes>::new()
+            .delete(inbox)
+            .tls_serialize_detached()
+            .unwrap()
+    };
+
+    // Bo proposes deleting Alix's entry, and Alix stores the proposal.
+    let mut bo_group = OpenMlsGroup::load(
+        bo.context.mls_storage(),
+        &bo_conversation.group_id.to_openmls(),
+    )??;
+    let (message, _) = bo_group.propose_app_data_update(
+        &bo.context.mls_provider(),
+        &bo.context.identity().installation_keys,
+        membership,
+        AppDataUpdateOperation::Update(delete(alix_inbox).into()),
+    )?;
+    let provider = alix.context.mls_provider();
+    let signer = &alix.context.identity().installation_keys;
+    let mut group = OpenMlsGroup::load(
+        alix.context.mls_storage(),
+        &conversation.group_id.to_openmls(),
+    )??;
+    let message = MlsMessageIn::from(message).try_into_protocol_message()?;
+    let ProcessedMessageContent::ProposalMessage(proposal) =
+        group.process_message(&provider, message)?.into_content()
+    else {
+        panic!("Bo's message is not a proposal");
+    };
+    group.store_pending_proposal(provider.storage(), *proposal)?;
+
+    // Alix commits it with her own inline delete of Bo's entry.
+    let inline = AppDataUpdateProposal::update(membership, delete(bo_inbox));
+    let operations: Vec<_> = group
+        .pending_proposals()
+        .filter_map(|queued| match queued.proposal() {
+            Proposal::AppDataUpdate(p) => Some((p.component_id(), p.operation().clone())),
+            _ => None,
+        })
+        .chain([(inline.component_id(), inline.operation().clone())])
+        .collect();
+    let dictionary =
+        accumulate_app_data_updates(&group, operations.iter().map(|(id, op)| (*id, op)))?;
+    let mut stage = crate::groups::mls_ext::commit_without_group_info(
+        &mut group,
+        provider.storage(),
+        |builder| {
+            builder
+                .consume_proposal_store(true)
+                .add_proposal(Proposal::AppDataUpdate(Box::new(inline)))
+        },
+    )?;
+    stage.with_app_data_dictionary_updates(dictionary);
+    stage
+        .build(provider.rand(), provider.crypto(), signer, |_| true)?
+        .stage_commit(&provider)?;
+    let staged = group.pending_commit()?;
+    assert_eq!(staged.queued_proposals().count(), 2);
+
+    let (immutable, mutable) = read_committed_metadata(&group)?;
+    let changes = get_proposal_changes(staged, &group, &immutable, &mutable)?;
+    let proposer = |removed: InboxId| {
+        changes.removed_inbox_proposers[&removed.to_string()]
+            .inbox_id
+            .clone()
+    };
+    assert_eq!(proposer(alix_inbox), bo.inbox_id());
+    assert_eq!(proposer(bo_inbox), alix.inbox_id());
+}
