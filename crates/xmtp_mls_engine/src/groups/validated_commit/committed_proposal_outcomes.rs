@@ -404,7 +404,10 @@ fn registry_update(
 /// queue. Release clients judge the registry the queued proposals leave,
 /// not the staged one, so this client does too: here the queue deletes the
 /// membership's registry entry and inserts it back, which leaves a valid
-/// registry, while the list deletes it again.
+/// registry, while the list deletes it again. Members then merge the staged
+/// registry, which validation never judged. This pins today's verdict, a
+/// gap release clients share, which only a receive rule behind a version
+/// floor can close.
 #[xmtp_common::test(unwrap_try = true)]
 async fn repeated_proposal_is_judged_on_the_validated_registry() {
     use crate::groups::app_data::load_component_registry;
@@ -517,7 +520,8 @@ async fn repeated_proposal_floor_and_metadata_come_from_the_queue() {
 /// that the commit's queued proposals leave, as release clients do. Queued,
 /// the membership proposals add an inbox and take it out again, so another
 /// member may delete that inbox's entry of a self-owned map; the list adds
-/// the inbox back.
+/// the inbox back. As for the registry above, members merge the staged
+/// membership, and this pins today's verdict.
 #[xmtp_common::test(unwrap_try = true)]
 async fn repeated_proposal_membership_comes_from_the_queue() {
     use crate::groups::app_data::load_component_registry;
@@ -587,6 +591,123 @@ async fn repeated_proposal_membership_comes_from_the_queue() {
         &staged, &group, &immutable, &mutable, &registry,
     );
     assert!(result.is_ok(), "{result:?}");
+}
+
+/// A receiver holds a commit to the dictionary total of the dictionary
+/// before it, not of the one the commit stages: the most admins one commit
+/// can add without growing the total past the limit are accepted, and one
+/// more is rejected.
+// verifies: META-077
+#[xmtp_common::test(unwrap_try = true)]
+async fn commit_past_the_dictionary_total_is_rejected_on_receive() {
+    use crate::groups::app_data::load_component_registry;
+    use tls_codec::Serialize as _;
+    use xmtp_mls_group_state::inbox_id::InboxId;
+    use xmtp_mls_tls_collections::tls_set::TlsSetDelta;
+    use xmtp_mls_validation::commit::{MAX_DICTIONARY_BYTES, dictionary_total};
+
+    /// Bytes an admin takes in the admin list: its version byte and id.
+    const ADMIN_BYTES: usize = 33;
+    /// Bytes of the admin list's length prefix once it holds them.
+    const PREFIX_BYTES: usize = 4;
+
+    let alix = EngineTestPeer::new().await;
+    let conversation = alix.create_group(None, None)?;
+    let provider = alix.context.mls_provider();
+    let signer = &alix.context.identity().installation_keys;
+    let group = OpenMlsGroup::load(
+        alix.context.mls_storage(),
+        &conversation.group_id.to_openmls(),
+    )??;
+    let admins = ComponentId::ADMIN_LIST;
+    // An absent list, or the one-byte empty one.
+    let committed = read_from_app_data_dict(admins, &group).map_or(0, <[u8]>::len);
+    assert!(committed <= 1, "the group already has admins");
+    let total = dictionary_total(
+        group
+            .extensions()
+            .app_data_dictionary()
+            .map(|extension| extension.dictionary()),
+    );
+    let fit = (MAX_DICTIONARY_BYTES - total + committed - PREFIX_BYTES) / ADMIN_BYTES;
+    let add = |count: usize| {
+        let delta = (0..count).fold(TlsSetDelta::new(), |delta, n| {
+            let mut inbox = [0; 32];
+            inbox[..8].copy_from_slice(&(n as u64).to_be_bytes());
+            delta.insert(InboxId::from_bytes(inbox))
+        });
+        AppDataUpdateProposal::update(admins.as_u16(), delta.tls_serialize_detached().unwrap())
+    };
+    let (immutable, mutable) = read_committed_metadata(&group)?;
+    let registry = load_component_registry(&group)?;
+    let validate = |count: usize| {
+        let staged = stage_listed_commit(&group, &provider, signer, &[add(count)]);
+        validate_app_data_update_proposals_in_commit(
+            &staged, &group, &immutable, &mutable, &registry,
+        )
+        .map(|_| ())
+    };
+
+    let accepted = validate(fit);
+    assert!(accepted.is_ok(), "{accepted:?}");
+    let rejected = validate(fit + 1);
+    assert!(
+        matches!(rejected, Err(CommitRuleError::InsufficientPermissions)),
+        "{rejected:?}"
+    );
+}
+
+/// A commit that removes a whole component reports it changed, and the
+/// metadata after the commit reads the component's default, not the value
+/// it removed.
+#[xmtp_common::test(unwrap_try = true)]
+async fn removed_component_is_reported_changed() {
+    use xmtp_mls_group_state::group_mutable_metadata::MetadataField;
+
+    let alix = EngineTestPeer::new().await;
+    let conversation = alix.create_group(None, None)?;
+    conversation
+        .update_group_description("described".to_string())
+        .await?;
+    let provider = alix.context.mls_provider();
+    let signer = &alix.context.identity().installation_keys;
+    let group = OpenMlsGroup::load(
+        alix.context.mls_storage(),
+        &conversation.group_id.to_openmls(),
+    )??;
+    let description = ComponentId::GROUP_DESCRIPTION;
+
+    let remove = AppDataUpdateProposal::remove(description.as_u16());
+    let staged = stage_listed_commit(&group, &provider, signer, &[remove]);
+    let validated = ValidatedCommit::from_staged_commit_local(
+        &alix.context,
+        &alix.context.db(),
+        &staged,
+        group.own_leaf_index(),
+        &group,
+        u64::MAX,
+    )?;
+    assert_eq!(validated.metadata_component_ids, [description.as_u16()]);
+    let changes: Vec<_> = validated
+        .metadata_changes
+        .metadata_field_changes
+        .iter()
+        .map(|change| {
+            (
+                change.field_name.as_str(),
+                change.old_value.as_deref(),
+                change.new_value.as_deref(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        changes,
+        [(
+            MetadataField::Description.as_str(),
+            Some("described"),
+            Some("")
+        )]
+    );
 }
 
 /// Each proposal's changes name its own proposer, though each proposer's
