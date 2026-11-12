@@ -25,14 +25,16 @@ use xmtp_mls_group_state::app_data::components::metadata_attributes::{
     MAX_APP_DATA_LENGTH, MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH,
     MAX_GROUP_NAME_LENGTH,
 };
-use xmtp_mls_group_state::app_data::validation::ActorAuthority;
+use xmtp_mls_group_state::app_data::validation::{
+    ActorAuthority, ValidationWork, count_validation_work,
+};
 use xmtp_mls_group_state::group_metadata::DmMembers;
 use xmtp_mls_group_state::inbox_id::InboxId;
 use xmtp_mls_tls_collections::tls_map::{TlsMap, TlsMapDelta, TlsMapMutation};
 use xmtp_mls_tls_collections::tls_set::{TlsKeyHash, TlsSet, TlsSetDelta};
 use xmtp_proto::xmtp::mls::message_contents::{
     ComponentType, MetadataPolicy as MetadataPolicyProto,
-    metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
+    metadata_policy::{AndCondition, Kind as MetadataPolicyKind, MetadataBasePolicy},
 };
 
 use super::{
@@ -1816,4 +1818,342 @@ fn dm_members_writes_are_rejected_in_every_conversation() {
             }
         }
     }
+}
+
+// ------------------------------------------------------------------------
+// Validation cost
+// ------------------------------------------------------------------------
+
+/// Base policies in [`wide`].
+const WIDE: u64 = 1_000;
+
+/// Policy questions one component can raise: three operations, four role
+/// pairs, and the self-or-non-member answer.
+const POLICY_QUESTIONS: u64 = 3 * 4 * 2;
+
+/// An `And` of [`WIDE`] `Allow` policies, so that each walk of it counts.
+fn wide() -> MetadataPolicyProto {
+    MetadataPolicyProto {
+        kind: Some(MetadataPolicyKind::AndCondition(AndCondition {
+            policies: vec![allow(); WIDE as usize],
+        })),
+    }
+}
+
+/// A `TlsMapBytesBytes` component whose updates [`wide`] governs, and one
+/// proposal that inserts a key and updates it 10,000 times.
+fn repeated_updates() -> (ComponentRegistry, AppDataUpdateOperation) {
+    let registry = registry_with(
+        PROFILE,
+        allow(),
+        wide(),
+        deny(),
+        ComponentType::TlsMapBytesBytes,
+    );
+    let empty = || VLBytes::new(Vec::new());
+    let payload = (0..10_000)
+        .fold(TlsMapDelta::new().insert(empty(), empty()), |delta, _| {
+            delta.update(empty(), empty())
+        })
+        .tls_serialize_detached()
+        .unwrap();
+    (registry, AppDataUpdateOperation::Update(payload.into()))
+}
+
+/// Assert that `work` decoded one registry entry and walked [`wide`] at
+/// least once and at most once for each policy question.
+fn assert_judged_once(work: ValidationWork) {
+    assert_eq!(work.registry_decodes, 1, "{work:?}");
+    assert!(
+        (WIDE..=POLICY_QUESTIONS * WIDE).contains(&work.base_policy_evaluations),
+        "{work:?}"
+    );
+}
+
+/// One proposal updates one key 10,000 times. Its registry entry is decoded
+/// once and each policy question is answered once, not once per mutation.
+#[xmtp_common::test(unwrap_try = true)]
+fn repeated_updates_reuse_registry_entry_and_verdicts() {
+    let (registry, operation) = repeated_updates();
+    let (validated, work) = count_validation_work(|| {
+        validate_app_data_update_sequence(
+            [AppDataUpdateInCommit {
+                component_id: PROFILE,
+                operation: &operation,
+                actor: member(),
+                proposer_inbox_id: "inbox_alice",
+            }],
+            |_| None,
+            &registry,
+            None,
+            None,
+        )
+    });
+    validated?;
+    assert_judged_once(work);
+}
+
+/// The same proposal judged on receipt, before any commit, applies its
+/// payload with the registry entry its policy check decoded.
+#[xmtp_common::test(unwrap_try = true)]
+fn standalone_proposal_reuses_registry_entry_and_verdicts() {
+    let (registry, operation) = repeated_updates();
+    let (validated, work) = count_validation_work(|| {
+        validate_standalone_app_data_update(
+            PROFILE,
+            &operation,
+            member(),
+            "inbox_alice",
+            &registry,
+            None,
+            None,
+            None,
+        )
+    });
+    validated?;
+    assert_judged_once(work);
+}
+
+/// One proposal inserts 4,096 distinct keys and values. A verdict does not
+/// depend on the element, so the policy is walked once.
+#[xmtp_common::test(unwrap_try = true)]
+fn distinct_elements_reuse_one_verdict() {
+    let registry = registry_with(
+        PROFILE,
+        wide(),
+        deny(),
+        deny(),
+        ComponentType::TlsMapBytesBytes,
+    );
+    let element = |i: u16| VLBytes::new(i.to_be_bytes().to_vec());
+    let payload = (0..4_096)
+        .fold(TlsMapDelta::new(), |delta, i| {
+            delta.insert(element(i), element(i))
+        })
+        .tls_serialize_detached()?;
+    let operation = AppDataUpdateOperation::Update(payload.into());
+    let (validated, work) = count_validation_work(|| {
+        validate_app_data_update_sequence(
+            [AppDataUpdateInCommit {
+                component_id: PROFILE,
+                operation: &operation,
+                actor: member(),
+                proposer_inbox_id: "inbox_alice",
+            }],
+            |_| None,
+            &registry,
+            None,
+            None,
+        )
+    });
+    validated?;
+    assert_judged_once(work);
+}
+
+/// A commit carries 1,000 proposals for one component. It decodes the
+/// registry entry and walks the policy once, not once per proposal.
+#[xmtp_common::test(unwrap_try = true)]
+fn proposals_of_one_commit_share_registry_entry_and_verdicts() {
+    let id = ComponentId::new(0xC300);
+    let registry = registry_with(id, deny(), wide(), deny(), ComponentType::Bytes);
+    let operation = AppDataUpdateOperation::Update(b"new".to_vec().into());
+    let updates = (0..1_000).map(|_| AppDataUpdateInCommit {
+        component_id: id,
+        operation: &operation,
+        actor: member(),
+        proposer_inbox_id: "inbox_alice",
+    });
+    let (validated, work) = count_validation_work(|| {
+        validate_app_data_update_sequence(
+            updates,
+            |_| Some(b"old".as_slice()),
+            &registry,
+            None,
+            None,
+        )
+    });
+    validated?;
+    assert_judged_once(work);
+}
+
+/// A verdict reached for one operation is not reused for another: a delta
+/// that inserts a key and then updates it is denied when only inserts are
+/// allowed.
+// verifies: PERM-011
+#[xmtp_common::test(unwrap_try = true)]
+fn reused_verdicts_keep_operations_apart() {
+    let id = ComponentId::new(0xC300);
+    let registry = registry_with(id, allow(), deny(), deny(), ComponentType::TlsMapBytesBytes);
+    let key = || VLBytes::new(b"key".to_vec());
+    let commit = |delta: TlsMapDelta<VLBytes, VLBytes>| {
+        let operation = AppDataUpdateOperation::Update(delta.tls_serialize_detached()?.into());
+        validate_app_data_update_sequence(
+            [AppDataUpdateInCommit {
+                component_id: id,
+                operation: &operation,
+                actor: member(),
+                proposer_inbox_id: "inbox_alice",
+            }],
+            |_| None,
+            &registry,
+            None,
+            None,
+        )
+    };
+    commit(TlsMapDelta::new().insert(key(), key()))?;
+    assert!(matches!(
+        commit(TlsMapDelta::new().insert(key(), key()).update(key(), key())),
+        Err(CommitRuleError::InsufficientPermissions)
+    ));
+}
+
+/// A verdict reached for one component is not reused for another component
+/// in the same commit.
+// verifies: PERM-011
+#[xmtp_common::test(unwrap_try = true)]
+fn reused_verdicts_keep_components_apart() {
+    let (open, closed) = (ComponentId::new(0xC200), ComponentId::new(0xC201));
+    let mut registry = registry_with(open, deny(), allow(), deny(), ComponentType::Bytes);
+    registry.set(
+        closed,
+        new_component_metadata(
+            component_permissions()
+                .insert(deny())
+                .update(deny())
+                .delete(deny())
+                .call(),
+            ComponentType::Bytes,
+        ),
+    )?;
+    let operation = AppDataUpdateOperation::Update(b"new".to_vec().into());
+    let commit = |ids: [ComponentId; 2]| {
+        validate_app_data_update_sequence(
+            ids.map(|component_id| AppDataUpdateInCommit {
+                component_id,
+                operation: &operation,
+                actor: member(),
+                proposer_inbox_id: "inbox_alice",
+            }),
+            |_| Some(b"old".as_slice()),
+            &registry,
+            None,
+            None,
+        )
+    };
+    commit([open, open])?;
+    assert!(matches!(
+        commit([open, closed]),
+        Err(CommitRuleError::InsufficientPermissions)
+    ));
+}
+
+/// A verdict reused across a commit's proposals keeps the self-or-non-member
+/// answer apart: a member's own delete and a non-member's delete are
+/// allowed, and a later delete of another member's entry is still denied.
+// verifies: PERM-027
+#[xmtp_common::test(unwrap_try = true)]
+fn reused_verdicts_keep_self_and_non_member_deletes_apart() {
+    let (alice, bob, gone) = (fake_inbox(1), fake_inbox(2), fake_inbox(3));
+    let proposer = alice.to_hex();
+    let registry = profile_registry();
+    let committed = profile_snapshot(&[(alice, "Alice"), (bob, "Bob"), (gone, "Gone")]);
+    let members = HashSet::from([alice, bob]);
+    let delete = |key| profile_delta(TlsMapMutation::Delete { key });
+    let (own, other, stale) = (delete(alice), delete(bob), delete(gone));
+    let commit = |operations: &[&AppDataUpdateOperation]| {
+        validate_app_data_update_sequence(
+            operations.iter().map(|&operation| AppDataUpdateInCommit {
+                component_id: PROFILE,
+                operation,
+                actor: member(),
+                proposer_inbox_id: &proposer,
+            }),
+            |_| Some(committed.as_slice()),
+            &registry,
+            None,
+            Some(&members),
+        )
+    };
+    commit(&[&own, &stale])?;
+    for allowed in [&own, &stale] {
+        assert!(matches!(
+            commit(&[allowed, &other]),
+            Err(CommitRuleError::InsufficientPermissions)
+        ));
+    }
+}
+
+/// A verdict reached for an admin's or a super admin's proposal is not
+/// reused for a later proposal by a lesser role on the same component in the
+/// same commit.
+// verifies: PERM-011
+#[xmtp_common::test(unwrap_try = true)]
+fn reused_verdicts_keep_actors_apart() {
+    let id = ComponentId::new(0xC200);
+    let operation = AppDataUpdateOperation::Update(b"new".to_vec().into());
+    let super_admin_only = base_policy(MetadataBasePolicy::AllowIfSuperAdmin);
+    for (policy, allowed, denied) in [
+        (admin_only(), admin(), member()),
+        (super_admin_only, super_admin(), admin()),
+    ] {
+        let registry = registry_with(id, deny(), policy, deny(), ComponentType::Bytes);
+        let commit = |actors: [ActorAuthority; 2]| {
+            validate_app_data_update_sequence(
+                actors.map(|actor| AppDataUpdateInCommit {
+                    component_id: id,
+                    operation: &operation,
+                    actor,
+                    proposer_inbox_id: "inbox_alice",
+                }),
+                |_| Some(b"old".as_slice()),
+                &registry,
+                None,
+                None,
+            )
+        };
+        commit([allowed, allowed])?;
+        assert!(matches!(
+            commit([allowed, denied]),
+            Err(CommitRuleError::InsufficientPermissions)
+        ));
+    }
+}
+
+/// A verdict reached for a DM participant, whom DM authority lets satisfy
+/// `ALLOW_IF_SUPER_ADMIN` on an application component, is not reused for a
+/// later proposal by an inbox outside the DM.
+// verifies: PERM-028
+#[xmtp_common::test(unwrap_try = true)]
+fn reused_verdicts_keep_dm_authority_apart() {
+    let (alice, bob, carol) = (fake_inbox(1), fake_inbox(2), fake_inbox(3));
+    let super_admin_only = base_policy(MetadataBasePolicy::AllowIfSuperAdmin);
+    let registry = registry_with(
+        PROFILE,
+        deny(),
+        super_admin_only,
+        deny(),
+        ComponentType::Bytes,
+    );
+    let dm = dm_of(alice, bob);
+    let operation = AppDataUpdateOperation::Update(b"new".to_vec().into());
+    let commit = |proposers: [InboxId; 2]| {
+        let proposers = proposers.map(|inbox| inbox.to_hex());
+        validate_app_data_update_sequence(
+            proposers.iter().map(|proposer| AppDataUpdateInCommit {
+                component_id: PROFILE,
+                operation: &operation,
+                actor: member(),
+                proposer_inbox_id: proposer,
+            }),
+            |_| Some(b"old".as_slice()),
+            &registry,
+            Some(&dm),
+            None,
+        )
+    };
+    commit([alice, bob])?;
+    assert!(matches!(
+        commit([alice, carol]),
+        Err(CommitRuleError::InsufficientPermissions)
+    ));
 }

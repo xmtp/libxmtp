@@ -21,7 +21,10 @@ use thiserror::Error;
 use xmtp_common::RetryableError;
 use xmtp_cryptography::secret::Zeroizing;
 use xmtp_mls_group_state::{
-    app_data::{component_id::ComponentId, component_source::ComponentSourceError},
+    app_data::{
+        component_id::ComponentId, component_source::ComponentSourceError,
+        validation::ComponentWriteValidator,
+    },
     group_metadata::{DmMembers, GroupMetadata, GroupMetadataError},
     group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError, MetadataField},
     libxmtp_version::{InvalidVersionFormat, LibXMTPVersion},
@@ -814,15 +817,18 @@ pub(crate) fn validate_standalone_app_data_update(
 ) -> Result<(), CommitRuleError> {
     use openmls::messages::proposals::AppDataUpdateOperation;
     use xmtp_mls_group_state::app_data::component_source::{
-        ComponentSourceError, apply_app_data_update_payload,
+        ComponentSourceError, apply_app_data_update_payload_with_validator,
     };
 
-    validate_one_app_data_update_with_old_value(
+    // The policy check and the apply share one validator, so the registry
+    // entry is decoded once.
+    let mut validator = ComponentWriteValidator::new(registry);
+    validate_one_app_data_update_with_validator(
         component_id,
         operation,
         actor,
         proposer_inbox_id,
-        registry,
+        &mut validator,
         old_value,
         dm_members,
         membership,
@@ -831,7 +837,12 @@ pub(crate) fn validate_standalone_app_data_update(
         return Ok(());
     };
     // Only the error matters; the computed state is wiped on drop.
-    match apply_app_data_update_payload(component_id, payload.as_slice(), old_value, registry) {
+    match apply_app_data_update_payload_with_validator(
+        component_id,
+        payload.as_slice(),
+        old_value,
+        &mut validator,
+    ) {
         Err(ComponentSourceError::FieldBoundExceeded { .. }) => {
             Err(CommitRuleError::InsufficientPermissions)
         }
@@ -978,19 +989,10 @@ fn permits_dm_participant_insert(
             || inbox_id == dm.member_two_inbox_id.as_ref())
 }
 
-/// Pure core of [`validate_one_app_data_update`] with `old_value`
-/// passed explicitly so unit tests can exercise the
-/// expand → per-change policy loop without a real MLS group.
-///
-/// `membership` is the set of inbox ids the self-owned non-member test reads:
-/// the post-commit membership inside a commit, the committed one for a
-/// standalone proposal.
-///
-/// A set or map delta with no mutations is judged as one change of the
-/// whole component with no key: an insert when `old_value` is `None`, an
-/// update otherwise. A proposal that writes `DM_MEMBERS` is always
-/// rejected, because the pair is written only at creation.
-// implements: PERM-011, PERM-014, PERM-026, PERM-027, PERM-028, META-004, META-030
+/// [`validate_one_app_data_update_with_validator`] with a validator of its
+/// own, so unit tests can exercise the expand → per-change policy loop
+/// without a real MLS group.
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn validate_one_app_data_update_with_old_value(
     component_id: xmtp_mls_group_state::app_data::component_id::ComponentId,
@@ -1002,12 +1004,48 @@ pub(crate) fn validate_one_app_data_update_with_old_value(
     dm_members: Option<&DmMembers<String>>,
     membership: Option<&std::collections::HashSet<xmtp_mls_group_state::inbox_id::InboxId>>,
 ) -> Result<(), CommitRuleError> {
+    validate_one_app_data_update_with_validator(
+        component_id,
+        operation,
+        actor,
+        proposer_inbox_id,
+        &mut ComponentWriteValidator::new(registry),
+        old_value,
+        dm_members,
+        membership,
+    )
+}
+
+/// Pure core of [`validate_one_app_data_update`] with `old_value`
+/// passed explicitly. `validator` judges against the committed registry;
+/// a caller that reuses it across proposals decodes each registry entry
+/// once and answers each policy question once.
+///
+/// `membership` is the set of inbox ids the self-owned non-member test reads:
+/// the post-commit membership inside a commit, the committed one for a
+/// standalone proposal.
+///
+/// A set or map delta with no mutations is judged as one change of the
+/// whole component with no key: an insert when `old_value` is `None`, an
+/// update otherwise. A proposal that writes `DM_MEMBERS` is always
+/// rejected, because the pair is written only at creation.
+// implements: PERM-011, PERM-014, PERM-026, PERM-027, PERM-028, META-004, META-030
+#[allow(clippy::too_many_arguments)]
+fn validate_one_app_data_update_with_validator(
+    component_id: xmtp_mls_group_state::app_data::component_id::ComponentId,
+    operation: &openmls::messages::proposals::AppDataUpdateOperation,
+    actor: xmtp_mls_group_state::app_data::validation::ActorAuthority,
+    proposer_inbox_id: &str,
+    validator: &mut ComponentWriteValidator<'_>,
+    old_value: Option<&[u8]>,
+    dm_members: Option<&DmMembers<String>>,
+    membership: Option<&std::collections::HashSet<xmtp_mls_group_state::inbox_id::InboxId>>,
+) -> Result<(), CommitRuleError> {
     use xmtp_mls_group_state::app_data::{
-        component_id::ComponentId,
-        component_registry::ComponentOp,
-        registry_table::lookup_component,
-        typed::ExpandedComponentChange,
-        validation::{ComponentChange, validate_component_write},
+        component_id::ComponentId, component_registry::ComponentOp,
+        component_source::expand_app_data_update_to_changes_with_validator,
+        registry_table::lookup_component, typed::ExpandedComponentChange,
+        validation::ComponentChange,
     };
 
     // A DM's pair is written in its creation group context, never by a
@@ -1071,11 +1109,11 @@ pub(crate) fn validate_one_app_data_update_with_old_value(
                 CommitRuleError::InsufficientPermissions
             })?
     } else {
-        match xmtp_mls_group_state::app_data::component_source::expand_app_data_update_to_changes(
+        match expand_app_data_update_to_changes_with_validator(
             component_id,
             operation,
             old_value,
-            registry,
+            validator,
         ) {
             Ok(changes) => changes,
             Err(err) => {
@@ -1137,7 +1175,7 @@ pub(crate) fn validate_one_app_data_update_with_old_value(
         // Layer 1: registry-based policy. Applies to both known and
         // unknown components — every component requires a registry
         // entry (deny by default).
-        if let Err(e) = validate_component_write(&cc, registry) {
+        if let Err(e) = validator.validate(&cc) {
             tracing::warn!(
                 proposer_inbox_id,
                 component_id = %component_id,
@@ -1193,7 +1231,7 @@ pub(crate) fn validate_one_app_data_update_with_old_value(
                 openmls::messages::proposals::AppDataUpdateOperation::Remove => None,
             })
             .build();
-        if let Err(e) = component.validate_invariant(&invariant_change, registry) {
+        if let Err(e) = component.validate_invariant(&invariant_change, validator.registry()) {
             tracing::warn!(
                 proposer_inbox_id,
                 component_id = %component_id,
@@ -1244,7 +1282,9 @@ pub type AppDataPostStates =
 /// preceding proposals, starting from `committed`, so neither a transition
 /// invariant nor an immutable first write can be split across proposals.
 /// `committed` borrows each component's committed bytes, so the sequence
-/// copies no value it does not compute.
+/// copies no value it does not compute. One [`ComponentWriteValidator`]
+/// serves the whole sequence, so each registry entry is decoded once and
+/// each policy question is answered once.
 pub fn validate_app_data_update_sequence<'a, 'c>(
     updates: impl IntoIterator<Item = AppDataUpdateInCommit<'a>>,
     committed: impl Fn(xmtp_mls_group_state::app_data::component_id::ComponentId) -> Option<&'c [u8]>,
@@ -1253,31 +1293,32 @@ pub fn validate_app_data_update_sequence<'a, 'c>(
     membership: Option<&HashSet<xmtp_mls_group_state::inbox_id::InboxId>>,
 ) -> Result<AppDataPostStates, CommitRuleError> {
     use openmls::messages::proposals::AppDataUpdateOperation;
-    use xmtp_mls_group_state::app_data::component_source::apply_app_data_update_payload;
+    use xmtp_mls_group_state::app_data::component_source::apply_app_data_update_payload_with_validator;
 
+    let mut validator = ComponentWriteValidator::new(registry);
     let mut post_states = AppDataPostStates::new();
     for update in updates {
         let old_value = match post_states.get(&update.component_id) {
             Some(state) => state.as_deref().map(Vec::as_slice),
             None => committed(update.component_id),
         };
-        validate_one_app_data_update_with_old_value(
+        validate_one_app_data_update_with_validator(
             update.component_id,
             update.operation,
             update.actor,
             update.proposer_inbox_id,
-            registry,
+            &mut validator,
             old_value,
             dm_members,
             membership,
         )?;
         let post_value = match update.operation {
             AppDataUpdateOperation::Update(payload) => Some(
-                apply_app_data_update_payload(
+                apply_app_data_update_payload_with_validator(
                     update.component_id,
                     payload.as_slice(),
                     old_value,
-                    registry,
+                    &mut validator,
                 )
                 .map_err(|_| CommitRuleError::InsufficientPermissions)?,
             ),
@@ -1786,7 +1827,7 @@ mod permission_on_receive_tests {
     //! Pins the receive-side permission check on `AppDataUpdate`
     //! proposals. Every proposal that reaches
     //! [`validate_one_app_data_update_with_old_value`] runs through
-    //! `validate_component_write` (registry policy + hardcoded
+    //! `ComponentWriteValidator::validate` (registry policy + hardcoded
     //! super-admin gating). Without this guarantee an attacker who
     //! patched out the send-side permission check could still poison
     //! the dictionary as long as their proposal landed in a commit.

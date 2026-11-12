@@ -10,6 +10,10 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Counters of registry decodes and policy evaluations, for cost tests.
+test-utils = []
+
 [dependencies]
 bon.workspace = true
 hex.workspace = true

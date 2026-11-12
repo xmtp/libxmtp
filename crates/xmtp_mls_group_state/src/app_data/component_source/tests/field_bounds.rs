@@ -158,7 +158,11 @@ fn registry_entries_hold_at_most_the_element_limit() {
             .map(drop)
     };
     let check = |payload: &[u8]| {
-        check_update_payload_bounds(ComponentId::COMPONENT_REGISTRY, payload, &registry)
+        check_update_payload_bounds(
+            ComponentId::COMPONENT_REGISTRY,
+            payload,
+            &mut ComponentWriteValidator::new(&registry),
+        )
     };
     let exceeded = |result| {
         matches!(

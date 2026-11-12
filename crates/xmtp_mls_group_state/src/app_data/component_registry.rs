@@ -13,7 +13,7 @@ use super::component_id::ComponentId;
 /// Each variant maps to one of the policy fields in
 /// [`ComponentPermissions`](xmtp_proto::xmtp::mls::message_contents::ComponentPermissions):
 /// `Insert` → `insert_policy`, `Update` → `update_policy`, `Delete` → `delete_policy`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ComponentOp {
     /// Creating a new value (component does not yet exist).
     Insert,
@@ -346,6 +346,8 @@ impl ComponentRegistry {
         if id.is_hardcoded() {
             return Err(ComponentRegistryError::HardcodedComponent(id));
         }
+        #[cfg(any(test, feature = "test-utils"))]
+        super::validation::record_work(|work| work.registry_decodes += 1);
         let meta = ComponentMetadata::decode(raw).map_err(|source| {
             ComponentRegistryError::DecodeError {
                 component_id: id,
