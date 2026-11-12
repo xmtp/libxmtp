@@ -795,9 +795,11 @@ fn decoded_get(
 /// A sender's loop: each proposal is kept when it applies after the ones
 /// kept before it and the sender does not drop it, and rolled back
 /// otherwise. Every other proposal the sender would keep applies without a
-/// checkpoint, so a failed update must leave the set as it was. With
-/// `outer`, the loop runs inside one more checkpoint, whose rollback must
-/// restore the committed state.
+/// checkpoint, so a failed update must leave the set as it was. Every
+/// fourth proposal also applies under a second, inner checkpoint that is
+/// released, as a receive check's checkpoint nests in a commit builder's.
+/// With `outer`, the loop runs inside one more checkpoint, whose rollback
+/// must restore the committed state.
 fn check_keep(
     registry: &ComponentRegistry,
     base: &BTreeMap<ComponentId, Vec<u8>>,
@@ -814,7 +816,11 @@ fn check_keep(
         let want =
             reference::apply_one(registry, base, &mut trial, *id, operation).map_err(|e| class(&e));
         let checkpoint = (*dropped || index % 2 == 0).then(|| set.checkpoint());
+        let inner = (index % 4 == 0).then(|| set.checkpoint());
         let got = set.apply(*id, operation).map_err(|e| class(&e));
+        if let Some(inner) = inner {
+            set.release(inner);
+        }
         prop_assert_eq!(&got, &want, "proposal {} to {}", index, id);
         let keep = want.is_ok() && !dropped;
         if keep {

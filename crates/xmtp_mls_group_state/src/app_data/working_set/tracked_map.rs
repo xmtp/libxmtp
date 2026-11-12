@@ -133,8 +133,11 @@ pub(super) struct TrackedMap<'a> {
     /// The values that are not UTF-8, in a map whose values must be.
     non_utf8: usize,
     /// The present keys by the hash a `RemoveByHash` names: built on the
-    /// first one, then kept current.
-    hashes: Option<HashMap<TlsKeyHash, KeyRef>>,
+    /// first one, then kept current. Boxed: an absent inline map would
+    /// leave 40 bytes unwritten, and moving a decoded map to the heap would
+    /// fill them with dead stack bytes, which can hold a secret.
+    #[allow(clippy::box_collection)]
+    hashes: Option<Box<HashMap<TlsKeyHash, KeyRef>>>,
 }
 
 impl<'a> TrackedMap<'a> {
@@ -334,7 +337,7 @@ impl<'a> TrackedMap<'a> {
                 return Err(TlsSetError::DuplicateHash);
             }
         }
-        self.hashes = Some(index);
+        self.hashes = Some(Box::new(index));
         Ok(())
     }
 
