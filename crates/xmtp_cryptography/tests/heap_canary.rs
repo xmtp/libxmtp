@@ -161,3 +161,13 @@ fn freed_copy_of_dead_stack_is_a_hit() {
     let ((), hits) = scan(&[canary], || drop(black_box(copy_dead_stack())));
     assert_eq!(hits, [1]);
 }
+
+/// The same holds for an async scan, which the async canary tests use: it
+/// does not wipe the stack it starts with either.
+#[tokio::test]
+async fn freed_copy_of_dead_stack_is_a_hit_in_an_async_scan() {
+    let canary = Canary::new(&KEY);
+    leave_key_in_dead_stack();
+    let ((), hits) = scan_async(&[canary], async { drop(black_box(copy_dead_stack())) }).await;
+    assert_eq!(hits, [1]);
+}
