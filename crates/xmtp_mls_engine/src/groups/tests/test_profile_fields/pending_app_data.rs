@@ -812,30 +812,43 @@ async fn test_staging_batch_decodes_once() -> Result<(), Box<dyn std::error::Err
 }
 
 /// A commit builder judges the group's pending proposals with one batch:
-/// 300 pending one-mutation Updates to a 2,000-entry application map cost a
-/// few snapshot decodes and encodes per builder pass, not one per proposal.
+/// 300 pending proposals to a 2,000-entry application map, every other one
+/// an 8,000-byte insert that the builder's dictionary bound refuses, cost a
+/// few snapshot decodes and encodes per builder pass, not one per proposal
+/// or per refusal.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_keep_decodes_once() -> Result<(), Box<dyn std::error::Error>> {
     use crate::groups::app_data::Committable;
     use xmtp_mls_group_state::app_data::working_set::counters::{count_snapshot_decodes, encodes};
+    use xmtp_mls_validation::commit::dictionary_total;
 
     const ENTRIES: u16 = 2_000;
     const PENDING: u16 = 300;
     /// Decodes, and encodes, of the registry, the membership and the map
-    /// that one builder pass takes, whatever the pending proposals.
+    /// that one builder pass over pending proposals to one map takes,
+    /// however many it judges or refuses.
     const WORK: usize = 16;
     let id = ComponentId::new(0xC1A6);
     let alix = peer_with_application_map(id).await;
     let group = alix.create_group(None, None)?;
     fill_map(&group, id, ENTRIES).await?;
-    // Alix's own pending proposals, stored without a commit.
+    // Alix's own pending proposals, stored without a commit: one-mutation
+    // Updates, each followed by an insert of a new 8,000-byte value.
+    let operations: Vec<_> = (0..PENDING)
+        .map(|n| {
+            map_update(if n % 2 == 0 {
+                TlsMapDelta::new().update(nth_key(n), bytes(n.to_le_bytes()))
+            } else {
+                TlsMapDelta::new().insert(nth_key(ENTRIES + n), bytes(vec![b'x'; 8_000]))
+            })
+        })
+        .collect();
     let signer = &alix.context.identity().installation_keys;
     state_write(alix.context.mls_storage(), |tx| {
         tx.with_group(group.group_id, |mls, storage| {
             let provider = xmtp_db::XmtpOpenMlsProviderRef::new(storage);
-            for n in 0..PENDING {
-                let update = TlsMapDelta::new().update(nth_key(n), bytes(n.to_le_bytes()));
-                mls.propose_app_data_update(&provider, signer, id.as_u16(), map_update(update))
+            for operation in &operations {
+                mls.propose_app_data_update(&provider, signer, id.as_u16(), operation.clone())
                     .map_err(GroupError::Proposal)?;
             }
             Ok::<_, GroupError>(Continue(()))
@@ -843,12 +856,27 @@ async fn test_keep_decodes_once() -> Result<(), Box<dyn std::error::Error>> {
     })?;
 
     let (kept, decodes, encoded) = group.with_group_snapshot(|mls| {
+        let committed = dictionary_total(
+            mls.extensions()
+                .app_data_dictionary()
+                .map(|extension| extension.dictionary()),
+        );
         let before = encodes();
+        // Room for the Updates, not for any of the inserts.
         let (committable, decodes) =
-            count_snapshot_decodes(|| Committable::pending(mls, usize::MAX, usize::MAX));
-        Ok((committable?.proposals.len(), decodes, encodes() - before))
+            count_snapshot_decodes(|| Committable::pending(mls, usize::MAX, committed + 1_000));
+        let kept: Vec<_> = committable?
+            .proposals
+            .iter()
+            .filter_map(|queued| match queued.proposal() {
+                Proposal::AppDataUpdate(proposal) => Some(proposal.operation().clone()),
+                _ => None,
+            })
+            .collect();
+        Ok((kept, decodes, encodes() - before))
     })?;
-    assert_eq!(kept, usize::from(PENDING));
+    let updates: Vec<_> = operations.into_iter().step_by(2).collect();
+    assert_eq!(kept, updates);
     assert!(
         decodes <= WORK && encoded <= WORK,
         "{decodes} snapshot decodes, {encoded} encodes"
@@ -908,7 +936,8 @@ async fn test_keep_rolls_back_failed_proposal() -> Result<(), Box<dyn std::error
     }
     group.sync().await?;
 
-    let (kept, map) = group.with_group_snapshot(|mls| {
+    let (pending, kept, map) = group.with_group_snapshot(|mls| {
+        let pending = mls.pending_proposals().count();
         let committed = dictionary_total(
             mls.extensions()
                 .app_data_dictionary()
@@ -928,8 +957,10 @@ async fn test_keep_rolls_back_failed_proposal() -> Result<(), Box<dyn std::error
             .states
             .get(&id)
             .and_then(|state| state.as_deref().map(|bytes| bytes.to_vec()));
-        Ok((kept, map))
+        Ok((pending, kept, map))
     })?;
+    // Receipt stored every proposal, so the builder judged each one.
+    assert_eq!(pending, operations.len());
     let [first, _, third, _, fifth] = operations;
     assert_eq!(kept, [first, third, fifth]);
     let expected = TlsMap::from_pairs(["k0", "k1", "a", "big"].map(|key| (bytes(key), bytes("v"))));
@@ -951,8 +982,9 @@ async fn test_mutation_flood_commit_is_processed_once() -> Result<(), Box<dyn st
     const ENTRIES: u16 = 2_000;
     const PROPOSALS: u16 = 1_000;
     const FLOOD: u16 = 4_096;
-    /// Snapshot decodes processing one commit takes, whatever it carries:
-    /// the registry, the membership and the touched map, each a few times.
+    /// Snapshot decodes processing a commit to one application map takes,
+    /// however many proposals it carries: the registry, the membership and
+    /// the map, each a few times.
     const DECODES: usize = 64;
     let id = ComponentId::new(0xC1A4);
     let alix = peer_with_application_map(id).await;
