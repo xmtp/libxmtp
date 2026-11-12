@@ -957,4 +957,70 @@ mod tests {
             "expected MalformedComponentValue for COMPONENT_REGISTRY, got: {err:?}"
         );
     }
+
+    /// The dictionary total a batch keeps as proposals apply, which a commit
+    /// builder's bound reads, equals the total of the dictionary its states
+    /// leave: after a removal, a value that shrinks then grows, membership
+    /// writes, which do not count, and a rolled-back proposal.
+    // verifies: META-078
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn batch_total_matches_the_dictionary_it_leaves() {
+        use crate::groups::test_support::{EnginePeer as _, EngineTestPeer};
+        use crate::prelude::*;
+        use tls_codec::Serialize as _;
+        use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
+        use xmtp_mls_validation::commit::dictionary_total;
+
+        let alix = EngineTestPeer::new().await;
+        let conversation = alix.create_group(None, None)?;
+        conversation
+            .update_group_description("a description".to_string())
+            .await?;
+        conversation.update_group_name("a name".to_string()).await?;
+        let group = OpenMlsGroup::load(
+            alix.context.mls_storage(),
+            &conversation.group_id.to_openmls(),
+        )??;
+        let registry = load_component_registry(&group)?;
+        let update = |value: &[u8]| AppDataUpdateOperation::Update(value.to_vec().into());
+        let join = |n: u8| {
+            let delta = TlsMapDelta::<InboxId, tls_codec::VLBytes>::new()
+                .insert(InboxId::from_bytes([n; 32]), vec![n; 64].into());
+            AppDataUpdateOperation::Update(delta.tls_serialize_detached().unwrap().into())
+        };
+        let (name, description, membership) = (
+            ComponentId::GROUP_NAME.as_u16(),
+            ComponentId::GROUP_DESCRIPTION.as_u16(),
+            ComponentId::GROUP_MEMBERSHIP.as_u16(),
+        );
+
+        let mut batch = AppDataBatch::new(&group, &registry);
+        batch.apply(description, &AppDataUpdateOperation::Remove)?;
+        batch.apply(name, &update(b"n"))?;
+        batch.apply(name, &update(b"a longer name than before"))?;
+        let checkpoint = batch.checkpoint();
+        batch.apply(name, &update(&[b'x'; 200]))?;
+        batch.apply(description, &update(b"back"))?;
+        batch.apply(membership, &join(1))?;
+        batch.rollback(checkpoint);
+        batch.apply(membership, &join(2))?;
+        let total = batch.total;
+
+        let mut dictionary = group
+            .extensions()
+            .app_data_dictionary()?
+            .dictionary()
+            .clone();
+        for (id, state) in batch.into_states()? {
+            match state {
+                Some(bytes) => {
+                    dictionary.insert(id.as_u16(), bytes.to_vec());
+                }
+                None => {
+                    dictionary.remove(&id.as_u16());
+                }
+            }
+        }
+        assert_eq!(total, dictionary_total(Some(&dictionary)));
+    }
 }

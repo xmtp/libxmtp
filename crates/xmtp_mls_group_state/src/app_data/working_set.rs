@@ -994,6 +994,7 @@ pub mod counters {
     thread_local! {
         static HASHES: Cell<usize> = const { Cell::new(0) };
         static DECODES: Cell<usize> = const { Cell::new(0) };
+        static ENCODES: Cell<usize> = const { Cell::new(0) };
     }
 
     #[cfg(test)]
@@ -1034,6 +1035,10 @@ pub mod counters {
         DECODES.with(|count| count.set(count.get() + 1));
     }
 
+    pub(super) fn count_encode() {
+        ENCODES.with(|count| count.set(count.get() + 1));
+    }
+
     /// SHA-256 key hashes so far on this thread.
     pub fn hashes() -> usize {
         HASHES.with(Cell::get)
@@ -1042,6 +1047,11 @@ pub mod counters {
     /// Committed collection decodes so far on this thread.
     pub fn decodes() -> usize {
         DECODES.with(Cell::get)
+    }
+
+    /// Changed collections a working set encoded so far on this thread.
+    pub fn encodes() -> usize {
+        ENCODES.with(Cell::get)
     }
 
     /// Collection snapshots decoded so far on this thread: by a working set,

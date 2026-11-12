@@ -811,6 +811,51 @@ async fn test_staging_batch_decodes_once() -> Result<(), Box<dyn std::error::Err
     Ok(())
 }
 
+/// A commit builder judges the group's pending proposals with one batch:
+/// 300 pending one-mutation Updates to a 2,000-entry application map cost a
+/// few snapshot decodes and encodes per builder pass, not one per proposal.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_keep_decodes_once() -> Result<(), Box<dyn std::error::Error>> {
+    use crate::groups::app_data::Committable;
+    use xmtp_mls_group_state::app_data::working_set::counters::{count_snapshot_decodes, encodes};
+
+    const ENTRIES: u16 = 2_000;
+    const PENDING: u16 = 300;
+    /// Decodes, and encodes, of the registry, the membership and the map
+    /// that one builder pass takes, whatever the pending proposals.
+    const WORK: usize = 16;
+    let id = ComponentId::new(0xC1A6);
+    let alix = peer_with_application_map(id).await;
+    let group = alix.create_group(None, None)?;
+    fill_map(&group, id, ENTRIES).await?;
+    // Alix's own pending proposals, stored without a commit.
+    let signer = &alix.context.identity().installation_keys;
+    state_write(alix.context.mls_storage(), |tx| {
+        tx.with_group(group.group_id, |mls, storage| {
+            let provider = xmtp_db::XmtpOpenMlsProviderRef::new(storage);
+            for n in 0..PENDING {
+                let update = TlsMapDelta::new().update(nth_key(n), bytes(n.to_le_bytes()));
+                mls.propose_app_data_update(&provider, signer, id.as_u16(), map_update(update))
+                    .map_err(GroupError::Proposal)?;
+            }
+            Ok::<_, GroupError>(Continue(()))
+        })
+    })?;
+
+    let (kept, decodes, encoded) = group.with_group_snapshot(|mls| {
+        let before = encodes();
+        let (committable, decodes) =
+            count_snapshot_decodes(|| Committable::pending(mls, usize::MAX, usize::MAX));
+        Ok((committable?.proposals.len(), decodes, encodes() - before))
+    })?;
+    assert_eq!(kept, usize::from(PENDING));
+    assert!(
+        decodes <= WORK && encoded <= WORK,
+        "{decodes} snapshot decodes, {encoded} encodes"
+    );
+    Ok(())
+}
+
 /// A commit builder keeps each pending proposal that receivers accept after
 /// the ones kept before it, and the ones it refuses leave no trace. A
 /// proposal that fails at its third mutation of five changes nothing, as no

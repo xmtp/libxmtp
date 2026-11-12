@@ -349,6 +349,8 @@ impl<'a> TrackedMap<'a> {
     /// The snapshot, encoded as `TlsMap::tls_serialize` encodes it.
     // implements: META-012
     pub(super) fn encode(&self) -> Result<Vec<u8>, tls_codec::Error> {
+        #[cfg(any(test, feature = "test-utils"))]
+        super::counters::count_encode();
         let mut out = Vec::with_capacity(self.snapshot_len());
         tls_codec::vlen::write_length(&mut out, self.body_len)?;
         for (_, key, value) in self.iter() {
