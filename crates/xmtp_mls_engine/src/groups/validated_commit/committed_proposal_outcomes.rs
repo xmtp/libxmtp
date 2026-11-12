@@ -588,3 +588,98 @@ async fn repeated_proposal_membership_comes_from_the_queue() {
     );
     assert!(result.is_ok(), "{result:?}");
 }
+
+/// Each proposal's changes name its own proposer, though each proposer's
+/// leaf is resolved once. Alix commits Bo's stored membership delete of her
+/// entry with her own inline delete of his: each is named the proposer of
+/// the delete it made, which the remover's permission check reads.
+// verifies: PERM-030
+#[xmtp_common::test(unwrap_try = true)]
+async fn proposal_changes_name_each_proposer() {
+    use crate::groups::test_support::EngineTestPeerOps as _;
+    use openmls::framing::{MlsMessageIn, ProcessedMessageContent};
+    use tls_codec::{Serialize as _, VLBytes};
+    use xmtp_mls_group_state::inbox_id::InboxId;
+    use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
+
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let conversation = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_conversation = bo.wait_for_welcomes().await?.remove(0);
+    let membership = ComponentId::GROUP_MEMBERSHIP.as_u16();
+    let (alix_inbox, bo_inbox) = (
+        InboxId::from_hex(alix.inbox_id())?,
+        InboxId::from_hex(bo.inbox_id())?,
+    );
+    let delete = |inbox: InboxId| {
+        TlsMapDelta::<InboxId, VLBytes>::new()
+            .delete(inbox)
+            .tls_serialize_detached()
+            .unwrap()
+    };
+
+    // Bo proposes deleting Alix's entry, and Alix stores the proposal.
+    let mut bo_group = OpenMlsGroup::load(
+        bo.context.mls_storage(),
+        &bo_conversation.group_id.to_openmls(),
+    )??;
+    let (message, _) = bo_group.propose_app_data_update(
+        &bo.context.mls_provider(),
+        &bo.context.identity().installation_keys,
+        membership,
+        AppDataUpdateOperation::Update(delete(alix_inbox).into()),
+    )?;
+    let provider = alix.context.mls_provider();
+    let signer = &alix.context.identity().installation_keys;
+    let mut group = OpenMlsGroup::load(
+        alix.context.mls_storage(),
+        &conversation.group_id.to_openmls(),
+    )??;
+    let message = MlsMessageIn::from(message).try_into_protocol_message()?;
+    let ProcessedMessageContent::ProposalMessage(proposal) =
+        group.process_message(&provider, message)?.into_content()
+    else {
+        panic!("Bo's message is not a proposal");
+    };
+    group.store_pending_proposal(provider.storage(), *proposal)?;
+
+    // Alix commits it with her own inline delete of Bo's entry.
+    let inline = AppDataUpdateProposal::update(membership, delete(bo_inbox));
+    let operations: Vec<_> = group
+        .pending_proposals()
+        .filter_map(|queued| match queued.proposal() {
+            Proposal::AppDataUpdate(p) => Some((p.component_id(), p.operation().clone())),
+            _ => None,
+        })
+        .chain([(inline.component_id(), inline.operation().clone())])
+        .collect();
+    let dictionary =
+        accumulate_app_data_updates(&group, operations.iter().map(|(id, op)| (*id, op)))?;
+    let mut stage = crate::groups::mls_ext::commit_without_group_info(
+        &mut group,
+        provider.storage(),
+        |builder| {
+            builder
+                .consume_proposal_store(true)
+                .add_proposal(Proposal::AppDataUpdate(Box::new(inline)))
+        },
+    )?;
+    stage.with_app_data_dictionary_updates(dictionary);
+    stage
+        .build(provider.rand(), provider.crypto(), signer, |_| true)?
+        .stage_commit(&provider)?;
+    let staged = group.pending_commit()?;
+    assert_eq!(staged.queued_proposals().count(), 2);
+
+    let (immutable, mutable) = read_committed_metadata(&group)?;
+    let changes = get_proposal_changes(staged, &group, &immutable, &mutable)?;
+    let proposer = |removed: InboxId| {
+        changes.removed_inbox_proposers[&removed.to_string()]
+            .inbox_id
+            .clone()
+    };
+    assert_eq!(proposer(alix_inbox), bo.inbox_id());
+    assert_eq!(proposer(bo_inbox), alix.inbox_id());
+}
