@@ -107,7 +107,7 @@ hmac = "0.12.1"
 metrics = "0.24.6"
 metrics-exporter-prometheus = "0.18.3"
 metrics-util = "0.20.4"
-rustix = { version = "1.1.4", features = ["fs"] }
+rustix = { version = "1.1.6", features = ["fs"] }
 ubrn_bindgen = { git = "https://github.com/neekolas/uniffi-bindgen-react-native.git", rev = "c4ae748b187807e6da4f9c841ad83838be7f12f2", features = [
   "wasm",
 ] }
@@ -222,7 +222,7 @@ syn = { version = "2.0", features = [
 tempfile = "3.27.0"
 thiserror = "2.0"
 tls_codec = "0.5"
-tokio = { version = "1.53.1", default-features = false, features = [
+tokio = { version = "1.53.3", default-features = false, features = [
   "macros",
   "rt",
   "time",
