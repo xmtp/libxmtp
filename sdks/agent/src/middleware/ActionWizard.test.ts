@@ -126,6 +126,104 @@ describe("ActionWizard", () => {
         );
       });
     });
+
+    it("ignores an intent whose action is not offered by the current step", async () => {
+      const completeHandler = vi.fn();
+      const nextHandler = vi.fn();
+      const wizard = new ActionWizard("setup");
+      wizard
+        .select("color", {
+          description: "Pick a color",
+          actions: [
+            { id: "red", label: "Red" },
+            { id: "blue", label: "Blue" },
+          ],
+        })
+        .onComplete(completeHandler);
+
+      agent.use(wizard.middleware(), async (ctx, next) => {
+        if (ctx.message.content.kind === "intent") nextHandler();
+        await next();
+      });
+      await agent.start();
+
+      const otherClient = await createClient();
+      const dm = await otherClient.conversations.createDm(client.inboxId);
+      await dm.sendText("/setup");
+
+      await waitForNetwork(async () => {
+        await dm.sync();
+        const messages = await dm.messages();
+        expect(messages.some((m) => isActions(m))).toBe(true);
+      });
+
+      await dm.sendIntent({ id: "setup:color", actionId: "green" });
+
+      // Reaching the next middleware proves the wizard already rejected it.
+      await waitForNetwork(() => {
+        expect(nextHandler).toHaveBeenCalledTimes(1);
+      });
+      expect(completeHandler).not.toHaveBeenCalled();
+      expect(wizard.isActive(dm.id, otherClient.inboxId)).toBe(true);
+
+      await dm.sendIntent({ id: "setup:color", actionId: "blue" });
+
+      await waitForNetwork(() => {
+        expect(completeHandler).toHaveBeenCalledWith(
+          { color: "blue" },
+          expect.anything(),
+        );
+      });
+    });
+
+    it("ignores an intent that answers a different prompt", async () => {
+      const completeHandler = vi.fn();
+      const nextHandler = vi.fn();
+      const wizard = new ActionWizard("setup");
+      wizard
+        .select("color", {
+          description: "Pick a color",
+          actions: [
+            { id: "red", label: "Red" },
+            { id: "blue", label: "Blue" },
+          ],
+        })
+        .onComplete(completeHandler);
+
+      agent.use(wizard.middleware(), async (ctx, next) => {
+        if (ctx.message.content.kind === "intent") nextHandler();
+        await next();
+      });
+      await agent.start();
+
+      const otherClient = await createClient();
+      const dm = await otherClient.conversations.createDm(client.inboxId);
+      await dm.sendText("/setup");
+
+      await waitForNetwork(async () => {
+        await dm.sync();
+        const messages = await dm.messages();
+        expect(messages.some((m) => isActions(m))).toBe(true);
+      });
+
+      await dm.sendIntent({ id: "other:prompt", actionId: "blue" });
+
+      // Reaching the next middleware proves the wizard already rejected it.
+      await waitForNetwork(() => {
+        expect(nextHandler).toHaveBeenCalledTimes(1);
+      });
+      expect(completeHandler).not.toHaveBeenCalled();
+      expect(wizard.isActive(dm.id, otherClient.inboxId)).toBe(true);
+
+      await dm.sendIntent({ id: "setup:color", actionId: "blue" });
+
+      await waitForNetwork(() => {
+        expect(completeHandler).toHaveBeenCalledWith(
+          { color: "blue" },
+          expect.anything(),
+        );
+      });
+    });
   });
 
   describe("text step", () => {
