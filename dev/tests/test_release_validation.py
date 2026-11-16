@@ -277,7 +277,7 @@ class ReleaseValidation(unittest.TestCase):
         npm = binary / "npm"
         npm.write_text(
             f"#!{sys.executable}\n"
-            + """import json, os, sys
+            + """import base64, hashlib, json, os, sys
 from pathlib import Path
 args = sys.argv[1:]
 with Path(os.environ["CALLS"]).open("a") as log:
@@ -287,10 +287,15 @@ if args[0] == "view" and args[2] == "version":
 elif args[0] == "view":
     if os.environ.get("INTEGRITY"):
         print(json.dumps(os.environ["INTEGRITY"]))
+    elif Path(os.environ["CALLS"] + ".integrity").exists():
+        print(json.dumps(Path(os.environ["CALLS"] + ".integrity").read_text()))
     else:
         print(json.dumps({"error": {"code": "E404"}}))
         sys.exit(1)
-elif args[0] != "publish":
+elif args[0] == "publish":
+    assert "--dry-run=false" in args
+    Path(os.environ["CALLS"] + ".integrity").write_text("sha512-" + base64.b64encode(hashlib.sha512(Path(args[1]).read_bytes()).digest()).decode())
+else:
     sys.exit("unexpected npm command")
 """
         )
@@ -312,6 +317,7 @@ elif args[0] != "publish":
                 entry.size = len(payload)
                 output.addfile(entry, io.BytesIO(payload))
             calls.write_text("")
+            Path(str(calls) + ".integrity").unlink(missing_ok=True)
 
         def publish(sdk, error=None, extra=None):
             return self.command(

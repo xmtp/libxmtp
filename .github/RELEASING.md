@@ -63,15 +63,15 @@ and publishes it with the backend version as its tag (`release-xdbg` in
 `release-android.yml` uses the `release` environment for `OSSRH_USERNAME`,
 `OSSRH_TOKEN`, `OSSRH_GPG_SECRET_KEY`, and `OSSRH_GPG_SECRET_KEY_PASSWORD`.
 The username/token must be a Central Portal user token pair; old OSSRH account
-credentials do not work, and no `MAVEN_PROFILE_ID` is needed. GitHub Packages
-uses the publish job's `GITHUB_TOKEN`; the caller grants `packages: write`.
+credentials do not work, and no `MAVEN_PROFILE_ID` is needed. The retired
+GitHub Packages coordinate belongs to `xmtp/xmtp-android`; publication uses
+Maven Central only.
 
 Gradle prepares signed `org.xmtp:android` files with
 `:library:publishReleasePublicationToReleaseBundleRepository`. The workflow
 retains that repository; the `publisher` Gradle project uploads the same files
-without rebuilding or signing again. Both registries use Gradle's Maven
-publisher. The GitHub Packages job (`xmtp/libxmtp`) must succeed before Maven
-Central starts; the Nexus plugin closes and releases Central staging. The tag
+without rebuilding or signing again. Gradle's Maven publisher uploads to
+Central, and the Nexus plugin closes and releases Central staging. The tag
 job waits for Central. Bundle, tag, and APK artifacts are retained for 30 days.
 
 Use **Re-run failed jobs** to avoid repeating successful registry jobs.
@@ -90,3 +90,18 @@ The APK build needs no signing secret. Its Nix derivation uses the public AOSP
 testing key. The `messenger-build` job in `test-example-android.yml` builds that
 derivation first; it uses its own pinned Gradle downloads, not the restored
 Gradle User Home, and no backend.
+
+## Frozen RC5 recovery
+
+Run `release.yml` from the protected `release/8.0.0` workflow revision with
+`release-type=rc` and `recover-rc5=true`. This resumes only run `43899974572`:
+it verifies the original source, frozen `8.0.0-rc5` plan, and successful all-six
+SDK plus CLI gate before retaining the original npm, signed Maven, Android tag,
+and APK artifacts in the recovery run. It does not rebuild SDKs, sign new Maven
+bytes, or republish iOS and backend assets. Dry-run recovery is rejected.
+
+The npm publisher checks the retained hashes and public registry integrity.
+Publisher controls come from the protected workflow revision while SDK code and
+tags stay at the frozen source. Existing matching npm versions are accepted.
+Android compares the signed payloads with the checked product before publishing
+to Central. Retried tag transfers replace only their temporary bundle artifact.
