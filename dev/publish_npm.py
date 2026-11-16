@@ -11,6 +11,8 @@ import time
 from pathlib import Path
 
 NPM_REGISTRY = "https://registry.npmjs.org/"
+PUBLICATION_VISIBILITY_ATTEMPTS = 60
+PUBLICATION_VISIBILITY_DELAY_SECONDS = 30
 
 
 def check_package(tarball, version, sdk):
@@ -92,7 +94,7 @@ def publish(tarball, version, tag, sdk):
         check=True,
     )
     # A successful upload alone does not prove consumers can install it.
-    for attempt in range(12):
+    for attempt in range(PUBLICATION_VISIBILITY_ATTEMPTS):
         visible = subprocess.run(
             ["npm", "view", spec, "dist.integrity", "--json", *destination],
             capture_output=True,
@@ -103,8 +105,12 @@ def publish(tarball, version, tag, sdk):
                 raise ValueError("Published npm version has different bytes")
             print(f"Verified public publication: {spec}")
             return
-        if attempt != 11:
-            time.sleep(5)
+        if attempt + 1 < PUBLICATION_VISIBILITY_ATTEMPTS:
+            print(
+                f"Waiting for public npm visibility: {spec} (attempt {attempt + 1})",
+                flush=True,
+            )
+            time.sleep(PUBLICATION_VISIBILITY_DELAY_SECONDS)
     raise ValueError("Published npm package is not publicly visible: " + spec)
 
 
