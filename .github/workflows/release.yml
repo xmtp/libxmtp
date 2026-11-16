@@ -2,6 +2,10 @@ name: Release
 on:
   workflow_dispatch:
     inputs:
+      recover-rc5:
+        description: Resume frozen RC5 artifacts from run 43899974572 without rebuilding
+        type: boolean
+        default: false
       release-type:
         description: Release type
         required: true
@@ -71,7 +75,18 @@ on:
         required: false
         default: false
 jobs:
+  recover-rc5:
+    if: inputs.recover-rc5 == true
+    uses: ./.github/workflows/recover-rc5.yml
+    with:
+      dry-run: ${{ inputs.dry-run }}
+    secrets: inherit
+    permissions:
+      contents: write
+      actions: read
+      id-token: write
   validate:
+    if: inputs.recover-rc5 != true
     name: Freeze source and shared SDK version
     runs-on: ubuntu-latest
     permissions:
@@ -550,7 +565,7 @@ jobs:
     name: Notify Slack
     needs: [validate, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-react-native-sdk,
       release-cli, release-backend, release-xdbg, merge-pr, sdk-ready, sdk-complete]
-    if: always() && inputs.dry-run != true && needs.validate.outputs.dry-run != 'true'
+    if: always() && inputs.recover-rc5 != true && inputs.dry-run != true && needs.validate.outputs.dry-run != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Check out the Slack action

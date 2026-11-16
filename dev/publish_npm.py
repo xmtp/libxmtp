@@ -7,6 +7,7 @@ import json
 import subprocess
 import sys
 import tarfile
+import time
 from pathlib import Path
 
 NPM_REGISTRY = "https://registry.npmjs.org/"
@@ -34,7 +35,12 @@ def publish(tarball, version, tag, sdk):
     for key in ("registry", "@xmtp:registry"):
         if key in config and config[key] != NPM_REGISTRY:
             raise ValueError(f"publishConfig.{key} must be {NPM_REGISTRY}")
-    destination = ["--registry", NPM_REGISTRY, f"--@xmtp:registry={NPM_REGISTRY}"]
+    destination = [
+        "--registry",
+        NPM_REGISTRY,
+        f"--@xmtp:registry={NPM_REGISTRY}",
+        "--prefer-online",
+    ]
     if sdk in ("agent-sdk", "cli"):
         node = subprocess.run(
             [
@@ -77,6 +83,7 @@ def publish(tarball, version, tag, sdk):
             "publish",
             str(tarball),
             "--provenance",
+            "--dry-run=false",
             "--ignore-scripts",
             "--tag",
             tag,
@@ -84,6 +91,21 @@ def publish(tarball, version, tag, sdk):
         ],
         check=True,
     )
+    # A successful upload alone does not prove consumers can install it.
+    for attempt in range(12):
+        visible = subprocess.run(
+            ["npm", "view", spec, "dist.integrity", "--json", *destination],
+            capture_output=True,
+            text=True,
+        )
+        if visible.returncode == 0:
+            if json.loads(visible.stdout) != integrity:
+                raise ValueError("Published npm version has different bytes")
+            print(f"Verified public publication: {spec}")
+            return
+        if attempt != 11:
+            time.sleep(5)
+    raise ValueError("Published npm package is not publicly visible: " + spec)
 
 
 if __name__ == "__main__":

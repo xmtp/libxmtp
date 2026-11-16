@@ -22,6 +22,10 @@ on:
         type: boolean
         required: false
         default: false
+      reuse-signed:
+        description: Use the retained signed Maven bundle during frozen RC5 recovery
+        type: boolean
+        default: false
       publish-only:
         type: boolean
         required: false
@@ -75,6 +79,7 @@ jobs:
         run: |
           dev/nix-shell --shell js-node --command python3.11 dev/sdk_version.py verify target/release/android --plan "$RUNNER_TEMP/sdk-release-plan/release-plan.json"
       - name: Prepare signed Maven bundle
+        if: inputs.reuse-signed != true
         env:
           SIGN_KEY: ${{ secrets.OSSRH_GPG_SECRET_KEY }}
           SIGN_PASSWORD: ${{ secrets.OSSRH_GPG_SECRET_KEY_PASSWORD }}
@@ -88,61 +93,42 @@ jobs:
           done
           prepared="$PWD/target/release/android/repository/org/xmtp/android/$VERSION"
           dev/nix-shell --command ./sdks/android/gradlew -p sdks/android -PxmtpPreparedPublication="$prepared" :library:publishReleasePublicationToReleaseBundleRepository
+      - name: Verify retained signed Maven payloads
+        if: inputs.reuse-signed == true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: android-maven-bundle
+          path: retained-signed
+      - name: Compare signed publication with checked payloads
+        if: inputs.reuse-signed == true
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          import os
+          version = os.environ["VERSION"]
+          original = Path("target/release/android/repository/org/xmtp/android") / version
+          signed = Path("retained-signed/org/xmtp/android") / version
+          for payload in original.iterdir():
+              if payload.suffix in (".aar", ".jar", ".pom", ".module"):
+                  if payload.read_bytes() != (signed / payload.name).read_bytes():
+                      raise SystemExit("Signed Maven payload differs from checked product: " + payload.name)
+                  if not (signed / (payload.name + ".asc")).is_file():
+                      raise SystemExit("Missing retained signature: " + payload.name)
+          PYTHON
       - name: Retain signed Maven bundle
+        if: inputs.reuse-signed != true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: android-maven-bundle
           path: sdks/android/library/build/release-repository/
           if-no-files-found: error
           retention-days: 30
-  publish-github:
-    name: Publish to GitHub Packages
-    needs: [publish, check-push-permissions]
-    if: "!cancelled() && needs.publish.result == 'success' && needs.check-push-permissions.result == 'success'"
-    permissions:
-      contents: read
-      packages: write
-    environment: release
-    runs-on: blacksmith-16vcpu-ubuntu-2404
-    env:
-      NIX_DEVSHELL: android-ci
-      VERSION: ${{ inputs.version }}
-      XMTP_ANDROID_RELEASE_BUNDLE: ${{ github.workspace }}/android-maven-bundle
-    steps:
-      - name: Check out the release source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: ${{ needs.check-push-permissions.outputs.source-sha }}
-          persist-credentials: false
-      - name: Set up Nix
-        uses: ./.github/actions/setup-nix
-        with:
-          cache-mode: read
-          github-token: ${{ github.token }}
-      - name: Download signed Maven bundle
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8 # v8
-        with:
-          name: android-maven-bundle
-          path: android-maven-bundle
-
-      - name: Publish signed bundle to GitHub Packages
-        env:
-          GITHUB_ACTOR: ${{ github.actor }}
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          prepared="$XMTP_ANDROID_RELEASE_BUNDLE/org/xmtp/android/$VERSION"
-          # Refuse conflicts in either registry before starting the first upload.
-          dev/nix-shell --shell js-node --command python3.11 dev/check_maven_release.py "$prepared" "$VERSION"
-          state=$(dev/nix-shell --shell js-node --command python3.11 dev/check_maven_release.py "$prepared" "$VERSION" --repository github)
-          if [ "$state" = absent ]; then
-            dev/nix-shell 'cd sdks/android && ./gradlew -Pversion="$VERSION" :publisher:publishReleasePublicationToGitHubPackagesRepository'
-          fi
-
   publish-central:
     name: Publish to Maven Central
-    needs: [publish, publish-github, check-push-permissions]
-    if: "!cancelled() && needs.publish.result == 'success' && needs.publish-github.result == 'success' && needs.check-push-permissions.result == 'success'"
+    needs: [publish, check-push-permissions]
+    if: "!cancelled() && needs.publish.result == 'success' && needs.check-push-permissions.result == 'success'"
     permissions:
       contents: read
     environment: release
