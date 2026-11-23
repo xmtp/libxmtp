@@ -275,12 +275,16 @@ export class ActionWizard<ContentTypes = unknown> {
       }
 
       if (ctx.message.content.kind === "intent" && ctx.content) {
-        const { actionId } = ctx.message.content.value;
+        const { id, actionId } = ctx.message.content.value;
         if (this.#cancelLabel && actionId === CANCEL_ACTION_ID) {
           await this.#handleCancel(key, ctx);
           return;
         }
-        if (step.type === "select") {
+        if (
+          step.type === "select" &&
+          id === ActionWizard.stepKey(this.#id, step.id) &&
+          step.actions.some((action) => action.id === actionId)
+        ) {
           session.answers[step.id] = actionId;
           await this.#advance(key, ctx);
           return;
