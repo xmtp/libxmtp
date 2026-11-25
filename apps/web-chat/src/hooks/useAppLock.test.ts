@@ -13,6 +13,7 @@ import {
 describe("useAppLock", () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
     vi.useFakeTimers();
   });
 
@@ -345,6 +346,62 @@ describe("useAppLock", () => {
   });
 
   describe("pagehide event", () => {
+    it("lets the reloaded tab reconnect while its previous shutdown is pending", async () => {
+      const shutdown = Promise.withResolvers<void>();
+      const previous = renderHook(() =>
+        useAppLock(undefined, () => shutdown.promise),
+      );
+      act(() => {
+        previous.result.current.acquireLock();
+      });
+
+      // An opener can copy its session storage into another tab while it is live.
+      const secondTab = renderHook(() => useAppLock());
+      expect(secondTab.result.current.lockState).toBe("locked");
+      expect(secondTab.result.current.acquireLock()).toBe(false);
+
+      act(() => {
+        window.dispatchEvent(
+          new PageTransitionEvent("pagehide", { persisted: false }),
+        );
+      });
+      expect(secondTab.result.current.acquireLock()).toBe(false);
+      secondTab.unmount();
+      previous.unmount();
+      const reload = renderHook(() => useAppLock());
+      expect(reload.result.current.lockState).toBe("available");
+      act(() => {
+        expect(reload.result.current.acquireLock()).toBe(true);
+      });
+
+      await act(async () => shutdown.resolve());
+      expect(reload.result.current.ownsLock()).toBe(true);
+      expect(renderHook(() => useAppLock()).result.current.lockState).toBe(
+        "locked",
+      );
+    });
+
+    it("keeps a cached page's lock until shutdown completes", async () => {
+      const shutdown = Promise.withResolvers<void>();
+      const cached = renderHook(() =>
+        useAppLock(undefined, () => shutdown.promise),
+      );
+      act(() => {
+        cached.result.current.acquireLock();
+      });
+      act(() => {
+        window.dispatchEvent(
+          new PageTransitionEvent("pagehide", { persisted: true }),
+        );
+      });
+
+      const nextPage = renderHook(() => useAppLock());
+      expect(nextPage.result.current.lockState).toBe("locked");
+      expect(nextPage.result.current.acquireLock()).toBe(false);
+      await act(async () => shutdown.resolve());
+      expect(nextPage.result.current.lockState).toBe("available");
+    });
+
     it("records cleanup and holds the lock until plaintext removal completes", async () => {
       const cleanup = Promise.withResolvers<void>();
       const onPageHide = vi.fn(() => {
