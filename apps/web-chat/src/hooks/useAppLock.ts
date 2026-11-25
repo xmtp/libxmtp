@@ -1,8 +1,13 @@
-import { readLocalStorageValue, useLocalStorage } from "@mantine/hooks";
+import {
+  readLocalStorageValue,
+  readSessionStorageValue,
+  useLocalStorage,
+} from "@mantine/hooks";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export const APP_LOCK_ID_KEY = "XMTP_APP_LOCK_ID";
 export const APP_LOCK_LAST_ACTIVE_KEY = "XMTP_APP_LOCK_LAST_ACTIVE";
+const RELOAD_LOCK_ID_KEY = "XMTP_APP_RELOAD_LOCK_ID";
 // interval to set the last active time
 export const ACTIVE_INTERVAL = 2000;
 // time threshold (ms) to consider the lock stale
@@ -31,6 +36,12 @@ export const useAppLock = (
 ) => {
   // random UUID to identify the lock
   const [sessionLockId] = useState(() => crypto.randomUUID());
+  const [departedLockId] = useState(() =>
+    readSessionStorageValue<string | null>({
+      key: RELOAD_LOCK_ID_KEY,
+      defaultValue: null,
+    }),
+  );
   // flag to track if the lock has been acquired
   const hadLockRef = useRef(false);
   // lock ID stored in local storage
@@ -52,11 +63,11 @@ export const useAppLock = (
     if (lockId === sessionLockId) {
       return "active";
     }
-    if (isLockStale(lastActive)) {
+    if (lockId === departedLockId || isLockStale(lastActive)) {
       return "available";
     }
     return "locked";
-  }, [lockId, lastActive, sessionLockId]);
+  }, [lockId, lastActive, sessionLockId, departedLockId]);
 
   /**
    * Acquire the lock
@@ -80,6 +91,7 @@ export const useAppLock = (
         !isLockStale(currentLastActive) &&
         currentLockId !== null &&
         currentLockId !== sessionLockId &&
+        currentLockId !== departedLockId &&
         !force
       ) {
         return false;
@@ -91,7 +103,7 @@ export const useAppLock = (
       hadLockRef.current = true;
       return true;
     },
-    [sessionLockId, setLockId, setLastActive],
+    [sessionLockId, departedLockId, setLockId, setLastActive],
   );
 
   const releaseLock = useCallback((): void => {
@@ -156,17 +168,20 @@ export const useAppLock = (
 
   // release lock on pagehide event
   useEffect(() => {
-    // if the lock is not active or the lock ID is not the current session,
-    // don't release the lock
-    if (lockState !== "active" || lockId !== sessionLockId) {
-      return;
-    }
-
-    const handlePageHide = () => {
+    const handlePageHide = (event: PageTransitionEvent) => {
+      if (!ownsLock()) return;
       try {
         const cleanup = onPageHide?.();
         if (cleanup) {
           void cleanup.then(releaseLock).catch(() => {});
+          // Safari can discard this document before cleanup settles. Only its
+          // successor in this tab may reclaim this owner's still-fresh lock.
+          if (!event.persisted) {
+            sessionStorage.setItem(
+              RELOAD_LOCK_ID_KEY,
+              JSON.stringify(sessionLockId),
+            );
+          }
         } else {
           releaseLock();
         }
@@ -179,7 +194,7 @@ export const useAppLock = (
     return () => {
       window.removeEventListener("pagehide", handlePageHide);
     };
-  }, [lockState, lockId, onPageHide, releaseLock, sessionLockId]);
+  }, [onPageHide, ownsLock, releaseLock, sessionLockId]);
 
   return { lockState, acquireLock, releaseLock, ownsLock };
 };
