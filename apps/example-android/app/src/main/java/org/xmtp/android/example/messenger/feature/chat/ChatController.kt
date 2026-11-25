@@ -314,9 +314,6 @@ internal class ChatController(
             if (!destinations.accepts(origin)) return
             val group = reads.withPermit { (chat as? Conversation.Group)?.let { conversations.groupState(it.group) } }
             val common = group?.common ?: conversations.state(chat)
-            val members = reads.withPermit { chat.members() }
-            val memberCount = members.size
-            val title = lists.row(id)?.alias ?: chat.displayTitle(group?.name, members)
             if (!destinations.accepts(origin)) return
             if (common.consentState == ConsentState.DENIED) throw FeatureInputFailure("This chat is blocked.")
             val logical = logicalConversationKey(chat, owner.client.inboxId())
@@ -330,6 +327,10 @@ internal class ChatController(
                 )
             if (!destinations.accepts(origin)) return
             projection.withLock {
+                if (!destinations.accepts(origin)) return@withLock
+                val members = reads.withPermit { chat.members() }
+                val memberCount = members.size
+                val title = lists.row(id)?.alias ?: chat.displayTitle(group?.name, members)
                 if (!destinations.accepts(origin)) return@withLock
                 val same = conversation?.id() == id
                 conversation = chat
@@ -1529,6 +1530,19 @@ internal class ChatController(
                     }
                 }
             }
+        }
+    }
+
+    suspend fun onMembershipChanged(
+        owner: ActiveSession,
+        groupId: String,
+    ) {
+        projection.withLock {
+            val origin = destinations.capture(owner)
+            val chat = currentConversation() as? Conversation.Group ?: return@withLock
+            if (chat.id() != groupId || !destinations.accepts(origin)) return@withLock
+            val count = reads.withPermit { chat.members().size }
+            destinations.admit(origin) { ui.update { it.copy(memberCount = count) } }
         }
     }
 

@@ -69,6 +69,15 @@ internal class FeatureMessageHandler(
         if (!session.accepts(owner.key)) throw CancellationException("Session changed during message handling")
     }
 
+    override suspend fun event(
+        owner: ActiveSession,
+        event: ClientEvent,
+    ) {
+        if (event is ClientEvent.ConversationMembershipChanged) {
+            chat.onMembershipChanged(owner, event.membershipChanged.groupId.toHex())
+        }
+    }
+
     override suspend fun invalidate(owner: ActiveSession) = projection.withLock { refresh(owner) }
 
     private suspend fun refresh(owner: ActiveSession) {
