@@ -429,6 +429,37 @@ class GroupSettingsInstrumentedTest {
             )
         }
 
+    @Test fun openChatHeaderTracksRemoteMemberChanges() =
+        runBlocking<Unit> {
+            val creator = peer()
+            val added = peer()
+            val owner = checkNotNull(model.session.active.value)
+            val group =
+                creator.conversations.createGroup(
+                    listOf(owner.client.inboxId()),
+                    CreateGroupOptions(name = "Live member count"),
+                )
+            until("The app did not receive the group Welcome") {
+                owner.client.conversations.getById(group.id()) != null
+            }
+            val chat = checkNotNull(owner.client.conversations.getById(group.id()))
+            chat.updateConsentState(ConsentState.ALLOWED)
+
+            fun assertHeader(count: Int) {
+                val label = "$count members"
+                compose.waitUntil(30_000) { compose.onAllNodesWithText(label).fetchSemanticsNodes().isNotEmpty() }
+                compose.onNodeWithText(label).assertIsDisplayed()
+            }
+
+            model.dispatch(MessengerAction.OpenConversation(group.id()))
+            assertHeader(2)
+
+            group.addMembers(listOf(added.inboxId()))
+            assertHeader(3)
+            group.removeMembers(listOf(added.inboxId()))
+            assertHeader(2)
+        }
+
     @Test fun requestRemovalShowsPendingStateForAnActualMember() =
         runBlocking<Unit> {
             val creator = peer()
